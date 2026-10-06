@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}Mappings | ChargePilot{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between gap-4">
+  <div>
+    <p class="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Automation</p>
+    <h1 class="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Map laptop to switch</h1>
+  </div>
+</div>
+
+{% if error_message %}
+<div class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+  {{ error_message }}
+</div>
+{% endif %}
+
+<div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+  <div class="mb-5 flex items-center justify-between border-b border-slate-200 pb-3">
+    <h2 class="text-lg font-semibold text-slate-900">New mapping</h2>
+    <span class="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-700">Live</span>
+  </div>
+
+  <form method="post" action="/mappings" class="space-y-5">
+    <div class="grid gap-5 sm:grid-cols-2">
+      <div>
+        <label for="endpoint_id" class="mb-1.5 block text-sm font-medium text-slate-600">Endpoint</label>
+        <select id="endpoint_id" name="endpoint_id" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
+          {% for endpoint in endpoints %}
+            <option value="{{ endpoint.id }}">{{ endpoint.hostname }}{% if endpoint.ip_address %} • {{ endpoint.ip_address }}{% endif %}</option>
+          {% else %}
+            <option value="" disabled>No endpoints available</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label for="deviceSelect" class="mb-1.5 block text-sm font-medium text-slate-600">Smart switch</label>
+        <select id="deviceSelect" name="device_id" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
+          {% for device in devices %}
+            <option value="{{ device.id }}">{{ device.name }}</option>
+          {% else %}
+            <option value="" disabled>No devices available</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="sm:col-span-2">
+        <label for="channelSelect" class="mb-1.5 block text-sm font-medium text-slate-600">Channel</label>
+        <select id="channelSelect" name="channel_id" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
+          <option value="">Default device state</option>
+          {% for channel in channels %}
+            <option value="{{ channel.id }}" data-device-id="{{ channel.device_id }}">{{ channel.device.name }} - {{ channel.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="flex justify-end">
+      <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Create mapping</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  const deviceSelect = document.getElementById('deviceSelect');
+  const channelSelect = document.getElementById('channelSelect');
+
+  function updateChannelOptions() {
+    const selectedDeviceId = deviceSelect?.value || '';
+    const allOptions = Array.from(channelSelect.options);
+    let hasVisibleChannel = false;
+
+    allOptions.forEach((option) => {
+      if (!option.value) {
+        option.hidden = false;
+        return;
+      }
+
+      const matches = option.dataset.deviceId === selectedDeviceId;
+      option.hidden = !matches;
+      if (matches) {
+        hasVisibleChannel = true;
+      }
+    });
+
+    if (!hasVisibleChannel) {
+      channelSelect.value = '';
+    } else if (channelSelect.value && channelSelect.selectedOptions[0]?.hidden) {
+      channelSelect.value = '';
+    }
+  }
+
+  deviceSelect?.addEventListener('change', updateChannelOptions);
+  updateChannelOptions();
+</script>
+
+<div class="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+  <div class="mb-5 flex items-center justify-between border-b border-slate-200 pb-3">
+    <h2 class="text-lg font-semibold text-slate-900">Active mappings</h2>
+    <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">{{ mappings|length }} total</span>
+  </div>
+
+  <div class="overflow-hidden rounded-2xl border border-slate-200">
+    <table class="min-w-full divide-y divide-slate-200 text-left">
+      <thead class="bg-slate-50">
+        <tr>
+          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Endpoint</th>
+          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Device</th>
+          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Channel</th>
+          <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Action</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-200 bg-white">
+        {% for mapping in mappings %}
+        <tr>
+          <td class="px-4 py-3 text-sm font-medium text-slate-700">{{ mapping.endpoint_name }}</td>
+          <td class="px-4 py-3 text-sm text-slate-600">{{ mapping.device_name }}</td>
+          <td class="px-4 py-3 text-sm text-slate-600">{{ mapping.channel_name }}</td>
+          <td class="px-4 py-3 text-right">
+            <form method="post" action="/mappings/{{ mapping.id }}/delete">
+              <button type="submit" class="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="4" class="px-4 py-10 text-center text-sm text-slate-500">No mappings yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

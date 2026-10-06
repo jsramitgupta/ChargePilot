@@ -1,0 +1,2 @@
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\CreateAgentScheduledTask.ps1" -ServerUrl "https://chargepilot.endusercompute.in" -EndpointToken "test-endpoint-token" -AgentVersion "1.0.0"
+timeout /t 10

@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}Scan local switches | ChargePilot{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+  <div>
+    <p class="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Local discovery</p>
+    <h1 class="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Add switch from LAN</h1>
+  </div>
+  <a href="/devices" class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700">Back to switches</a>
+</div>
+
+<div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+  <div class="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+    <h2 class="text-lg font-semibold text-slate-900">Scan the local network</h2>
+    <span class="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-700">Tuya</span>
+  </div>
+
+  <p class="mb-5 text-sm leading-6 text-slate-600">
+    ChargePilot checks the local subnet for Tuya devices. Review each result and save it as a switch using the detected values, then enter the Local Key if your device requires it.
+  </p>
+
+  <form method="post" action="/devices/scan">
+    <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Run scan</button>
+  </form>
+</div>
+
+{% if discovered_devices %}
+<div class="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+  <div class="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+    <h2 class="text-lg font-semibold text-slate-900">Discovered switches</h2>
+    <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">{{ discovered_devices|length }} found</span>
+  </div>
+
+  <div class="discovery-list">
+    {% for device in discovered_devices %}
+    <article class="discovery-item" data-device-id="{{ device.device_id }}">
+      <div class="discovery-summary">
+        <div class="discovery-id-wrap">
+          <span class="discovery-label">Device ID</span>
+          <strong class="discovery-id">{{ device.device_id }}</strong>
+        </div>
+        <button type="button" class="discovery-toggle" data-target="detail-{{ loop.index }}" aria-expanded="false" aria-label="Add device {{ device.device_id }}">
+          <span>+</span>
+        </button>
+      </div>
+
+      <div id="detail-{{ loop.index }}" class="discovery-details">
+        <form method="post" action="/devices" class="wizard-form">
+          <div class="form-grid">
+            <div class="field-group">
+              <label for="name-{{ loop.index }}" class="mb-1.5 block text-sm font-medium text-slate-600">Name</label>
+              <input id="name-{{ loop.index }}" type="text" name="name" value="{{ device.name }}" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+
+            <div class="field-group">
+              <label for="device_id-{{ loop.index }}" class="mb-1.5 block text-sm font-medium text-slate-600">Device ID</label>
+              <input id="device_id-{{ loop.index }}" type="text" name="device_id" value="{{ device.device_id }}" readonly aria-readonly="true" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-slate-700 shadow-sm" />
+            </div>
+
+            <div class="field-group">
+              <label for="ip_address-{{ loop.index }}" class="mb-1.5 block text-sm font-medium text-slate-600">IP address</label>
+              <input id="ip_address-{{ loop.index }}" type="text" name="ip_address" value="{{ device.ip_address or '' }}" readonly aria-readonly="true" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-slate-700 shadow-sm" />
+            </div>
+
+            <div class="field-group">
+              <label for="device_type-{{ loop.index }}" class="mb-1.5 block text-sm font-medium text-slate-600">Device type</label>
+              <input id="device_type-{{ loop.index }}" type="text" name="device_type" value="{{ device.device_type or 'switch' }}" readonly aria-readonly="true" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-slate-700 shadow-sm" />
+            </div>
+
+            <div class="field-group">
+              <label for="protocol_version-{{ loop.index }}" class="mb-1.5 block text-sm font-medium text-slate-600">Protocol</label>
+              <input id="protocol_version-{{ loop.index }}" type="text" name="protocol_version" value="{{ device.protocol_version or '3.5' }}" readonly aria-readonly="true" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-slate-700 shadow-sm" />
+            </div>
+
+            <div class="field-group">
+              <label for="channel_count-{{ loop.index }}" class="mb-1.5 block text-sm font-medium text-slate-600">Channels</label>
+              <select id="channel_count-{{ loop.index }}" name="channel_count" aria-label="Select channel count" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
+                {% for i in range(1, 9) %}
+                <option value="{{ i }}" {% if i == 1 %}selected{% endif %}>{{ i }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label for="encrypted_local_key-{{ loop.index }}" class="mb-1.5 block text-sm font-medium text-slate-600">Local key</label>
+            <input id="encrypted_local_key-{{ loop.index }}" type="text" name="encrypted_local_key" value="" required placeholder="Enter the local key for this switch" autocomplete="off" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Add switch</button>
+          </div>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+  <div class="mb-3 flex items-center justify-between border-b border-slate-200 pb-3">
+    <h2 class="text-lg font-semibold text-slate-900">No switches found</h2>
+  </div>
+  <p class="text-sm leading-6 text-slate-600">
+    No Tuya devices were detected on the local network. Check that the switch is powered on and connected to the same LAN, then run the scan again.
+  </p>
+</div>
+{% endif %}
+
+<script>
+  document.querySelectorAll('.discovery-toggle').forEach(function (button) {
+    button.addEventListener('click', function () {
+      const targetId = button.getAttribute('data-target');
+      const target = document.getElementById(targetId);
+      const isOpen = button.getAttribute('aria-expanded') === 'true';
+
+      button.setAttribute('aria-expanded', String(!isOpen));
+      if (target) {
+        target.classList.toggle('is-open', !isOpen);
+      }
+    });
+  });
+</script>
+{% endblock %}

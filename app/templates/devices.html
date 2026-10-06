@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}Smart Switches | ChargePilot{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex items-end justify-between gap-4">
+  <div>
+    <p class="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Devices</p>
+    <h1 class="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Smart switches</h1>
+  </div>
+</div>
+
+<div class="grid gap-6 xl:grid-cols-[minmax(0,2fr)_320px]">
+  <form method="post" action="/devices" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+    <div class="mb-5 flex items-center justify-between border-b border-slate-200 pb-3">
+      <h2 class="text-lg font-semibold text-slate-900">Add switch</h2>
+      <span class="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-700">Manual</span>
+    </div>
+
+    <div class="grid gap-5 sm:grid-cols-2">
+      <div>
+        <label for="name" class="mb-1.5 block text-sm font-medium text-slate-600">Name</label>
+        <input id="name" type="text" name="name" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+      </div>
+
+      <div>
+        <label for="device_id" class="mb-1.5 block text-sm font-medium text-slate-600">Device ID</label>
+        <input id="device_id" type="text" name="device_id" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+      </div>
+
+      <div>
+        <label for="ip_address" class="mb-1.5 block text-sm font-medium text-slate-600">IP address</label>
+        <input id="ip_address" type="text" name="ip_address" placeholder="192.168.0.50" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+      </div>
+
+      <div>
+        <label for="device_type" class="mb-1.5 block text-sm font-medium text-slate-600">Device type</label>
+        <input id="device_type" type="text" name="device_type" value="default" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+      </div>
+
+      <div>
+        <label for="protocol_version" class="mb-1.5 block text-sm font-medium text-slate-600">Protocol version</label>
+        <input id="protocol_version" type="text" name="protocol_version" value="3.5" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+      </div>
+
+      <div>
+        <label for="encrypted_local_key" class="mb-1.5 block text-sm font-medium text-slate-600">Local key</label>
+        <input id="encrypted_local_key" type="text" name="encrypted_local_key" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+      </div>
+
+      <div class="sm:col-span-2">
+        <label for="channel_count" class="mb-1.5 block text-sm font-medium text-slate-600">Number of channels</label>
+        <input id="channel_count" type="number" name="channel_count" min="1" max="8" value="1" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+      </div>
+    </div>
+
+    <div class="mt-6 flex flex-wrap items-center justify-end gap-3">
+      <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Add device</button>
+      <a href="/devices/wizard" class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700">Scan local network</a>
+    </div>
+  </form>
+
+  <aside class="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+    <div class="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+      <h2 class="text-lg font-semibold text-slate-900">Quick actions</h2>
+    </div>
+
+    <div class="space-y-3">
+      <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+        <span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+        <span class="text-sm font-medium text-slate-700">Local Wi‑Fi only</span>
+      </div>
+      <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+        <span class="h-2.5 w-2.5 rounded-full bg-sky-500"></span>
+        <span class="text-sm font-medium text-slate-700">Mapped per laptop</span>
+      </div>
+      <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+        <span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
+        <span class="text-sm font-medium text-slate-700">Channel-aware control</span>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
+  <div class="mb-5 flex items-center justify-between border-b border-slate-200 pb-3">
+    <h2 class="text-lg font-semibold text-slate-900">Configured devices</h2>
+    <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">{{ devices|length }} total</span>
+  </div>
+
+  <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+    {% for device in devices %}
+    <article class="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-lg font-semibold text-slate-900">{{ device.name }}</p>
+          <p class="mt-1 text-xs text-slate-500">{{ device.device_type or 'default' }} • {{ device.ip_address or 'n/a' }}</p>
+        </div>
+
+        <form method="post" action="/devices/{{ device.id }}/{{ 'turn-off' if device.current_state else 'turn-on' }}" class="device-toggle-form">
+          <button type="submit" class="switch-toggle {% if device.current_state %}is-on{% endif %}" aria-label="Toggle {{ device.name }}">
+            <span class="switch-slider"></span>
+          </button>
+        </form>
+      </div>
+
+      {% if device.channels %}
+      <div class="mt-4 space-y-2.5">
+        {% for channel in device.channels %}
+        <div class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-slate-700">{{ channel.name }}</span>
+            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] {% if channel.current_state %}bg-emerald-100 text-emerald-700{% else %}bg-slate-200 text-slate-600{% endif %}">{{ 'ON' if channel.current_state else 'OFF' }}</span>
+          </div>
+
+          <form method="post" action="/devices/{{ device.id }}/channels/{{ channel.id }}/{{ 'turn-off' if channel.current_state else 'turn-on' }}" class="device-toggle-form">
+            <button type="submit" class="switch-toggle {% if channel.current_state %}is-on{% endif %}" aria-label="Toggle {{ channel.name }}">
+              <span class="switch-slider"></span>
+            </button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="mt-4 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-slate-700">Default</span>
+            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] {% if device.current_state %}bg-emerald-100 text-emerald-700{% else %}bg-slate-200 text-slate-600{% endif %}">{{ 'ON' if device.current_state else 'OFF' }}</span>
+          </div>
+
+          <form method="post" action="/devices/{{ device.id }}/{{ 'turn-off' if device.current_state else 'turn-on' }}" class="device-toggle-form">
+            <button type="submit" class="switch-toggle {% if device.current_state %}is-on{% endif %}" aria-label="Toggle default channel">
+              <span class="switch-slider"></span>
+            </button>
+          </form>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="mt-4 flex flex-wrap items-center gap-2">
+        <form method="post" action="/devices/{{ device.id }}/turn-on">
+          <button type="submit" class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700">Power On</button>
+        </form>
+        <form method="post" action="/devices/{{ device.id }}/turn-off">
+          <button type="submit" class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700">Power Off</button>
+        </form>
+        <form method="post" action="/devices/{{ device.id }}/delete" class="ml-auto">
+          <button type="submit" class="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100">Delete</button>
+        </form>
+      </div>
+    </article>
+    {% else %}
+    <div class="col-span-full rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">No devices yet.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

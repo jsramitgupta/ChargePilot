@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Endpoints | ChargePilot{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Fleet</p>
+    <h1>Laptops</h1>
+  </div>
+</div>
+
+<div class="panel table-panel">
+  <div class="panel-header">
+    <h3>Tracked laptops</h3>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Hostname</th>
+          <th>IP</th>
+          <th>Battery</th>
+          <th>Charging</th>
+          <th>Last seen</th>
+          <th>Status</th>
+          <th class="align-right">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td class="strong-cell">{{ row.hostname }}</td>
+            <td>{{ row.ip_address }}</td>
+            <td>{{ row.battery }}%</td>
+            <td>
+              {% if row.charging %}
+                <span class="badge success">Yes</span>
+              {% else %}
+                <span class="badge muted">No</span>
+              {% endif %}
+            </td>
+            <td><span class="data-timestamp" data-timestamp="{{ row.last_seen }}">{{ row.last_seen }}</span></td>
+            <td>
+              {% if row.status == 'online' %}
+                <span class="badge success">online</span>
+              {% else %}
+                <span class="badge muted">offline</span>
+              {% endif %}
+            </td>
+            <td class="align-right">
+              <form method="post" action="/endpoints/{{ row.id }}/delete">
+                <button type="submit" class="danger-btn small-btn">Delete laptop</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="7" class="empty-state">No laptops have reported telemetry yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

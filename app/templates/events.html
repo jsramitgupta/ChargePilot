@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Events | ChargePilot{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Audit trail</p>
+    <h1>Automation Events</h1>
+  </div>
+</div>
+
+<div class="panel table-panel">
+  <div class="panel-header">
+    <h3>Recent activity</h3>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Type</th>
+          <th>Laptop</th>
+          <th>Battery</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td><span class="data-timestamp" data-timestamp="{{ row.created_at }}">{{ row.created_at }}</span></td>
+            <td class="strong-cell">{{ row.event_type }}</td>
+            <td>{{ row.endpoint }}</td>
+            <td>{{ row.battery }}</td>
+            <td>
+              {% if row.result == 'Success' %}
+                <span class="badge success">Success</span>
+              {% else %}
+                <span class="badge muted">Failed</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="5" class="empty-state">No automation events have been recorded yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

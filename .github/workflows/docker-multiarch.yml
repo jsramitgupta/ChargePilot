@@ -1,0 +1,55 @@
+name: Build and Push Docker Image to Docker Hub
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOCKERHUB_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/chargepilot
+
+jobs:
+  docker-build-and-push:
+    name: Build multi-arch ChargePilot image and push to Docker Hub
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU for cross-platform builds
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Generate image tags for latest and timestamped release
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKERHUB_IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value={{date 'DDMMYYYY.HHmmss'}}
+
+      - name: Build and push AMD64 + ARM64 image to Docker Hub
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false

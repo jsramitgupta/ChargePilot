@@ -1,0 +1,22 @@
+version: '3.9'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    env_file:
+      - .env
+    environment:
+      CHARGEPILOT_DATABASE_URL: ${CHARGEPILOT_DATABASE_URL:-postgresql+psycopg://chargepilot:chargepilot@host.docker.internal:5432/chargepilot}
+      CHARGEPILOT_SECRET_KEY: ${CHARGEPILOT_SECRET_KEY:-change-me-in-production}
+      CHARGEPILOT_ENCRYPTION_KEY: ${CHARGEPILOT_ENCRYPTION_KEY:-replace-with-32-byte-base64-key}
+      CHARGEPILOT_ADMIN_USERNAME: ${CHARGEPILOT_ADMIN_USERNAME:-admin}
+      CHARGEPILOT_ADMIN_PASSWORD: ${CHARGEPILOT_ADMIN_PASSWORD:-change-me}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: >
+      sh -c "python -c \"from app.core.database import create_db_and_tables; create_db_and_tables()\" && uvicorn app.main:app --host 0.0.0.0 --port 8000"
