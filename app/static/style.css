@@ -100,13 +100,62 @@ body.theme-dark textarea::placeholder {
 
 body.theme-dark .bg-blue-50,
 body.theme-dark .bg-sky-50,
-body.theme-dark .bg-blue-100 {
+body.theme-dark .bg-blue-100,
+body.theme-dark .bg-indigo-50,
+body.theme-dark .bg-indigo-100 {
   background-color: rgba(30, 64, 175, 0.26) !important;
 }
 
+body.theme-dark .border-indigo-200,
+body.theme-dark .border-indigo-300 {
+  border-color: rgba(129, 140, 248, 0.38) !important;
+}
+
 body.theme-dark .text-blue-700,
-body.theme-dark .text-blue-600 {
+body.theme-dark .text-blue-600,
+body.theme-dark .text-indigo-700 {
   color: #bfdbfe !important;
+}
+
+body.theme-dark .smartlife-card {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.9)) !important;
+  border-color: rgba(129, 140, 248, 0.35) !important;
+}
+
+body.theme-dark .smartlife-qr-box {
+  background: rgba(2, 6, 23, 0.9) !important;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+}
+
+body.theme-dark .channel-toggle,
+body.theme-dark .device-card-action,
+body.theme-dark .delete-switch-btn {
+  background: rgba(15, 23, 42, 0.9) !important;
+  border-color: rgba(148, 163, 184, 0.25) !important;
+  color: #e2e8f0 !important;
+}
+
+body.theme-dark .channel-toggle:hover,
+body.theme-dark .device-card-action:hover,
+body.theme-dark .delete-switch-btn:hover {
+  background: rgba(37, 99, 235, 0.14) !important;
+  border-color: rgba(96, 165, 250, 0.42) !important;
+}
+
+body.theme-dark .device-card-shell,
+body.theme-dark .device-card-shell > div,
+body.theme-dark .device-card-shell .rounded-xl,
+body.theme-dark .device-card-shell .rounded-lg {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+body.theme-dark .peer:checked ~ .peer-checked\:bg-emerald-500 {
+  background-color: #10b981 !important;
+}
+
+body.theme-dark .peer:not(:checked) ~ .bg-slate-200 {
+  background-color: #475569 !important;
 }
 
 body.theme-dark .text-red-700 {

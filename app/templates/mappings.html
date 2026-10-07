@@ -49,7 +49,6 @@
       <div class="sm:col-span-2">
         <label for="channelSelect" class="mb-1.5 block text-sm font-medium text-slate-600">Channel</label>
         <select id="channelSelect" name="channel_id" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
-          <option value="">Default device state</option>
           {% for channel in channels %}
             <option value="{{ channel.id }}" data-device-id="{{ channel.device_id }}">{{ channel.device.name }} - {{ channel.name }}</option>
           {% endfor %}
@@ -73,11 +72,6 @@
     let hasVisibleChannel = false;
 
     allOptions.forEach((option) => {
-      if (!option.value) {
-        option.hidden = false;
-        return;
-      }
-
       const matches = option.dataset.deviceId === selectedDeviceId;
       option.hidden = !matches;
       if (matches) {
