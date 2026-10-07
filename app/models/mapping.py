@@ -12,6 +12,8 @@ class Mapping(Base):
     __table_args__ = (UniqueConstraint("endpoint_id", "device_id", name="uq_mapping_endpoint_device"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     endpoint_id: Mapped[str] = mapped_column(String(36), ForeignKey("endpoints.id", ondelete="CASCADE"), nullable=False)
     device_id: Mapped[str] = mapped_column(String(36), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
     channel_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("device_channels.id", ondelete="SET NULL"), nullable=True)

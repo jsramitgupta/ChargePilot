@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Users | ChargePilot{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow">Administration</p>
+    <h1>User accounts</h1>
+  </div>
+</div>
+
+<div class="panel mt-6">
+  <div class="panel-header">
+    <h3>Create a new user</h3>
+  </div>
+
+  {% if error %}
+    <div class="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {{ error }}
+    </div>
+  {% endif %}
+
+  <form method="post" action="/users" class="mt-4 grid gap-4 md:grid-cols-[1fr_1fr_1fr_auto]">
+    <div>
+      <label for="username" class="mb-1.5 block text-sm font-medium text-slate-700">Username</label>
+      <input id="username" name="username" type="text" required class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+    </div>
+    <div>
+      <label for="password" class="mb-1.5 block text-sm font-medium text-slate-700">Password</label>
+      <input id="password" name="password" type="password" required class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+    </div>
+    <div>
+      <label for="role" class="mb-1.5 block text-sm font-medium text-slate-700">Role</label>
+      <select id="role" name="role" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
+        {% for role in roles %}
+          <option value="{{ role }}">{{ role.replace('_', ' ') | title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700">Create user</button>
+  </form>
+</div>
+
+<div class="panel table-panel mt-6">
+  <div class="panel-header">
+    <h3>Accounts</h3>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in users %}
+          <tr>
+            <td class="strong-cell">{{ user.username }}</td>
+            <td>
+              <form method="post" action="/users/{{ user.id }}/role" class="flex items-center gap-2">
+                <select name="role" class="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-700">
+                  {% for role in roles %}
+                    <option value="{{ role }}" {% if user.role == role %}selected{% endif %}>{{ role.replace('_', ' ') | title }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white">Save</button>
+              </form>
+            </td>
+            <td>{{ user.created_at }}</td>
+            <td>
+              {% if user.id != current_user.id %}
+              <form method="post" action="/users/{{ user.id }}/delete" onsubmit="return confirm('Delete this user?');">
+                <button type="submit" class="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100">Delete</button>
+              </form>
+              {% else %}
+              <span class="text-xs text-slate-400">Current</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="4" class="empty-state">No users found.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

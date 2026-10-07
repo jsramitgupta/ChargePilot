@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}My profile | ChargePilot{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-3xl py-4">
+  <div class="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft">
+    <div class="flex items-center gap-4 border-b border-slate-200 pb-5">
+      <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-100 text-xl font-bold text-blue-700">
+        {{ current_user.username[:1] | upper }}
+      </div>
+      <div>
+        <p class="text-sm font-medium uppercase tracking-[0.16em] text-slate-500">Account</p>
+        <h1 class="mt-1 text-2xl font-bold text-slate-900">{{ current_user.username }}</h1>
+      </div>
+    </div>
+
+    <div class="mt-6 grid gap-4 md:grid-cols-2">
+      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <p class="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Role</p>
+        <p class="mt-2 text-lg font-semibold text-slate-900">{{ role_label }}</p>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <p class="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Tenant</p>
+        <p class="mt-2 text-lg font-semibold text-slate-900">{{ tenant.name if tenant else 'Personal tenant' }}</p>
+      </div>
+    </div>
+
+    <div class="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Local time zone</p>
+          <p class="mt-1 text-sm text-slate-600">Choose your display timezone</p>
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <label for="timezoneSelect" class="sr-only">Timezone</label>
+        <select id="timezoneSelect" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" aria-label="Timezone selector">
+          <option value="local">Local time</option>
+          <option value="UTC">UTC</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

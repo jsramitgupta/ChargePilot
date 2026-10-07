@@ -22,16 +22,18 @@
           <th>Type</th>
           <th>Laptop</th>
           <th>Battery</th>
+          <th>Activity</th>
           <th>Result</th>
         </tr>
       </thead>
       <tbody>
         {% for row in rows %}
           <tr>
-            <td><span class="data-timestamp" data-timestamp="{{ row.created_at }}">{{ row.created_at }}</span></td>
+            <td><span class="data-timestamp" data-timestamp="{{ row.created_at }}">{{ row.created_at_display }}</span></td>
             <td class="strong-cell">{{ row.event_type }}</td>
             <td>{{ row.endpoint }}</td>
             <td>{{ row.battery }}</td>
+            <td>{{ row.activity }}</td>
             <td>
               {% if row.result == 'Success' %}
                 <span class="badge success">Success</span>
@@ -42,7 +44,7 @@
           </tr>
         {% else %}
           <tr>
-            <td colspan="5" class="empty-state">No automation events have been recorded yet.</td>
+            <td colspan="6" class="empty-state">No automation events have been recorded yet.</td>
           </tr>
         {% endfor %}
       </tbody>

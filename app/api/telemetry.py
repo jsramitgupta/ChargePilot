@@ -15,7 +15,9 @@ from app.services.tuya_service import TuyaService
 
 router = APIRouter(prefix="/telemetry", tags=["telemetry"])
 
-MAX_TELEMETRY_AGE_SECONDS = 60 * 60 * 24
+# Accept telemetry that is recent enough to be useful for dashboards and rules,
+# while still rejecting clearly stale payloads from dead or misconfigured agents.
+MAX_TELEMETRY_AGE_SECONDS = 60 * 60 * 24 * 7
 
 
 @router.post("", response_model=TelemetryResponse)
@@ -131,6 +133,7 @@ async def receive_telemetry(
                 endpoint_id=endpoint.id,
                 device_id=device.id,
                 channel_id=mapping.channel_id,
+                battery_percentage=payload.battery_percentage,
                 previous_state=str(previous_state).lower(),
                 new_state=str(new_state).lower(),
                 success=bool(action_result.get("success", True)),

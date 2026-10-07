@@ -132,20 +132,41 @@ function Get-BatteryStatus {
     }
 }
 
+function Get-StatePath {
+    $dir = Join-Path $env:LOCALAPPDATA "ChargePilot"
+    if (-not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    return Join-Path $dir "switch-state.json"
+}
+
+function Get-LastSwitchState {
+    $path = Get-StatePath
+    if (Test-Path -LiteralPath $path) {
+        try {
+            $saved = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            return [bool]$saved.switchState
+        }
+        catch { }
+    }
+    return $false   # default: false until battery reaches 30%
+}
+
+function Save-SwitchState {
+    param([bool]$State)
+    @{ switchState = $State } | ConvertTo-Json -Compress |
+        Set-Content -LiteralPath (Get-StatePath) -Encoding UTF8
+}
+
 function Get-SwitchState {
     param(
-        [int]$BatteryPercentage
+        [int]$BatteryPercentage,
+        [bool]$CurrentState = $false
     )
 
-    if ($BatteryPercentage -ge 90) {
-        return $false
-    }
-
-    if ($BatteryPercentage -le 30) {
-        return $true
-    }
-
-    return $null
+    if ($BatteryPercentage -le 30) { return $true }    # turn on at or below 30
+    if ($BatteryPercentage -ge 90) { return $false }   # turn off at or above 90
+    return $CurrentState                               # in between: hold previous state
 }
 
 $config = Get-AgentConfig -Path $ConfigPath
@@ -159,7 +180,9 @@ $status = Get-BatteryStatus
 $batteryPercentage = $status.BatteryPercentage
 $charging = $status.Charging
 $acConnected = $status.AcConnected
-$switchState = Get-SwitchState -BatteryPercentage $batteryPercentage
+$lastState   = Get-LastSwitchState
+$switchState = Get-SwitchState -BatteryPercentage $batteryPercentage -CurrentState $lastState
+Save-SwitchState -State $switchState
 
 $payload = [ordered]@{
     hostname = $hostname

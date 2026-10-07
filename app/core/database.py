@@ -28,13 +28,30 @@ def _ensure_table_columns() -> None:
     inspector = inspect(engine)
     column_defs = {
         "devices": {
+            "owner_id": "VARCHAR(36)",
+            "tenant_id": "VARCHAR(36)",
             "current_state": "BOOLEAN NOT NULL DEFAULT FALSE",
             "last_state_change_at": "TIMESTAMPTZ",
             "last_seen_at": "TIMESTAMPTZ",
             "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
         },
         "endpoints": {
+            "owner_id": "VARCHAR(36)",
+            "tenant_id": "VARCHAR(36)",
             "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        },
+        "mappings": {
+            "owner_id": "VARCHAR(36)",
+            "tenant_id": "VARCHAR(36)",
+            "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        },
+        "automation_events": {
+            "tenant_id": "VARCHAR(36)",
+            "battery_percentage": "INTEGER",
+        },
+        "users": {
+            "tenant_id": "VARCHAR(36)",
+            "role": "VARCHAR(40) NOT NULL DEFAULT 'standard_user'",
         },
         "device_channels": {
             "enabled": "BOOLEAN NOT NULL DEFAULT TRUE",

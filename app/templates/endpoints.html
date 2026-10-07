@@ -21,7 +21,7 @@
           <th>Hostname</th>
           <th>IP</th>
           <th>Battery</th>
-          <th>Charging</th>
+          <th>Power</th>
           <th>Last seen</th>
           <th>Status</th>
           <th class="align-right">Action</th>
@@ -35,9 +35,11 @@
             <td>{{ row.battery }}%</td>
             <td>
               {% if row.charging %}
-                <span class="badge success">Yes</span>
+                <span class="badge success">Charging</span>
+              {% elif row.ac_connected %}
+                <span class="badge success">On AC</span>
               {% else %}
-                <span class="badge muted">No</span>
+                <span class="badge muted">On battery</span>
               {% endif %}
             </td>
             <td><span class="data-timestamp" data-timestamp="{{ row.last_seen }}">{{ row.last_seen }}</span></td>

@@ -51,7 +51,7 @@
         <tr>
           <th>Laptop</th>
           <th>Battery</th>
-          <th>Charging</th>
+          <th>Power</th>
           <th>Switch</th>
           <th>State</th>
           <th>Last seen</th>
@@ -64,14 +64,16 @@
             <td>{{ row.battery }}%</td>
             <td>
               {% if row.charging %}
-                <span class="badge success">Yes</span>
+                <span class="badge success">Charging</span>
+              {% elif row.ac_connected %}
+                <span class="badge success">On AC</span>
               {% else %}
-                <span class="badge muted">No</span>
+                <span class="badge muted">On battery</span>
               {% endif %}
             </td>
             <td>{{ row.switch }}</td>
             <td>{{ row.switch_state }}</td>
-            <td>{{ row.last_seen }}</td>
+            <td><span class="data-timestamp" data-timestamp="{{ row.last_seen_iso }}">{{ row.last_seen }}</span></td>
           </tr>
         {% else %}
           <tr>

@@ -1,11 +1,12 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Form, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.devices import router as devices_router
 from app.api.endpoints import router as endpoints_router
@@ -15,10 +16,14 @@ from app.api.mappings import router as mappings_router
 from app.api.telemetry import router as telemetry_router
 from app.core.config import settings
 from app.core.database import create_db_and_tables, get_db
+from app.core.security import hash_password, verify_password
 from app.models.device import Device, DeviceChannel
 from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
 from app.models.mapping import Mapping
+from app.models.tenant import Tenant
+from app.models.user import User
+from app.services.smartlife_service import SmartLifeService
 from app.services.tuya_service import TuyaService
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -32,6 +37,49 @@ app = FastAPI(
     version="0.1.0",
     description="Self-hosted battery automation platform for local Tuya control.",
 )
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
+
+
+def get_current_user(request: Request, db: Session) -> User | None:
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return None
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        request.session.clear()
+    return user
+
+
+def require_user(request: Request, db: Session) -> User:
+    user = get_current_user(request, db)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    return user
+
+
+def filter_by_user(query, user: User | None, owner_field: str = "owner_id"):
+    if user is not None and not user.is_admin:
+        if hasattr(query.column_descriptions[0]["entity"], "tenant_id"):
+            tenant_filter = getattr(query.column_descriptions[0]["entity"], "tenant_id")
+            if user.tenant_id is not None:
+                return query.filter(tenant_filter == user.tenant_id)
+        return query.filter(getattr(query.column_descriptions[0]["entity"], owner_field) == user.id)
+    return query
+
+
+def generate_agent_token() -> str:
+    return f"chargepilot_{__import__('uuid').uuid4().hex[:20]}"
+
+
+def normalize_role(role: str | None) -> str:
+    allowed = {"tenant_admin", "manager", "standard_user", "viewer"}
+    value = (role or "standard_user").strip().lower()
+    return value if value in allowed else "standard_user"
+
+
+def is_role_admin(role: str | None) -> bool:
+    return normalize_role(role) in {"tenant_admin", "manager"}
+
 
 create_db_and_tables()
 
@@ -60,9 +108,22 @@ def _normalize_utc(value: datetime | None) -> datetime | None:
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_view(request: Request, db: Session = Depends(get_db)):
-    endpoints = db.query(Endpoint).order_by(Endpoint.last_seen_at.desc().nullslast()).all()
-    devices = db.query(Device).all()
-    mappings = db.query(Mapping).all()
+    current_user = get_current_user(request, db)
+
+    endpoints_query = db.query(Endpoint)
+    if current_user is not None and not current_user.is_admin:
+        endpoints_query = endpoints_query.filter(Endpoint.tenant_id == current_user.tenant_id)
+    endpoints = endpoints_query.order_by(Endpoint.last_seen_at.desc().nullslast()).all()
+
+    devices_query = db.query(Device)
+    if current_user is not None and not current_user.is_admin:
+        devices_query = devices_query.filter(Device.tenant_id == current_user.tenant_id)
+    devices = devices_query.all()
+
+    mappings_query = db.query(Mapping)
+    if current_user is not None and not current_user.is_admin:
+        mappings_query = mappings_query.filter(Mapping.tenant_id == current_user.tenant_id)
+    mappings = mappings_query.all()
 
     total_endpoints = len(endpoints)
     online_threshold = 600
@@ -92,14 +153,18 @@ async def dashboard_view(request: Request, db: Session = Depends(get_db)):
         switch_name = mapped_device.name if mapped_device else "No mapped switch"
         switch_state = "ON" if mapped_device and mapped_device.current_state else "OFF"
         last_seen = _normalize_utc(endpoint.last_seen_at) if endpoint.last_seen_at else None
+        power_state = "Charging" if endpoint.charging else ("On AC" if endpoint.ac_connected else "On battery")
         rows.append(
             {
                 "hostname": endpoint.hostname,
                 "battery": endpoint.battery_percentage,
                 "charging": endpoint.charging,
+                "ac_connected": endpoint.ac_connected,
+                "power_state": power_state,
                 "switch": switch_name,
                 "switch_state": switch_state,
-                "last_seen": last_seen.isoformat() if last_seen else "never",
+                "last_seen_iso": last_seen.isoformat() if last_seen else None,
+                "last_seen": last_seen.strftime("%Y-%m-%d %H:%M:%S %Z") if last_seen else "never",
             }
         )
 
@@ -121,10 +186,16 @@ async def dashboard_view(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/endpoints", response_class=HTMLResponse)
 async def endpoints_view(request: Request, db: Session = Depends(get_db)):
-    endpoints = db.query(Endpoint).order_by(Endpoint.last_seen_at.desc().nullslast()).all()
+    current_user = get_current_user(request, db)
+
+    endpoints_query = db.query(Endpoint)
+    if current_user is not None and not current_user.is_admin:
+        endpoints_query = endpoints_query.filter(Endpoint.tenant_id == current_user.tenant_id)
+    endpoints = endpoints_query.order_by(Endpoint.last_seen_at.desc().nullslast()).all()
     rows = []
     for endpoint in endpoints:
         last_seen = _normalize_utc(endpoint.last_seen_at)
+        power_state = "Charging" if endpoint.charging else ("On AC" if endpoint.ac_connected else "On battery")
         rows.append(
             {
                 "id": endpoint.id,
@@ -132,6 +203,8 @@ async def endpoints_view(request: Request, db: Session = Depends(get_db)):
                 "ip_address": endpoint.ip_address or "unknown",
                 "battery": endpoint.battery_percentage,
                 "charging": endpoint.charging,
+                "ac_connected": endpoint.ac_connected,
+                "power_state": power_state,
                 "last_seen": last_seen.isoformat() if last_seen else "never",
                 "status": "online" if last_seen and (datetime.now(UTC) - last_seen).total_seconds() <= 600 else "offline",
             }
@@ -154,7 +227,14 @@ async def delete_endpoint_form(endpoint_id: str, db: Session = Depends(get_db)):
 
 @app.get("/devices", response_class=HTMLResponse)
 async def devices_view(request: Request, db: Session = Depends(get_db)):
-    devices = db.query(Device).order_by(Device.created_at.desc()).all()
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+
+    devices_query = db.query(Device)
+    if not current_user.is_admin:
+        devices_query = devices_query.filter(Device.owner_id == current_user.id)
+    devices = devices_query.order_by(Device.created_at.desc()).all()
     for device in devices:
         device.channels = (
             db.query(DeviceChannel)
@@ -162,7 +242,18 @@ async def devices_view(request: Request, db: Session = Depends(get_db)):
             .order_by(DeviceChannel.channel_index.asc())
             .all()
         )
-    return templates.TemplateResponse("devices.html", {"request": request, "devices": devices})
+
+    smartlife_state = SmartLifeService.load_session()
+    smartlife_error = request.session.pop("smartlife_error", None)
+    return templates.TemplateResponse(
+        "devices.html",
+        {
+            "request": request,
+            "devices": devices,
+            "smartlife_state": smartlife_state,
+            "smartlife_error": smartlife_error,
+        },
+    )
 
 
 @app.get("/devices/wizard", response_class=HTMLResponse)
@@ -185,6 +276,7 @@ async def scan_devices_form(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/devices")
 async def create_device_form(
+    request: Request,
     name: str = Form(...),
     device_id: str = Form(...),
     ip_address: str = Form(""),
@@ -194,8 +286,12 @@ async def create_device_form(
     channel_count: int = Form(1),
     db: Session = Depends(get_db),
 ):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
     channel_count = max(1, min(int(channel_count), 8))
     device = Device(
+        owner_id=current_user.id,
         name=name,
         device_id=device_id,
         encrypted_local_key=encrypted_local_key,
@@ -223,11 +319,55 @@ async def create_device_form(
     return RedirectResponse(url="/devices", status_code=303)
 
 
+@app.post("/devices/smartlife/login")
+async def smartlife_login(request: Request, user_code: str = Form(...), db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+
+    try:
+        SmartLifeService.start_login(user_code)
+    except ValueError as exc:
+        request.session["smartlife_error"] = str(exc)
+        return RedirectResponse(url="/devices", status_code=303)
+
+    return RedirectResponse(url="/devices", status_code=303)
+
+
+@app.post("/devices/smartlife/fetch")
+async def smartlife_fetch(request: Request, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+
+    try:
+        SmartLifeService.fetch_linked_devices()
+    except (TimeoutError, ValueError) as exc:
+        request.session["smartlife_error"] = str(exc)
+
+    return RedirectResponse(url="/devices", status_code=303)
+
+
 @app.get("/mappings", response_class=HTMLResponse)
 async def mappings_view(request: Request, db: Session = Depends(get_db)):
-    mappings = db.query(Mapping).order_by(Mapping.created_at.desc()).all()
-    devices = db.query(Device).all()
-    endpoints = db.query(Endpoint).order_by(Endpoint.last_seen_at.desc().nullslast()).all()
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+
+    mappings_query = db.query(Mapping)
+    if not current_user.is_admin:
+        mappings_query = mappings_query.filter(Mapping.owner_id == current_user.id)
+    mappings = mappings_query.order_by(Mapping.created_at.desc()).all()
+
+    devices_query = db.query(Device)
+    if not current_user.is_admin:
+        devices_query = devices_query.filter(Device.owner_id == current_user.id)
+    devices = devices_query.all()
+
+    endpoints_query = db.query(Endpoint)
+    if not current_user.is_admin:
+        endpoints_query = endpoints_query.filter(Endpoint.owner_id == current_user.id)
+    endpoints = endpoints_query.order_by(Endpoint.last_seen_at.desc().nullslast()).all()
     all_channels = (
         db.query(DeviceChannel)
         .order_by(DeviceChannel.device_id.asc(), DeviceChannel.channel_index.asc())
@@ -266,6 +406,7 @@ async def mappings_view(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/mappings")
 async def create_mapping_form(
+    request: Request,
     endpoint_id: str = Form(...),
     device_id: str = Form(...),
     channel_id: str | None = Form(None),
@@ -274,11 +415,16 @@ async def create_mapping_form(
     minimum_state_change_interval: int = Form(300),
     db: Session = Depends(get_db),
 ):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+
     existing = db.query(Mapping).filter(Mapping.endpoint_id == endpoint_id, Mapping.device_id == device_id).first()
     if existing is not None:
         return RedirectResponse(url="/mappings?error=A+mapping+for+this+endpoint+and+switch+already+exists.", status_code=303)
 
     mapping = Mapping(
+        owner_id=current_user.id,
         endpoint_id=endpoint_id,
         device_id=device_id,
         channel_id=channel_id or None,
@@ -342,6 +488,7 @@ async def turn_on_device_form(device_id: str, db: Session = Depends(get_db)):
             endpoint_id=None,
             device_id=device.id,
             channel_id=channel.id if channel else None,
+            battery_percentage=None,
             previous_state=str(previous_state).lower(),
             new_state="true",
             success=success,
@@ -379,6 +526,7 @@ async def turn_off_device_form(device_id: str, db: Session = Depends(get_db)):
             endpoint_id=None,
             device_id=device.id,
             channel_id=channel.id if channel else None,
+            battery_percentage=None,
             previous_state=str(previous_state).lower(),
             new_state="false",
             success=success,
@@ -408,6 +556,7 @@ async def turn_on_device_channel_form(device_id: str, channel_id: str, db: Sessi
             endpoint_id=None,
             device_id=device.id,
             channel_id=channel.id,
+            battery_percentage=None,
             previous_state=str(previous_state).lower(),
             new_state="true",
             success=bool(payload.get("success", True)),
@@ -437,6 +586,7 @@ async def turn_off_device_channel_form(device_id: str, channel_id: str, db: Sess
             endpoint_id=None,
             device_id=device.id,
             channel_id=channel.id,
+            battery_percentage=None,
             previous_state=str(previous_state).lower(),
             new_state="false",
             success=bool(payload.get("success", True)),
@@ -448,17 +598,260 @@ async def turn_off_device_channel_form(device_id: str, channel_id: str, db: Sess
 
 @app.get("/events", response_class=HTMLResponse)
 async def events_view(request: Request, db: Session = Depends(get_db)):
-    events = db.query(AutomationEvent).order_by(AutomationEvent.created_at.desc()).all()
+    current_user = get_current_user(request, db)
+    if current_user is not None and not current_user.is_admin:
+        endpoint_ids = [e.id for e in db.query(Endpoint).filter(Endpoint.tenant_id == current_user.tenant_id).all()]
+        device_ids = [d.id for d in db.query(Device).filter(Device.tenant_id == current_user.tenant_id).all()]
+        events_query = db.query(AutomationEvent).filter(
+            (AutomationEvent.tenant_id == current_user.tenant_id)
+            | (AutomationEvent.tenant_id.is_(None))
+            | (AutomationEvent.endpoint_id.in_(endpoint_ids))
+            | (AutomationEvent.device_id.in_(device_ids))
+        )
+    else:
+        events_query = db.query(AutomationEvent)
+    events = events_query.order_by(AutomationEvent.created_at.desc()).all()
     rows = []
     for event in events:
         endpoint = db.query(Endpoint).filter(Endpoint.id == event.endpoint_id).first()
         rows.append(
             {
                 "created_at": event.created_at.isoformat() if event.created_at else "unknown",
+                "created_at_display": event.created_at.strftime("%Y-%m-%d %H:%M:%S %Z") if event.created_at else "unknown",
                 "event_type": event.event_type,
                 "endpoint": endpoint.hostname if endpoint else (event.endpoint_id or "unknown"),
-                "battery": event.previous_state if event.previous_state is not None else "n/a",
+                "battery": f"{event.battery_percentage}%" if event.battery_percentage is not None else "n/a",
+                "activity": event.reason or event.event_type,
                 "result": "Success" if event.success else "Failed",
             }
         )
     return templates.TemplateResponse("events.html", {"request": request, "rows": rows})
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    message = request.query_params.get("message")
+    tenant_token = request.query_params.get("tenant_token")
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "error": request.query_params.get("error"),
+            "message": message,
+            "tenant_token": tenant_token,
+        },
+    )
+
+
+@app.post("/login")
+async def login_user(request: Request, username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == username).first()
+    if user is None or not verify_password(password, user.password_hash):
+        return RedirectResponse(url="/login?error=Invalid+username+or+password", status_code=303)
+
+    request.session["user_id"] = user.id
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.get("/logout")
+async def logout_user(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=303)
+
+
+@app.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    return templates.TemplateResponse(
+        "profile.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "tenant": tenant,
+            "role_label": current_user.role.replace("_", " ").title(),
+        },
+    )
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    return templates.TemplateResponse("register.html", {"request": request, "error": request.query_params.get("error")})
+
+
+@app.post("/register")
+async def register_user(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    account_type: str = Form("standard"),
+    tenant_name: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    username = username.strip()
+    if not username or not password:
+        return RedirectResponse(url="/register?error=Username+and+password+are+required", status_code=303)
+
+    existing = db.query(User).filter(User.username == username).first()
+    if existing is not None:
+        return RedirectResponse(url="/register?error=User+already+exists", status_code=303)
+
+    if account_type == "tenant":
+        tenant_name = (tenant_name or f"{username}'s tenant").strip()
+        tenant = Tenant(
+            name=tenant_name,
+            slug=f"tenant-{username.lower().replace(' ', '-')}-{__import__('uuid').uuid4().hex[:8]}",
+            agent_token=generate_agent_token(),
+            created_by_user_id=None,
+        )
+        db.add(tenant)
+        db.commit()
+        db.refresh(tenant)
+
+        user = User(
+            username=username,
+            password_hash=hash_password(password),
+            tenant_id=tenant.id,
+            role="tenant_admin",
+            is_admin=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        request.session["user_id"] = user.id
+        return RedirectResponse(url=f"/login?message=Tenant+created+successfully&tenant_token={tenant.agent_token}", status_code=303)
+
+    tenant = Tenant(
+        name=f"{username}'s personal tenant",
+        slug=f"personal-{username.lower().replace(' ', '-')}-{__import__('uuid').uuid4().hex[:8]}",
+        agent_token=generate_agent_token(),
+        created_by_user_id=None,
+    )
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+
+    user = User(
+        username=username,
+        password_hash=hash_password(password),
+        tenant_id=tenant.id,
+        role="standard_user",
+        is_admin=False,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    request.session["user_id"] = user.id
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.get("/users", response_class=HTMLResponse)
+async def users_page(request: Request, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    if not current_user.is_admin:
+        return RedirectResponse(url="/", status_code=303)
+
+    users = db.query(User).filter(User.tenant_id == current_user.tenant_id).order_by(User.created_at.desc()).all()
+    return templates.TemplateResponse(
+        "users.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "users": users,
+            "roles": ["tenant_admin", "manager", "standard_user", "viewer"],
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+@app.post("/users")
+async def create_user(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    role: str = Form("standard_user"),
+    db: Session = Depends(get_db),
+):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    if not current_user.is_admin:
+        return RedirectResponse(url="/", status_code=303)
+
+    username = username.strip()
+    role = normalize_role(role)
+    if not username or not password:
+        return RedirectResponse(url="/users?error=Username+and+password+are+required", status_code=303)
+
+    if db.query(User).filter(User.username == username).first() is not None:
+        return RedirectResponse(url="/users?error=User+already+exists", status_code=303)
+
+    user = User(
+        username=username,
+        password_hash=hash_password(password),
+        tenant_id=current_user.tenant_id,
+        role=role,
+        is_admin=is_role_admin(role),
+    )
+    db.add(user)
+    db.commit()
+    return RedirectResponse(url="/users", status_code=303)
+
+
+@app.post("/users/{user_id}/role")
+async def update_user_role(
+    request: Request,
+    user_id: str,
+    role: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    if not current_user.is_admin:
+        return RedirectResponse(url="/", status_code=303)
+
+    normalized_role = normalize_role(role)
+    target = db.query(User).filter(User.id == user_id).first()
+    if target is None or target.tenant_id != current_user.tenant_id:
+        return RedirectResponse(url="/users?error=User+not+found", status_code=303)
+    if target.id == current_user.id and normalized_role != "tenant_admin":
+        return RedirectResponse(url="/users?error=You+cannot+remove+your+own+admin+role", status_code=303)
+
+    target.role = normalized_role
+    target.is_admin = is_role_admin(normalized_role)
+    db.commit()
+    return RedirectResponse(url="/users", status_code=303)
+
+
+@app.post("/users/{user_id}/delete")
+async def delete_user_form(
+    request: Request,
+    user_id: str,
+    db: Session = Depends(get_db),
+):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    if not current_user.is_admin:
+        return RedirectResponse(url="/", status_code=303)
+
+    target = db.query(User).filter(User.id == user_id).first()
+    if target is None or target.tenant_id != current_user.tenant_id:
+        return RedirectResponse(url="/users?error=User+not+found", status_code=303)
+    if target.id == current_user.id:
+        return RedirectResponse(url="/users?error=You+cannot+delete+your+own+account", status_code=303)
+
+    admin_count = db.query(User).filter(User.tenant_id == current_user.tenant_id, User.is_admin.is_(True)).count()
+    if target.is_admin and admin_count <= 1:
+        return RedirectResponse(url="/users?error=At+least+one+admin+must+remain+for+this+tenant", status_code=303)
+
+    db.delete(target)
+    db.commit()
+    return RedirectResponse(url="/users", status_code=303)

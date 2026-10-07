@@ -11,6 +11,8 @@ class Device(Base):
     __tablename__ = "devices"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     device_id: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
     encrypted_local_key: Mapped[str] = mapped_column(String(512), nullable=False)
