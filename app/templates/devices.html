@@ -135,6 +135,13 @@
               Toggle channels
             </button>
             {% endif %}
+            <form method="post" action="/devices/{{ device.id }}/{{ 'turn-off' if device.current_state else 'turn-on' }}" class="inline-flex items-center">
+              <label class="relative inline-flex cursor-pointer items-center">
+                <input type="checkbox" class="peer sr-only" {% if device.current_state %}checked{% endif %} onchange="this.form.submit()" />
+                <span class="h-6 w-11 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500"></span>
+                <span class="absolute left-1 h-4 w-4 rounded-full bg-white transition-transform peer-checked:translate-x-5"></span>
+              </label>
+            </form>
             <form method="post" action="/devices/{{ device.id }}/delete" onsubmit="return confirm('Delete this switch and all associated channels?');">
               <button type="submit" class="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-red-700 transition hover:bg-red-100">Delete</button>
             </form>
@@ -146,11 +153,13 @@
           {% for channel in device.channels %}
           <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-2.5 py-2">
             <span class="text-xs font-medium text-slate-700">{{ channel.name }}</span>
-            <label class="relative inline-flex cursor-pointer items-center">
-              <input type="checkbox" class="peer sr-only" {% if channel.current_state %}checked{% endif %} />
-              <span class="h-5 w-9 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500"></span>
-              <span class="absolute left-1 h-3 w-3 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
-            </label>
+            <form method="post" action="/devices/{{ device.id }}/channels/{{ channel.id }}/{{ 'turn-off' if channel.current_state else 'turn-on' }}" class="inline-flex items-center">
+              <label class="relative inline-flex cursor-pointer items-center">
+                <input type="checkbox" class="peer sr-only" {% if channel.current_state %}checked{% endif %} onchange="this.form.submit()" />
+                <span class="h-5 w-9 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500"></span>
+                <span class="absolute left-1 h-3 w-3 rounded-full bg-white transition-transform peer-checked:translate-x-4"></span>
+              </label>
+            </form>
           </div>
           {% endfor %}
         </div>
