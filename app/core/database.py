@@ -5,6 +5,7 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.config import settings
+from app.core.security import hash_password
 
 
 class Base(DeclarativeBase):
@@ -104,10 +105,35 @@ def _ensure_cascade_foreign_keys() -> None:
         """))
 
 
+def ensure_default_admin_user() -> None:
+    from app.models.user import User
+
+    with SessionLocal() as db:
+        existing = db.query(User).filter(User.username == settings.admin_username).first()
+        if existing is not None:
+            existing.role = "super_admin"
+            existing.is_admin = True
+            existing.tenant_id = None
+            db.commit()
+            return
+
+        db.add(
+            User(
+                username=settings.admin_username,
+                password_hash=hash_password(settings.admin_password),
+                tenant_id=None,
+                role="super_admin",
+                is_admin=True,
+            )
+        )
+        db.commit()
+
+
 def create_db_and_tables() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_table_columns()
     _ensure_cascade_foreign_keys()
+    ensure_default_admin_user()
 
 
 def get_db() -> Generator[Session, None, None]:

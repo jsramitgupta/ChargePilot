@@ -5,6 +5,7 @@ from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
 from app.models.user import User
 from app.core.database import SessionLocal
+from app.main import generate_agent_token
 
 client = TestClient(app)
 
@@ -115,3 +116,118 @@ def test_dashboard_renders_power_state_from_ac_connected():
     assert response.status_code == 200
     content = response.text
     assert "On AC" in content
+
+
+def test_generate_agent_token_has_valid_format_and_length():
+    token = generate_agent_token()
+    assert len(token) == 32
+    assert token.isalpha()
+    assert all(character.isalpha() for character in token)
+
+
+def test_tenant_admin_is_isolated_from_other_tenants():
+    register = client.post(
+        "/register",
+        data={"username": "tenant_a", "password": "secret123", "account_type": "tenant", "tenant_name": "Tenant A"},
+        follow_redirects=False,
+    )
+    assert register.status_code in (200, 302, 303)
+
+    client.post(
+        "/login",
+        data={"username": "tenant_a", "password": "secret123"},
+        follow_redirects=False,
+    )
+
+    with SessionLocal() as db:
+        tenant_a = db.query(User).filter(User.username == "tenant_a").first()
+        assert tenant_a is not None
+        tenant_a_id = tenant_a.tenant_id
+        db.add(Endpoint(hostname="alpha-endpoint", ip_address="10.0.0.10", tenant_id=tenant_a_id, battery_percentage=50, enabled=True))
+        db.commit()
+
+    register_b = client.post(
+        "/register",
+        data={"username": "tenant_b", "password": "secret123", "account_type": "tenant", "tenant_name": "Tenant B"},
+        follow_redirects=False,
+    )
+    assert register_b.status_code in (200, 302, 303)
+
+    client.post(
+        "/login",
+        data={"username": "tenant_b", "password": "secret123"},
+        follow_redirects=False,
+    )
+
+    with SessionLocal() as db:
+        tenant_b = db.query(User).filter(User.username == "tenant_b").first()
+        assert tenant_b is not None
+        tenant_b_id = tenant_b.tenant_id
+        db.add(Endpoint(hostname="beta-endpoint", ip_address="10.0.0.11", tenant_id=tenant_b_id, battery_percentage=90, enabled=True))
+        db.commit()
+
+    client.post(
+        "/login",
+        data={"username": "tenant_a", "password": "secret123"},
+        follow_redirects=False,
+    )
+
+    response = client.get("/endpoints")
+    assert response.status_code == 200
+    body = response.text
+    assert "alpha-endpoint" in body
+    assert "beta-endpoint" not in body
+
+
+def test_super_admin_has_global_tenant_management():
+    with SessionLocal() as db:
+        admin = db.query(User).filter(User.username == "admin").first()
+        assert admin is not None
+        assert admin.is_admin is True
+
+    login = client.post(
+        "/login",
+        data={"username": "admin", "password": "change-me"},
+        follow_redirects=False,
+    )
+    assert login.status_code in (200, 302, 303)
+
+    response = client.get("/tenants")
+    assert response.status_code == 200
+
+
+def test_admin_can_rotate_tenant_agent_token():
+    register = client.post(
+        "/register",
+        data={"username": "erin", "password": "secret123", "account_type": "tenant", "tenant_name": "Erin Co"},
+        follow_redirects=False,
+    )
+    assert register.status_code in (200, 302, 303)
+
+    login = client.post(
+        "/login",
+        data={"username": "erin", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert login.status_code in (200, 302, 303)
+
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "erin").first()
+        assert user is not None
+        assert user.tenant_id is not None
+        original = user.tenant_id
+        tenant = db.query(__import__('app.models.tenant', fromlist=['Tenant']).Tenant).filter_by(id=original).first()
+        assert tenant is not None
+        old_token = tenant.agent_token
+
+    rotate = client.post("/tenant/rotate-agent-token", follow_redirects=False)
+    assert rotate.status_code in (200, 302, 303)
+
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "erin").first()
+        assert user is not None
+        tenant = db.query(__import__('app.models.tenant', fromlist=['Tenant']).Tenant).filter_by(id=user.tenant_id).first()
+        assert tenant is not None
+        assert tenant.agent_token != old_token
+        assert len(tenant.agent_token) == 32
+        assert tenant.agent_token.isalpha()

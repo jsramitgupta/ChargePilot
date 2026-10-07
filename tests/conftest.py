@@ -5,7 +5,7 @@ os.environ.setdefault("CHARGEPILOT_ENVIRONMENT", "test")
 
 import pytest
 
-from app.core.database import Base, SessionLocal, engine
+from app.core.database import Base, SessionLocal, engine, ensure_default_admin_user
 from app.models.device import Device, DeviceChannel
 from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
@@ -16,9 +16,11 @@ from app.models.mapping import Mapping
 def reset_database():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    ensure_default_admin_user()
     yield
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    ensure_default_admin_user()
 
     with SessionLocal() as db:
         for model in (AutomationEvent, Mapping, DeviceChannel, Endpoint, Device):

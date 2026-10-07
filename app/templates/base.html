@@ -60,6 +60,7 @@
             <a href="/endpoints" class="rounded-xl px-3 py-2 text-sm font-semibold transition {% if request.url.path.startswith('/endpoints') %}bg-blue-50 text-blue-700{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Endpoints</a>
             <a href="/events" class="rounded-xl px-3 py-2 text-sm font-semibold transition {% if request.url.path.startswith('/events') %}bg-blue-50 text-blue-700{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Events</a>
             <a href="/users" class="rounded-xl px-3 py-2 text-sm font-semibold transition {% if request.url.path.startswith('/users') %}bg-blue-50 text-blue-700{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Users</a>
+            <a href="/tenants" class="rounded-xl px-3 py-2 text-sm font-semibold transition {% if request.url.path.startswith('/tenants') %}bg-blue-50 text-blue-700{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Tenants</a>
           </nav>
 
           <div class="flex items-center gap-2">
@@ -158,6 +159,17 @@
           applyTheme();
         });
       }
+
+      document.querySelectorAll('.channel-toggle').forEach((button) => {
+        button.addEventListener('click', () => {
+          const panelId = button.dataset.target;
+          const panel = document.getElementById(panelId);
+          if (!panel) return;
+
+          const isHidden = panel.classList.toggle('hidden');
+          button.textContent = isHidden ? 'Toggle channels' : 'Hide channels';
+        });
+      });
 
       applyTheme();
       applyTimezone();

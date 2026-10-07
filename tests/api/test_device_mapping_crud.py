@@ -193,6 +193,56 @@ def test_unique_mapping_per_endpoint_and_device():
     assert len(mappings.json()) == 1
 
 
+def test_devices_page_has_delete_action_and_channel_expander():
+    client = TestClient(app)
+
+    register = client.post(
+        "/register",
+        data={"username": "device_admin", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert register.status_code in {200, 302, 303}, register.text
+
+    login = client.post(
+        "/login",
+        data={"username": "device_admin", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert login.status_code in {200, 302, 303}, login.text
+
+    device_response = client.post(
+        "/api/v1/devices",
+        json={
+            "name": "Expandable Device",
+            "device_id": "tuya-expandable-device",
+            "ip_address": "192.168.0.100",
+            "device_type": "switch",
+            "protocol_version": "3.1",
+            "enabled": True,
+            "encrypted_local_key": "expandable-key",
+        },
+    )
+    assert device_response.status_code == 201, device_response.text
+    device = device_response.json()
+
+    channel_response = client.post(
+        f"/api/v1/devices/{device['id']}/channels",
+        json={
+            "channel_index": 1,
+            "name": "Lamp 1",
+            "dp_id": "1",
+            "enabled": True,
+        },
+    )
+    assert channel_response.status_code == 201, channel_response.text
+
+    page = client.get("/devices")
+    assert page.status_code == 200, page.text
+    body = page.text
+    assert f"/devices/{device['id']}/delete" in body
+    assert "Toggle channels" in body or "channel-toggle" in body
+
+
 def test_ui_delete_routes_for_device_and_mapping():
     client = TestClient(app)
 

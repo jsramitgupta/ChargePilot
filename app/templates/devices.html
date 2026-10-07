@@ -129,15 +129,20 @@
             <div class="text-sm font-semibold text-slate-900">{{ device.name }}</div>
             <div class="text-[11px] text-slate-500">{{ device.device_type or 'default' }} • {{ device.ip_address or 'n/a' }}</div>
           </div>
-          <label class="relative inline-flex cursor-pointer items-center">
-            <input type="checkbox" class="peer sr-only" {% if device.current_state %}checked{% endif %} />
-            <span class="h-6 w-11 rounded-full bg-slate-200 transition-colors peer-checked:bg-emerald-500"></span>
-            <span class="absolute left-1 h-4 w-4 rounded-full bg-white transition-transform peer-checked:translate-x-5"></span>
-          </label>
+          <div class="flex items-center gap-2">
+            {% if device.channels and device.channels|length > 1 %}
+            <button type="button" class="channel-toggle inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition hover:border-blue-200 hover:text-blue-700" data-target="device-channels-{{ device.id }}">
+              Toggle channels
+            </button>
+            {% endif %}
+            <form method="post" action="/devices/{{ device.id }}/delete" onsubmit="return confirm('Delete this switch and all associated channels?');">
+              <button type="submit" class="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-red-700 transition hover:bg-red-100">Delete</button>
+            </form>
+          </div>
         </div>
 
         {% if device.channels %}
-        <div class="mt-3 space-y-2">
+        <div id="device-channels-{{ device.id }}" class="channel-panel {% if device.channels|length <= 1 %}block{% else %}hidden{% endif %} mt-3 space-y-2">
           {% for channel in device.channels %}
           <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-2.5 py-2">
             <span class="text-xs font-medium text-slate-700">{{ channel.name }}</span>

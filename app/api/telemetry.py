@@ -26,7 +26,7 @@ async def receive_telemetry(
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
 ):
-    if not validate_endpoint_auth(authorization):
+    if not validate_endpoint_auth(authorization, db):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing endpoint token.",
