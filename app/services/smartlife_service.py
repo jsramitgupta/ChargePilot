@@ -58,16 +58,36 @@ class SmartLifeService:
             SESSION_PATH.unlink(missing_ok=True)
 
     @staticmethod
-    def _build_qr_image(token: str) -> str:
-        payload = f"{SCHEMA}--qrLogin?token={token}"
+    def _build_qr_image(token: str, qr_scheme: str | None = None) -> str:
+        # `qr_scheme` is the URL scheme embedded in the QR payload presented
+        # to the SmartLife/Tuya app (commonly 'smartlife' or 'tuyaSmart'). The
+        # SDK's `SCHEMA` (haauthorize) is still used when calling the
+        # LoginControl().qr_code() method, but the visible QR payload must use
+        # the app's expected scheme.
+        scheme = (qr_scheme or "smartlife").strip()
+        payload = f"{scheme}--qrLogin?token={token}"
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
         qr.add_data(payload)
         qr.make(fit=True)
-        image = qr.make_image(fill_color="black", back_color="white")
-        buffer = BytesIO()
-        image.save(buffer, format="PNG")
-        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-        return f"data:image/png;base64,{encoded}"
+        # Try PNG via Pillow first; if PIL is missing, fall back to SVG
+        try:
+            image = qr.make_image(fill_color="black", back_color="white")
+            buffer = BytesIO()
+            image.save(buffer, format="PNG")
+            encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+            return f"data:image/png;base64,{encoded}"
+        except (ModuleNotFoundError, ImportError):
+            try:
+                from qrcode.image.svg import SvgImage
+
+                svg_img = qr.make_image(image_factory=SvgImage)
+                buffer = BytesIO()
+                svg_img.save(buffer)
+                svg_bytes = buffer.getvalue()
+                encoded = base64.b64encode(svg_bytes).decode("ascii")
+                return f"data:image/svg+xml;base64,{encoded}"
+            except Exception as e:
+                raise RuntimeError(f"Unable to generate QR image: {e}")
 
     @staticmethod
     def normalize_device(raw_device: Any) -> dict[str, Any]:
@@ -111,26 +131,54 @@ class SmartLifeService:
         }
 
     @staticmethod
-    def start_login(user_code: str) -> dict[str, Any]:
+    def start_login(user_code: str, qr_scheme: str | None = None) -> dict[str, Any]:
         cleaned = (user_code or "").strip()
         if not cleaned:
             raise ValueError("SmartLife User ID is required.")
 
         response = LoginControl().qr_code(CLIENT_ID, SCHEMA, cleaned)
-        result = response.get("result") if isinstance(response, dict) else {}
+        result = None
+        try:
+            result = response.get("result") if isinstance(response, dict) else None
+        except Exception:
+            result = None
+
+        if not isinstance(result, dict):
+            # Ensure callers get a predictable structure and an error message
+            # Log the raw response for debugging
+            try:
+                debug_path = SESSION_PATH.parent / ".smartlife_debug.log"
+                debug_path.parent.mkdir(parents=True, exist_ok=True)
+                with debug_path.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps({
+                        "timestamp": int(time.time()),
+                        "response_repr": repr(response),
+                    }) + "\n")
+            except Exception:
+                # best-effort logging only
+                pass
+
+            return {"token": None, "raw": None, "error": "invalid_response", "debug_log": str(SESSION_PATH.parent / ".smartlife_debug.log")}
+
         token = result.get("token") or result.get("qrcode") or result.get("qr")
         if not token:
             message = response.get("msg") if isinstance(response, dict) else "Unable to generate QR code."
             code = response.get("code") if isinstance(response, dict) else "unknown"
             raise ValueError(f"Could not start SmartLife login [{code}]: {message}")
 
-        qr_data_url = SmartLifeService._build_qr_image(token)
+        qr_data_url = SmartLifeService._build_qr_image(token, qr_scheme=qr_scheme)
+        # record when the token was created so callers can show TTL / refresh hints
+        created_at = int(time.time())
+        # default TTL: 150s (matches fetch polling window); providers may vary
+        expires_at = created_at + 150
         session = SmartLifeService.load_session()
         session.update({
             "user_code": cleaned,
             "token": token,
             "qr_data_url": qr_data_url,
             "status": "pending",
+            "created_at": created_at,
+            "expires_at": expires_at,
             "devices": [],
         })
         SmartLifeService.save_session(session)

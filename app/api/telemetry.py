@@ -12,8 +12,42 @@ from app.schemas.telemetry import TelemetryPayload, TelemetryResponse
 from app.services.endpoint_service import validate_endpoint_auth
 from app.services.rule_engine import evaluate_battery_action
 from app.services.tuya_service import TuyaService
+from app.services.broadcaster import publish_event
 
 router = APIRouter(prefix="/telemetry", tags=["telemetry"])
+
+
+@router.get("/stream")
+async def stream_events(request):
+    """Simple Server-Sent Events stream for device updates.
+
+    Clients should connect with EventSource('/api/v1/telemetry/stream').
+    """
+    from fastapi import Request
+    from starlette.responses import StreamingResponse
+    import asyncio
+    from app.services.broadcaster import register_client, unregister_client
+
+    client_q = register_client()
+
+    async def event_generator():
+        try:
+            while True:
+                # If client disconnects, stop
+                if await request.is_disconnected():
+                    break
+                try:
+                    item = await asyncio.wait_for(client_q.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    # heartbeat
+                    yield "event: ping\ndata: {}\n\n"
+                    continue
+                data = json.dumps(item, default=str)
+                yield f"data: {data}\n\n"
+        finally:
+            unregister_client(client_q)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # Accept telemetry that is recent enough to be useful for dashboards and rules,
 # while still rejecting clearly stale payloads from dead or misconfigured agents.
@@ -141,6 +175,18 @@ async def receive_telemetry(
             )
         )
         db.commit()
+        # Publish device state change event for SSE clients
+        try:
+            publish_event({
+                "type": "device_state_change",
+                "device_id": device.id,
+                "channel_id": mapping.channel_id,
+                "previous_state": previous_state,
+                "new_state": new_state,
+                "timestamp": datetime.now(UTC).isoformat(),
+            })
+        except Exception:
+            pass
 
     return TelemetryResponse(
         status="accepted",

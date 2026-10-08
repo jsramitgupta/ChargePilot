@@ -113,7 +113,6 @@ function Get-BatteryStatus {
 
     $batteryProperties = @($battery.PSObject.Properties.Name)
     $statusCode = if ($batteryProperties -contains "BatteryStatus") { [int]$battery.BatteryStatus } else { 0 }
-    $powerCapabilities = @($battery.PowerManagementCapabilities)
 
     $batteryPercentage = if ($batteryProperties -contains "EstimatedChargeRemaining") {
         [int]$battery.EstimatedChargeRemaining
@@ -122,8 +121,10 @@ function Get-BatteryStatus {
         100
     }
 
+    # Win32_Battery BatteryStatus values:
+    # 2 = AC power connected, 3 = fully charged, 6-9 = charging while connected
     $charging = [bool]($statusCode -in 6, 7, 8, 9)
-    $acConnected = [bool]($statusCode -eq 2 -or $powerCapabilities -contains 1)
+    $acConnected = [bool]($statusCode -in 2, 3, 6, 7, 8, 9)
 
     return @{
         BatteryPercentage = $batteryPercentage

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -128,6 +128,16 @@ def _normalize_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(UTC)
 
 
+def _is_ajax(request: Request) -> bool:
+    # Accept X-Requested-With or Accept: application/json as AJAX indicators
+    try:
+        xrw = request.headers.get("x-requested-with", "").lower()
+        accept = request.headers.get("accept", "")
+        return xrw == "xmlhttprequest" or "application/json" in accept
+    except Exception:
+        return False
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_view(request: Request, db: Session = Depends(get_db)):
     current_user = get_current_user(request, db)
@@ -249,6 +259,8 @@ async def delete_endpoint_form(request: Request, endpoint_id: str, db: Session =
             db.delete(event)
         db.delete(endpoint)
         db.commit()
+    if _is_ajax(request):
+        return JSONResponse({"ok": True, "redirect": "/endpoints"})
     return RedirectResponse(url="/endpoints", status_code=303)
 
 
@@ -271,6 +283,16 @@ async def devices_view(request: Request, db: Session = Depends(get_db)):
         )
 
     smartlife_state = SmartLifeService.load_session()
+    # compute TTL seconds for any generated token so the UI can warn before expiry
+    smartlife_ttl_seconds = None
+    try:
+        import time
+
+        expires = smartlife_state.get("expires_at")
+        if expires:
+            smartlife_ttl_seconds = max(0, int(int(expires) - time.time()))
+    except Exception:
+        smartlife_ttl_seconds = None
     smartlife_error = request.session.pop("smartlife_error", None)
     return templates.TemplateResponse(
         "devices.html",
@@ -278,6 +300,7 @@ async def devices_view(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "devices": devices,
             "smartlife_state": smartlife_state,
+            "smartlife_ttl_seconds": smartlife_ttl_seconds,
             "smartlife_error": smartlife_error,
         },
     )
@@ -346,21 +369,35 @@ async def create_device_form(
         )
 
     db.commit()
+    if _is_ajax(request):
+        return JSONResponse({"ok": True, "redirect": "/devices"})
     return RedirectResponse(url="/devices", status_code=303)
 
 
 @app.post("/devices/smartlife/login")
-async def smartlife_login(request: Request, user_code: str = Form(...), db: Session = Depends(get_db)):
+async def smartlife_login(request: Request, user_code: str = Form(...), scheme: str = Form("smartlife"), db: Session = Depends(get_db)):
     current_user = get_current_user(request, db)
     if current_user is None:
         return RedirectResponse(url="/login", status_code=303)
-
     try:
-        SmartLifeService.start_login(user_code)
+        session = SmartLifeService.start_login(user_code, qr_scheme=scheme)
+        # If the service returned an error structure, display a helpful message
+        if isinstance(session, dict) and session.get("error"):
+            debug_log = session.get("debug_log")
+            msg = "Failed to start SmartLife login: invalid response from provider"
+            if debug_log:
+                msg += f" (debug: {debug_log})"
+            request.session["smartlife_error"] = msg
+            return RedirectResponse(url="/devices", status_code=303)
+        # Successful start_login returns the saved session dict; store a short success note
+        request.session["smartlife_started"] = True
     except ValueError as exc:
         request.session["smartlife_error"] = str(exc)
+        if _is_ajax(request):
+            return JSONResponse({"ok": False, "error": str(exc)})
         return RedirectResponse(url="/devices", status_code=303)
-
+    if _is_ajax(request):
+        return JSONResponse({"ok": True, "redirect": "/devices"})
     return RedirectResponse(url="/devices", status_code=303)
 
 
@@ -374,7 +411,10 @@ async def smartlife_fetch(request: Request, db: Session = Depends(get_db)):
         SmartLifeService.fetch_linked_devices()
     except (TimeoutError, ValueError) as exc:
         request.session["smartlife_error"] = str(exc)
-
+    if _is_ajax(request):
+        if request.session.get("smartlife_error"):
+            return JSONResponse({"ok": False, "error": request.session.get("smartlife_error")})
+        return JSONResponse({"ok": True, "redirect": "/devices"})
     return RedirectResponse(url="/devices", status_code=303)
 
 

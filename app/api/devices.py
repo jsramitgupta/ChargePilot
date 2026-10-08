@@ -13,6 +13,7 @@ from app.schemas.device import (
     DeviceRead,
     DeviceUpdate,
 )
+from app.services.broadcaster import publish_event
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
@@ -43,6 +44,10 @@ async def create_device(payload: DeviceCreate, db: Session = Depends(get_db)):
     db.add(device)
     db.commit()
     db.refresh(device)
+    try:
+        publish_event({"type": "device_created", "device": {"id": device.id, "name": device.name, "device_id": device.device_id}})
+    except Exception:
+        pass
     return device
 
 
@@ -156,6 +161,10 @@ async def update_device(device_id: UUID, payload: DeviceUpdate, db: Session = De
 
     db.commit()
     db.refresh(device)
+    try:
+        publish_event({"type": "device_updated", "device": {"id": device.id, "name": device.name, "current_state": device.current_state}})
+    except Exception:
+        pass
     return device
 
 
