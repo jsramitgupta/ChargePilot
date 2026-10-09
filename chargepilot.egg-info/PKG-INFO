@@ -1,3 +1,28 @@
+Metadata-Version: 2.4
+Name: chargepilot
+Version: 0.1.0
+Summary: Self-hosted laptop battery automation for local Tuya control
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi==0.115.0
+Requires-Dist: uvicorn[standard]==0.30.1
+Requires-Dist: sqlalchemy==2.0.32
+Requires-Dist: alembic==1.13.2
+Requires-Dist: psycopg[binary]==3.2.1
+Requires-Dist: pydantic-settings==2.3.4
+Requires-Dist: httpx==0.27.0
+Requires-Dist: jinja2==3.1.4
+Requires-Dist: bcrypt==4.1.2
+Requires-Dist: itsdangerous==2.2.0
+Requires-Dist: python-multipart==0.0.9
+Provides-Extra: dev
+Requires-Dist: pytest==8.3.2; extra == "dev"
+Requires-Dist: pytest-asyncio==0.23.8; extra == "dev"
+Requires-Dist: httpx==0.27.0; extra == "dev"
+Requires-Dist: ruff==0.5.7; extra == "dev"
+Requires-Dist: mypy==1.11.1; extra == "dev"
+Requires-Dist: black==24.8.0; extra == "dev"
+
 # ChargePilot
 
 ChargePilot is a self-hosted, local-first battery automation platform for Windows laptops. The app receives telemetry from laptop agents, evaluates battery thresholds, and turns local Tuya switches or plugs on or off without relying on the Tuya cloud for day-to-day automation.
@@ -21,7 +46,6 @@ The current codebase is a modular monolith built with FastAPI and SQLAlchemy. It
 - PostgreSQL / psycopg
 - Pydantic + pydantic-settings
 - TinyTuya 1.20.0
-- tzdata for timezone handling in containerized deployments
 - Jinja2 templates
 - pytest for automated checks
 
