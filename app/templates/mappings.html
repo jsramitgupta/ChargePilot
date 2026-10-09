@@ -54,6 +54,21 @@
           {% endfor %}
         </select>
       </div>
+
+      <div>
+        <label for="on_threshold" class="mb-1.5 block text-sm font-medium text-slate-600">on_threshold</label>
+        <input id="on_threshold" name="on_threshold" type="number" min="0" max="100" value="79" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+      </div>
+
+      <div>
+        <label for="off_threshold" class="mb-1.5 block text-sm font-medium text-slate-600">off_threshold</label>
+        <input id="off_threshold" name="off_threshold" type="number" min="0" max="100" value="99" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+      </div>
+
+      <div>
+        <label for="minimum_state_change_interval" class="mb-1.5 block text-sm font-medium text-slate-600">minimum_state_change_interval</label>
+        <input id="minimum_state_change_interval" name="minimum_state_change_interval" type="number" min="0" value="300" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+      </div>
     </div>
 
     <div class="flex justify-end">
@@ -103,6 +118,8 @@
           <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Endpoint</th>
           <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Device</th>
           <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Channel</th>
+          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Thresholds</th>
+          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Mapping ID</th>
           <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Action</th>
         </tr>
       </thead>
@@ -112,6 +129,8 @@
           <td class="px-4 py-3 text-sm font-medium text-slate-700">{{ mapping.endpoint_name }}</td>
           <td class="px-4 py-3 text-sm text-slate-600">{{ mapping.device_name }}</td>
           <td class="px-4 py-3 text-sm text-slate-600">{{ mapping.channel_name }}</td>
+          <td class="px-4 py-3 text-sm text-slate-600">on={{ mapping.on_threshold }} / off={{ mapping.off_threshold }}</td>
+          <td class="px-4 py-3 text-sm font-mono text-slate-500">{{ mapping.id }}</td>
           <td class="px-4 py-3 text-right">
             <form method="post" action="/mappings/{{ mapping.id }}/delete">
               <button type="submit" class="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100">Delete</button>
@@ -120,7 +139,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="4" class="px-4 py-10 text-center text-sm text-slate-500">No mappings yet.</td>
+          <td colspan="5" class="px-4 py-10 text-center text-sm text-slate-500">No mappings yet.</td>
         </tr>
         {% endfor %}
       </tbody>

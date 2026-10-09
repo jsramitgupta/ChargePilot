@@ -162,12 +162,42 @@ function Save-SwitchState {
 function Get-SwitchState {
     param(
         [int]$BatteryPercentage,
-        [bool]$CurrentState = $false
+        [bool]$CurrentState = $false,
+        [int]$OnThreshold = 30,
+        [int]$OffThreshold = 90
     )
 
-    if ($BatteryPercentage -le 30) { return $true }    # turn on at or below 30
-    if ($BatteryPercentage -ge 90) { return $false }   # turn off at or above 90
-    return $CurrentState                               # in between: hold previous state
+    if ($BatteryPercentage -le $OnThreshold) { return $true }
+    if ($BatteryPercentage -ge $OffThreshold) { return $false }
+    return $CurrentState
+}
+
+function Get-LatestAgentConfig {
+    param(
+        [string]$ServerUrl,
+        [string]$EndpointToken,
+        [string]$Hostname
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ServerUrl) -or [string]::IsNullOrWhiteSpace($EndpointToken)) {
+        return $null
+    }
+
+    $encodedHostname = [uri]::EscapeDataString($Hostname)
+    $uri = "$ServerUrl/api/v1/endpoints/agent-config?hostname=$encodedHostname"
+    $headers = @{
+        Authorization = "Bearer $EndpointToken"
+        "Content-Type" = "application/json"
+    }
+
+    try {
+        $response = Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -TimeoutSec 30
+        return $response
+    }
+    catch {
+        Write-Warning "Unable to refresh agent config from $uri. Falling back to local defaults."
+        return $null
+    }
 }
 
 $config = Get-AgentConfig -Path $ConfigPath
@@ -181,8 +211,20 @@ $status = Get-BatteryStatus
 $batteryPercentage = $status.BatteryPercentage
 $charging = $status.Charging
 $acConnected = $status.AcConnected
-$lastState   = Get-LastSwitchState
-$switchState = Get-SwitchState -BatteryPercentage $batteryPercentage -CurrentState $lastState
+$lastState = Get-LastSwitchState
+$remoteConfig = Get-LatestAgentConfig -ServerUrl $ServerUrl -EndpointToken $EndpointToken -Hostname $hostname
+
+$onThreshold = 30
+$offThreshold = 90
+if ($remoteConfig -and $remoteConfig.mappings) {
+    $activeMapping = $remoteConfig.mappings | Where-Object { $_.enabled -eq $true } | Select-Object -First 1
+    if ($activeMapping) {
+        if ($null -ne $activeMapping.on_threshold) { $onThreshold = [int]$activeMapping.on_threshold }
+        if ($null -ne $activeMapping.off_threshold) { $offThreshold = [int]$activeMapping.off_threshold }
+    }
+}
+
+$switchState = Get-SwitchState -BatteryPercentage $batteryPercentage -CurrentState $lastState -OnThreshold $onThreshold -OffThreshold $offThreshold
 Save-SwitchState -State $switchState
 
 $payload = [ordered]@{

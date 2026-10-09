@@ -193,6 +193,168 @@ def test_unique_mapping_per_endpoint_and_device():
     assert len(mappings.json()) == 1
 
 
+def test_mappings_page_exposes_editable_threshold_controls():
+    client = TestClient(app)
+
+    register = client.post(
+        "/register",
+        data={"username": "threshold_admin", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert register.status_code in {200, 302, 303}, register.text
+
+    login = client.post(
+        "/login",
+        data={"username": "threshold_admin", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert login.status_code in {200, 302, 303}, login.text
+
+    device = client.post(
+        "/api/v1/devices",
+        json={
+            "name": "Threshold Device",
+            "device_id": "threshold-device-001",
+            "ip_address": "192.168.0.155",
+            "device_type": "switch",
+            "protocol_version": "3.1",
+            "enabled": True,
+            "encrypted_local_key": "threshold-key",
+        },
+    ).json()
+    endpoint = client.post(
+        "/api/v1/endpoints",
+        json={
+            "hostname": "threshold-endpoint",
+            "ip_address": "10.0.0.42",
+            "battery_percentage": 70,
+            "charging": False,
+            "ac_connected": True,
+            "enabled": True,
+        },
+    ).json()
+    mapping = client.post(
+        "/api/v1/mappings",
+        json={
+            "endpoint_id": endpoint["id"],
+            "device_id": device["id"],
+            "channel_id": None,
+            "enabled": True,
+            "on_threshold": 35,
+            "off_threshold": 90,
+            "minimum_state_change_interval": 300,
+        },
+    ).json()
+
+    page = client.get("/mappings")
+    assert page.status_code == 200, page.text
+    body = page.text
+    assert "on_threshold" in body
+    assert "off_threshold" in body
+    assert str(mapping["id"]) in body
+
+
+def test_endpoint_agent_config_returns_live_threshold_settings():
+    client = TestClient(app)
+
+    device = client.post(
+        "/api/v1/devices",
+        json={
+            "name": "Agent Config Device",
+            "device_id": "agent-config-device",
+            "ip_address": "192.168.0.160",
+            "device_type": "switch",
+            "protocol_version": "3.1",
+            "enabled": True,
+            "encrypted_local_key": "agent-config-key",
+        },
+    ).json()
+    endpoint = client.post(
+        "/api/v1/endpoints",
+        json={
+            "hostname": "agent-config-endpoint",
+            "ip_address": "10.0.0.43",
+            "battery_percentage": 67,
+            "charging": False,
+            "ac_connected": True,
+            "enabled": True,
+        },
+    ).json()
+    mapping = client.post(
+        "/api/v1/mappings",
+        json={
+            "endpoint_id": endpoint["id"],
+            "device_id": device["id"],
+            "channel_id": None,
+            "enabled": True,
+            "on_threshold": 25,
+            "off_threshold": 88,
+            "minimum_state_change_interval": 240,
+        },
+    ).json()
+
+    response = client.get(f"/api/v1/endpoints/{endpoint['id']}/agent-config")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["endpoint_id"] == endpoint["id"]
+    assert payload["mappings"]
+    assert any(item["id"] == mapping["id"] for item in payload["mappings"])
+    assert payload["mappings"][0]["on_threshold"] == 25
+    assert payload["mappings"][0]["off_threshold"] == 88
+
+
+def test_agent_config_lookup_by_hostname_and_token():
+    client = TestClient(app)
+
+    device = client.post(
+        "/api/v1/devices",
+        json={
+            "name": "Agent Lookup Device",
+            "device_id": "agent-lookup-device",
+            "ip_address": "192.168.0.170",
+            "device_type": "switch",
+            "protocol_version": "3.1",
+            "enabled": True,
+            "encrypted_local_key": "agent-lookup-key",
+        },
+    ).json()
+    endpoint = client.post(
+        "/api/v1/endpoints",
+        json={
+            "hostname": "agent-lookup-endpoint",
+            "ip_address": "10.0.0.44",
+            "battery_percentage": 61,
+            "charging": False,
+            "ac_connected": True,
+            "enabled": True,
+        },
+    ).json()
+    mapping = client.post(
+        "/api/v1/mappings",
+        json={
+            "endpoint_id": endpoint["id"],
+            "device_id": device["id"],
+            "channel_id": None,
+            "enabled": True,
+            "on_threshold": 42,
+            "off_threshold": 86,
+            "minimum_state_change_interval": 180,
+        },
+    ).json()
+
+    response = client.get(
+        "/api/v1/endpoints/agent-config",
+        params={"hostname": "agent-lookup-endpoint"},
+        headers={"Authorization": "Bearer test-endpoint-token"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["hostname"] == "agent-lookup-endpoint"
+    assert any(item["id"] == mapping["id"] for item in payload["mappings"])
+    assert payload["mappings"][0]["on_threshold"] == 42
+    assert payload["mappings"][0]["off_threshold"] == 86
+
+
 def test_devices_page_has_delete_action_and_channel_expander():
     client = TestClient(app)
 

@@ -404,17 +404,17 @@ async def mappings_view(request: Request, db: Session = Depends(get_db)):
 
     mappings_query = db.query(Mapping)
     if not is_super_admin_user(current_user) and current_user.tenant_id is not None:
-        mappings_query = mappings_query.filter(Mapping.tenant_id == current_user.tenant_id)
+        mappings_query = mappings_query.filter((Mapping.tenant_id.is_(None)) | (Mapping.tenant_id == current_user.tenant_id))
     mappings = mappings_query.order_by(Mapping.created_at.desc()).all()
 
     devices_query = db.query(Device)
     if not is_super_admin_user(current_user) and current_user.tenant_id is not None:
-        devices_query = devices_query.filter(Device.tenant_id == current_user.tenant_id)
+        devices_query = devices_query.filter((Device.tenant_id.is_(None)) | (Device.tenant_id == current_user.tenant_id))
     devices = devices_query.all()
 
     endpoints_query = db.query(Endpoint)
     if not is_super_admin_user(current_user) and current_user.tenant_id is not None:
-        endpoints_query = endpoints_query.filter(Endpoint.tenant_id == current_user.tenant_id)
+        endpoints_query = endpoints_query.filter((Endpoint.tenant_id.is_(None)) | (Endpoint.tenant_id == current_user.tenant_id))
     endpoints = endpoints_query.order_by(Endpoint.last_seen_at.desc().nullslast()).all()
     all_channels = (
         db.query(DeviceChannel)
