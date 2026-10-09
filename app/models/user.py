@@ -15,4 +15,5 @@ class User(Base):
     tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     role: Mapped[str] = mapped_column(String(40), default="standard_user")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
     created_at: Mapped[str] = mapped_column(String(64), server_default=func.now())

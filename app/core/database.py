@@ -12,6 +12,16 @@ class Base(DeclarativeBase):
     pass
 
 
+# Import all model modules so Base.metadata includes every table for fresh database creation.
+from app.models.device import Device, DeviceChannel  # noqa: F401,E402
+from app.models.endpoint import Endpoint  # noqa: F401,E402
+from app.models.event import AutomationEvent  # noqa: F401,E402
+from app.models.mapping import Mapping  # noqa: F401,E402
+from app.models.telemetry import BatteryReading  # noqa: F401,E402
+from app.models.tenant import Tenant  # noqa: F401,E402
+from app.models.user import User  # noqa: F401,E402
+
+
 engine_kwargs = {"pool_pre_ping": True}
 if settings.database_url.startswith("sqlite"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
@@ -53,6 +63,7 @@ def _ensure_table_columns() -> None:
         "users": {
             "tenant_id": "VARCHAR(36)",
             "role": "VARCHAR(40) NOT NULL DEFAULT 'standard_user'",
+            "timezone": "VARCHAR(64) NOT NULL DEFAULT 'UTC'",
         },
         "device_channels": {
             "enabled": "BOOLEAN NOT NULL DEFAULT TRUE",

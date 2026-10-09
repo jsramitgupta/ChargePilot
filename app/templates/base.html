@@ -18,7 +18,7 @@
     </script>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
-  <body class="min-h-full bg-slate-50 text-slate-900 antialiased">
+  <body class="min-h-full bg-slate-50 text-slate-900 antialiased" data-user-timezone="{{ request.session.get('user_timezone') or 'UTC' }}">
     <div class="min-h-screen">
       {% set auth_page = request.url.path in ['/login', '/register'] %}
       {% if not auth_page %}
@@ -119,7 +119,7 @@
           return value;
         }
 
-        const tz = timezone === 'local' ? Intl.DateTimeFormat().resolvedOptions().timeZone : timezone;
+        const tz = timezone || 'UTC';
         return new Intl.DateTimeFormat(undefined, {
           timeZone: tz,
           year: 'numeric',
@@ -133,22 +133,20 @@
 
       const applyTimezone = () => {
         const timezoneSelect = document.getElementById('timezoneSelect');
-        const selectedTimezone = timezoneSelect ? timezoneSelect.value : 'local';
+        const profileTimezone = document.body.dataset.userTimezone || 'UTC';
+        const selectedTimezone = timezoneSelect ? timezoneSelect.value : profileTimezone;
         const nodes = document.querySelectorAll('[data-timestamp]');
         nodes.forEach((node) => {
           const value = node.getAttribute('data-timestamp');
+          if (!value) return;
           node.textContent = formatTimestamp(value, selectedTimezone);
         });
       };
 
       const timezoneSelect = document.getElementById('timezoneSelect');
       if (timezoneSelect) {
-        const savedTimezone = localStorage.getItem('chargepilot-timezone') || 'local';
-        timezoneSelect.value = savedTimezone;
-        timezoneSelect.addEventListener('change', () => {
-          localStorage.setItem('chargepilot-timezone', timezoneSelect.value);
-          applyTimezone();
-        });
+        const profileTimezone = document.body.dataset.userTimezone || 'UTC';
+        timezoneSelect.value = profileTimezone;
       }
 
       const themeToggle = document.getElementById('themeToggle');
@@ -172,7 +170,6 @@
       });
 
       applyTheme();
-      applyTimezone();
     </script>
     <script src="/static/ajax.js"></script>
   </body>

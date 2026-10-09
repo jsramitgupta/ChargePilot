@@ -1,11 +1,14 @@
+from datetime import datetime, timezone
+
+from sqlalchemy import inspect
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.core.database import SessionLocal, engine
+from app.main import app, generate_agent_token
 from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
+from app.models.telemetry import BatteryReading
 from app.models.user import User
-from app.core.database import SessionLocal
-from app.main import generate_agent_token
 
 client = TestClient(app)
 
@@ -77,8 +80,129 @@ def test_profile_page_shows_user_and_timezone_selector():
     assert response.status_code == 200
     content = response.text
     assert "charlie" in content
-    assert "Local time" in content
     assert "timezoneSelect" in content
+
+
+def test_profile_timezone_is_persisted_for_user():
+    register = client.post(
+        "/register",
+        data={"username": "dave", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert register.status_code in (200, 302, 303)
+
+    login = client.post(
+        "/login",
+        data={"username": "dave", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert login.status_code in (200, 302, 303)
+
+    response = client.post(
+        "/profile/timezone",
+        data={"timezone": "Europe/London"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (200, 302, 303)
+
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "dave").first()
+        assert user is not None
+        assert user.timezone == "Europe/London"
+
+
+def test_invalid_timezone_is_rejected_and_user_stays_on_default():
+    register = client.post(
+        "/register",
+        data={"username": "frank", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert register.status_code in (200, 302, 303)
+
+    client.post(
+        "/login",
+        data={"username": "frank", "password": "secret123"},
+        follow_redirects=False,
+    )
+
+    response = client.post(
+        "/profile/timezone",
+        data={"timezone": "Not/ARealZone"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (200, 302, 303)
+
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "frank").first()
+        assert user is not None
+        assert user.timezone == "UTC"
+
+
+def test_new_user_defaults_to_utc_timezone():
+    register = client.post(
+        "/register",
+        data={"username": "grace", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert register.status_code in (200, 302, 303)
+
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "grace").first()
+        assert user is not None
+        assert user.timezone == "UTC"
+
+    client.post(
+        "/login",
+        data={"username": "grace", "password": "secret123"},
+        follow_redirects=False,
+    )
+    profile_response = client.get("/profile")
+    assert profile_response.status_code == 200
+    assert "timezoneSelect" in profile_response.text
+
+
+def test_dashboard_uses_profile_timezone_for_server_rendered_timestamps():
+    register = client.post(
+        "/register",
+        data={"username": "erin", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert register.status_code in (200, 302, 303)
+
+    login = client.post(
+        "/login",
+        data={"username": "erin", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert login.status_code in (200, 302, 303)
+
+    response = client.post(
+        "/profile/timezone",
+        data={"timezone": "Asia/Kolkata"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (200, 302, 303)
+
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "erin").first()
+        assert user is not None
+        db.add(
+            Endpoint(
+                hostname="timezone-check",
+                ip_address="10.0.0.11",
+                tenant_id=user.tenant_id,
+                battery_percentage=72,
+                charging=False,
+                ac_connected=True,
+                enabled=True,
+                last_seen_at=datetime(2024, 1, 1, 8, 30, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "2024-01-01 14:00:00 IST" in response.text or "2024-01-01T14:00:00+05:30" in response.text
 
 
 def test_dashboard_renders_power_state_from_ac_connected():
@@ -123,6 +247,21 @@ def test_generate_agent_token_has_valid_format_and_length():
     assert len(token) == 32
     assert token.isalpha()
     assert all(character.isalpha() for character in token)
+
+
+def test_fresh_database_creates_all_model_tables():
+    inspector = inspect(engine)
+    assert inspector.has_table("battery_readings")
+    assert inspector.has_table("devices")
+    assert inspector.has_table("device_channels")
+    assert inspector.has_table("endpoints")
+    assert inspector.has_table("mappings")
+    assert inspector.has_table("automation_events")
+    assert inspector.has_table("tenants")
+    assert inspector.has_table("users")
+
+    with SessionLocal() as db:
+        assert db.query(BatteryReading).count() == 0
 
 
 def test_tenant_admin_is_isolated_from_other_tenants():

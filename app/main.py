@@ -2,6 +2,7 @@ import secrets
 import string
 from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -25,7 +26,6 @@ from app.models.event import AutomationEvent
 from app.models.mapping import Mapping
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.services.smartlife_service import SmartLifeService
 from app.services.tuya_service import TuyaService
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -49,6 +49,8 @@ def get_current_user(request: Request, db: Session) -> User | None:
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         request.session.clear()
+        return None
+    request.session["user_timezone"] = resolve_user_timezone(user)
     return user
 
 
@@ -97,6 +99,45 @@ def normalize_role(role: str | None) -> str:
     return value if value in allowed else "standard_user"
 
 
+def resolve_user_timezone(user: User | None) -> str:
+    timezone_name = (getattr(user, "timezone", "") or "").strip()
+    if timezone_name and timezone_name != "local":
+        try:
+            ZoneInfo(timezone_name)
+            return timezone_name
+        except ZoneInfoNotFoundError:
+            pass
+    return "UTC"
+
+
+def get_timezone_options() -> list[str]:
+    if hasattr(ZoneInfo, "available_timezones"):
+        try:
+            options = sorted(ZoneInfo.available_timezones())
+            if options:
+                return options
+        except Exception:
+            pass
+
+    return sorted(
+        {
+            "UTC",
+            "America/New_York",
+            "America/Chicago",
+            "America/Denver",
+            "America/Los_Angeles",
+            "Europe/London",
+            "Europe/Paris",
+            "Europe/Berlin",
+            "Africa/Johannesburg",
+            "Asia/Kolkata",
+            "Asia/Singapore",
+            "Asia/Tokyo",
+            "Australia/Sydney",
+        }
+    )
+
+
 def is_role_admin(role: str | None) -> bool:
     return normalize_role(role) in {"tenant_admin", "manager"}
 
@@ -126,6 +167,20 @@ def _normalize_utc(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _to_user_timezone(value: datetime | None, user: User | None) -> datetime | None:
+    if value is None:
+        return None
+    normalized = _normalize_utc(value)
+    if normalized is None:
+        return None
+    tz_name = resolve_user_timezone(user)
+    try:
+        zone = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        zone = ZoneInfo("UTC")
+    return normalized.astimezone(zone)
 
 
 def _is_ajax(request: Request) -> bool:
@@ -184,7 +239,7 @@ async def dashboard_view(request: Request, db: Session = Depends(get_db)):
                     break
         switch_name = mapped_device.name if mapped_device else "No mapped switch"
         switch_state = "ON" if mapped_device and mapped_device.current_state else "OFF"
-        last_seen = _normalize_utc(endpoint.last_seen_at) if endpoint.last_seen_at else None
+        last_seen = _to_user_timezone(endpoint.last_seen_at, current_user) if endpoint.last_seen_at else None
         power_state = "Charging" if endpoint.charging else ("On AC" if endpoint.ac_connected else "On battery")
         rows.append(
             {
@@ -226,7 +281,7 @@ async def endpoints_view(request: Request, db: Session = Depends(get_db)):
     endpoints = endpoints_query.order_by(Endpoint.last_seen_at.desc().nullslast()).all()
     rows = []
     for endpoint in endpoints:
-        last_seen = _normalize_utc(endpoint.last_seen_at)
+        last_seen = _to_user_timezone(endpoint.last_seen_at, current_user)
         power_state = "Charging" if endpoint.charging else ("On AC" if endpoint.ac_connected else "On battery")
         rows.append(
             {
@@ -237,8 +292,8 @@ async def endpoints_view(request: Request, db: Session = Depends(get_db)):
                 "charging": endpoint.charging,
                 "ac_connected": endpoint.ac_connected,
                 "power_state": power_state,
-                "last_seen": last_seen.isoformat() if last_seen else "never",
-                "status": "online" if last_seen and (datetime.now(UTC) - last_seen).total_seconds() <= 600 else "offline",
+                "last_seen": last_seen.strftime("%Y-%m-%d %H:%M:%S %Z") if last_seen else "never",
+                "status": "online" if last_seen and (datetime.now(UTC) - _normalize_utc(endpoint.last_seen_at)).total_seconds() <= 600 else "offline",
             }
         )
     return templates.TemplateResponse("endpoints.html", {"request": request, "rows": rows})
@@ -282,56 +337,12 @@ async def devices_view(request: Request, db: Session = Depends(get_db)):
             .all()
         )
 
-    smartlife_state = SmartLifeService.load_session()
-    # compute TTL seconds for any generated token so the UI can warn before expiry
-    smartlife_ttl_seconds = None
-    try:
-        import time
-
-        expires = smartlife_state.get("expires_at")
-        if expires:
-            smartlife_ttl_seconds = max(0, int(int(expires) - time.time()))
-    except Exception:
-        smartlife_ttl_seconds = None
-    smartlife_error = request.session.pop("smartlife_error", None)
     return templates.TemplateResponse(
         "devices.html",
         {
             "request": request,
             "devices": devices,
-            "smartlife_state": smartlife_state,
-            "smartlife_ttl_seconds": smartlife_ttl_seconds,
-            "smartlife_error": smartlife_error,
         },
-    )
-
-
-@app.get("/devices/wizard", response_class=HTMLResponse)
-async def device_scan_wizard(request: Request, db: Session = Depends(get_db)):
-    discovered_devices = await TuyaService().discover()
-    smartlife_state = SmartLifeService.load_session()
-    smartlife_ttl_seconds = None
-    try:
-        import time
-
-        expires = smartlife_state.get("expires_at")
-        if expires:
-            smartlife_ttl_seconds = max(0, int(int(expires) - time.time()))
-    except Exception:
-        smartlife_ttl_seconds = None
-
-    return templates.TemplateResponse(
-        "device_wizard.html",
-        {"request": request, "discovered_devices": discovered_devices, "smartlife_state": smartlife_state, "smartlife_ttl_seconds": smartlife_ttl_seconds},
-    )
-
-
-@app.post("/devices/scan", response_class=HTMLResponse)
-async def scan_devices_form(request: Request, db: Session = Depends(get_db)):
-    discovered_devices = await TuyaService().discover()
-    return templates.TemplateResponse(
-        "device_wizard.html",
-        {"request": request, "discovered_devices": discovered_devices},
     )
 
 
@@ -380,107 +391,6 @@ async def create_device_form(
         )
 
     db.commit()
-    if _is_ajax(request):
-        return JSONResponse({"ok": True, "redirect": "/devices"})
-    return RedirectResponse(url="/devices", status_code=303)
-
-
-@app.post("/devices/smartlife/login")
-async def smartlife_login(request: Request, user_code: str = Form(...), scheme: str = Form("smartlife"), db: Session = Depends(get_db)):
-    current_user = get_current_user(request, db)
-    if current_user is None:
-        return RedirectResponse(url="/login", status_code=303)
-    try:
-        session = SmartLifeService.start_login(user_code, qr_scheme=scheme)
-        # If the service returned an error structure, display a helpful message
-        if isinstance(session, dict) and session.get("error"):
-            debug_log = session.get("debug_log")
-            msg = "Failed to start SmartLife login: invalid response from provider"
-            if debug_log:
-                msg += f" (debug: {debug_log})"
-            request.session["smartlife_error"] = msg
-            return RedirectResponse(url="/devices", status_code=303)
-        # Successful start_login returns the saved session dict; store a short success note
-        request.session["smartlife_started"] = True
-    except ValueError as exc:
-        request.session["smartlife_error"] = str(exc)
-        if _is_ajax(request):
-            return JSONResponse({"ok": False, "error": str(exc)})
-        return RedirectResponse(url="/devices", status_code=303)
-    if _is_ajax(request):
-        return JSONResponse({"ok": True, "redirect": "/devices"})
-    return RedirectResponse(url="/devices", status_code=303)
-
-
-@app.post("/devices/wizard/smartlife/login")
-async def wizard_smartlife_login(request: Request, user_code: str = Form(...), scheme: str = Form("smartlife")):
-    try:
-        session = SmartLifeService.start_login(user_code, qr_scheme=scheme)
-    except ValueError as exc:
-        if _is_ajax(request):
-            return JSONResponse({"ok": False, "error": str(exc)})
-        request.session["smartlife_error"] = str(exc)
-        return RedirectResponse(url="/devices/wizard", status_code=303)
-
-    if _is_ajax(request):
-        return JSONResponse({"ok": True, "qr_data_url": session.get("qr_data_url"), "expires_at": session.get("expires_at"), "user_code": session.get("user_code")})
-    return RedirectResponse(url="/devices/wizard", status_code=303)
-
-
-@app.post("/devices/wizard/smartlife/fetch")
-async def wizard_smartlife_fetch(request: Request):
-    try:
-        result = SmartLifeService.fetch_linked_devices()
-    except (TimeoutError, ValueError) as exc:
-        if _is_ajax(request):
-            return JSONResponse({"ok": False, "error": str(exc)})
-        request.session["smartlife_error"] = str(exc)
-        return RedirectResponse(url="/devices/wizard", status_code=303)
-    # If the service returned a refresh instruction, pass it through to the client
-    if isinstance(result, dict) and result.get("refreshed"):
-        if _is_ajax(request):
-            return JSONResponse({"ok": True, "refreshed": True, "qr_data_url": result.get("qr_data_url"), "expires_at": result.get("expires_at"), "user_code": result.get("user_code")})
-        request.session["smartlife_error"] = "QR refreshed; please scan the new code."
-        return RedirectResponse(url="/devices/wizard", status_code=303)
-
-    # Normal successful case: result is a list of devices
-    session = SmartLifeService.load_session()
-    if _is_ajax(request):
-        return JSONResponse({"ok": True, "devices": session.get("devices", [])})
-    return RedirectResponse(url="/devices/wizard", status_code=303)
-
-
-@app.post("/devices/wizard/smartlife/match")
-async def wizard_smartlife_match(request: Request, device_id: str = Form(...)):
-    session = SmartLifeService.load_session()
-    devices = session.get("devices", []) if isinstance(session.get("devices"), list) else []
-    for d in devices:
-        if str(d.get("device_id")) == str(device_id):
-            return JSONResponse({"ok": True, "local_key": d.get("encrypted_local_key"), "ip_address": d.get("ip_address")})
-    return JSONResponse({"ok": False, "error": "Matching device not found in SmartLife linked devices. Make sure you fetched linked devices after scanning the QR."})
-
-
-@app.post("/devices/smartlife/fetch")
-async def smartlife_fetch(request: Request, db: Session = Depends(get_db)):
-    current_user = get_current_user(request, db)
-    if current_user is None:
-        return RedirectResponse(url="/login", status_code=303)
-
-    try:
-        result = SmartLifeService.fetch_linked_devices()
-    except (TimeoutError, ValueError) as exc:
-        request.session["smartlife_error"] = str(exc)
-        if _is_ajax(request):
-            return JSONResponse({"ok": False, "error": str(exc)})
-        return RedirectResponse(url="/devices", status_code=303)
-
-    # If the service instructs a QR refresh, return the new QR to the client for re-scan
-    if isinstance(result, dict) and result.get("refreshed"):
-        if _is_ajax(request):
-            return JSONResponse({"ok": True, "refreshed": True, "qr_data_url": result.get("qr_data_url"), "expires_at": result.get("expires_at"), "user_code": result.get("user_code")})
-        request.session["smartlife_error"] = "QR refreshed; please scan the new code."
-        return RedirectResponse(url="/devices", status_code=303)
-
     if _is_ajax(request):
         return JSONResponse({"ok": True, "redirect": "/devices"})
     return RedirectResponse(url="/devices", status_code=303)
@@ -769,10 +679,11 @@ async def events_view(request: Request, db: Session = Depends(get_db)):
     rows = []
     for event in events:
         endpoint = db.query(Endpoint).filter(Endpoint.id == event.endpoint_id).first()
+        created_at = _to_user_timezone(event.created_at, current_user)
         rows.append(
             {
-                "created_at": event.created_at.isoformat() if event.created_at else "unknown",
-                "created_at_display": event.created_at.strftime("%Y-%m-%d %H:%M:%S %Z") if event.created_at else "unknown",
+                "created_at": created_at.isoformat() if created_at else "unknown",
+                "created_at_display": created_at.strftime("%Y-%m-%d %H:%M:%S %Z") if created_at else "unknown",
                 "event_type": event.event_type,
                 "endpoint": endpoint.hostname if endpoint else (event.endpoint_id or "unknown"),
                 "battery": f"{event.battery_percentage}%" if event.battery_percentage is not None else "n/a",
@@ -805,6 +716,7 @@ async def login_user(request: Request, username: str = Form(...), password: str 
         return RedirectResponse(url="/login?error=Invalid+username+or+password", status_code=303)
 
     request.session["user_id"] = user.id
+    request.session["user_timezone"] = resolve_user_timezone(user)
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -822,6 +734,8 @@ async def profile_page(request: Request, db: Session = Depends(get_db)):
 
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     tenant_token = tenant.agent_token if tenant else None
+    timezone_options = get_timezone_options()
+    request.session["user_timezone"] = resolve_user_timezone(current_user)
     return templates.TemplateResponse(
         "profile.html",
         {
@@ -832,8 +746,28 @@ async def profile_page(request: Request, db: Session = Depends(get_db)):
             "role_label": current_user.role.replace("_", " ").title(),
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
+            "timezone_options": timezone_options,
         },
     )
+
+
+@app.post("/profile/timezone")
+async def update_profile_timezone(request: Request, timezone: str = Form(...), db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+
+    normalized = (timezone or "").strip()
+    if normalized and normalized != "local":
+        try:
+            ZoneInfo(normalized)
+        except ZoneInfoNotFoundError:
+            return RedirectResponse(url="/profile?error=Invalid+timezone+selected", status_code=303)
+
+    current_user.timezone = normalized or "UTC"
+    db.commit()
+    request.session["user_timezone"] = resolve_user_timezone(current_user)
+    return RedirectResponse(url="/profile?message=Timezone+updated+successfully", status_code=303)
 
 
 @app.post("/tenant/rotate-agent-token")
@@ -923,6 +857,7 @@ async def register_user(
     db.refresh(user)
 
     request.session["user_id"] = user.id
+    request.session["user_timezone"] = resolve_user_timezone(user)
     return RedirectResponse(url="/", status_code=303)
 
 

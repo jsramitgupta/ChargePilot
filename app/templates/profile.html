@@ -61,18 +61,19 @@
     <div class="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div class="flex items-center justify-between gap-4">
         <div>
-          <p class="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Local time zone</p>
-          <p class="mt-1 text-sm text-slate-600">Choose your display timezone</p>
+          <p class="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Profile time zone</p>
+          <p class="mt-1 text-sm text-slate-600">Choose the timezone used for all timestamps in the app.</p>
         </div>
       </div>
 
-      <div class="mt-4">
+      <form method="post" action="/profile/timezone" class="mt-4">
         <label for="timezoneSelect" class="sr-only">Timezone</label>
-        <select id="timezoneSelect" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" aria-label="Timezone selector">
-          <option value="local">Local time</option>
-          <option value="UTC">UTC</option>
+        <select id="timezoneSelect" name="timezone" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" aria-label="Timezone selector" onchange="this.form.submit()">
+          {% for timezone_name in timezone_options %}
+            <option value="{{ timezone_name }}" {% if current_user.timezone == timezone_name %}selected{% endif %}>{{ timezone_name }}</option>
+          {% endfor %}
         </select>
-      </div>
+      </form>
     </div>
   </div>
 </div>

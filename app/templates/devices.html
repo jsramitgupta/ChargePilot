@@ -70,77 +70,7 @@
     </div>
   </div>
 
-  <div class="grid gap-6 xl:grid-cols-2">
-    <div class="smartlife-card rounded-2xl border border-indigo-200 bg-indigo-50 p-5 shadow-soft sm:p-6">
-      <div class="mb-4 flex items-center justify-between border-b border-indigo-200 pb-3">
-        <h2 class="text-lg font-semibold text-slate-900">Quick add with SmartLife</h2>
-        <span class="rounded-full bg-indigo-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-700">QR</span>
-      </div>
-
-      {% if smartlife_error %}
-      <div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ smartlife_error }}</div>
-      {% endif %}
-
-      <form method="post" action="/devices/smartlife/login" class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-        <div>
-          <label for="smartlife_user_code" class="mb-1.5 block text-sm font-medium text-slate-600">SmartLife User ID</label>
-          <input id="smartlife_user_code" type="text" name="user_code" value="{{ smartlife_state.user_code if smartlife_state else '' }}" required placeholder="Your SmartLife user code" class="mt-1 block w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
-        </div>
-        <div>
-          <label for="scheme" class="mb-1.5 block text-sm font-medium text-slate-600">QR Scheme</label>
-          <select id="scheme" name="scheme" class="mt-1 block w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
-            <option value="smartlife" selected>smartlife</option>
-            <option value="tuyaSmart">tuyaSmart</option>
-          </select>
-        </div>
-        <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">Generate QR</button>
-      </form>
-
-      {% if smartlife_state and smartlife_state.qr_data_url %}
-      <div class="smartlife-card mt-5 rounded-2xl border border-indigo-200 bg-white p-4">
-        <p class="mb-3 text-sm font-medium text-slate-700">Scan the QR in the SmartLife app, confirm the login, then fetch the linked devices.</p>
-        {% if smartlife_ttl_seconds is not none %}
-        <div class="mb-2 text-sm text-slate-500">QR expires in {{ smartlife_ttl_seconds }}s</div>
-        {% endif %}
-        <div class="smartlife-qr-box mx-auto w-fit rounded-2xl border border-slate-200 bg-white p-3">
-          <img src="{{ smartlife_state.qr_data_url }}" alt="SmartLife QR login" class="mx-auto h-52 w-52 rounded-xl bg-white p-2" />
-        </div>
-        <form method="post" action="/devices/smartlife/fetch" class="mt-4">
-          <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700">Fetch linked devices</button>
-        </form>
-      </div>
-      {% endif %}
-
-      {% if smartlife_state and smartlife_state.devices %}
-      <div class="mt-5 space-y-3">
-        <h3 class="text-sm font-semibold uppercase tracking-[0.18em] text-slate-600">Linked devices</h3>
-        {% for device in smartlife_state.devices %}
-        <form method="post" action="/devices" class="rounded-xl border border-slate-200 bg-white p-3">
-          <input type="hidden" name="name" value="{{ device.name }}" />
-          <input type="hidden" name="device_id" value="{{ device.device_id }}" />
-          <input type="hidden" name="device_type" value="{{ device.device_type }}" />
-          <input type="hidden" name="protocol_version" value="{{ device.protocol_version }}" />
-          <input type="hidden" name="encrypted_local_key" value="{{ device.encrypted_local_key }}" />
-          <input type="hidden" name="channel_count" value="1" />
-          <div class="flex items-center justify-between gap-3">
-            <div class="w-full">
-              <div class="font-medium text-slate-900">{{ device.name }}</div>
-              <div class="text-xs text-slate-500">{{ device.device_id }}</div>
-              <div class="mt-2">
-                <label for="ip_address_{{ loop.index }}" class="mb-1 block text-[11px] font-medium text-slate-600">IP address</label>
-                <input id="ip_address_{{ loop.index }}" type="text" name="ip_address" value="{{ device.ip_address or '' }}" placeholder="No IP detected yet" class="mt-1 block w-full max-w-xs rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
-              </div>
-            </div>
-            <div class="flex-shrink-0">
-              <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700">Add switch</button>
-            </div>
-          </div>
-        </form>
-        {% endfor %}
-      </div>
-      {% endif %}
-    </div>
-
+  <div class="grid gap-6 xl:grid-cols-1">
     <form method="post" action="/devices" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
       <div class="mb-5 flex items-center justify-between border-b border-slate-200 pb-3">
         <h2 class="text-lg font-semibold text-slate-900">Add / delete switches</h2>
@@ -190,7 +120,6 @@
 
       <div class="mt-6 flex flex-wrap items-center justify-end gap-3">
         <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Add device</button>
-        <a href="/devices/wizard" class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700">Scan local network</a>
       </div>
     </form>
   </div>
