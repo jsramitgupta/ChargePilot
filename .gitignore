@@ -1,10 +1,48 @@
+# Python
 __pycache__/
 *.py[cod]
-*.sqlite3
-.env
+*.pyo
+*.pyd
 .venv/
+venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 coverage.xml
+htmlcov/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+agent-config.json
+secrets/
+config/local.*
+
+# Local databases and data
+*.sqlite3
+*.sqlite
+*.db
+*.db-journal
+
+# OS/editor files
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local runtime artifacts
+logs/
+*.log
+*.pid
+
+# Build/test artifacts
+*.egg-info/
+.pytest_cache/
+.coverage
