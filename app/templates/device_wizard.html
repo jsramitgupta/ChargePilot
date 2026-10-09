@@ -20,10 +20,39 @@
   <p class="mb-5 text-sm leading-6 text-slate-600">
     ChargePilot checks the local subnet for Tuya devices. Review each result and save it as a switch using the detected values, then enter the Local Key if your device requires it.
   </p>
+  <div class="grid gap-4 md:grid-cols-2">
+    <form method="post" action="/devices/scan">
+      <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Run scan</button>
+    </form>
 
-  <form method="post" action="/devices/scan">
-    <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Run scan</button>
-  </form>
+    <div class="smartlife-wizard-card rounded-xl border border-slate-200 bg-white p-3">
+      <label for="wizard_smartlife_user_code" class="mb-1.5 block text-sm font-medium text-slate-600">SmartLife User ID</label>
+      <div class="flex gap-2">
+        <input id="wizard_smartlife_user_code" type="text" name="user_code" value="{{ smartlife_state.user_code if smartlife_state else '' }}" placeholder="Your SmartLife user code" class="mt-1 block w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+        <select id="wizard_scheme" class="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-sm">
+          <option value="smartlife">smartlife</option>
+          <option value="tuyaSmart">tuyaSmart</option>
+        </select>
+        <button id="wizard_generate_qr" type="button" class="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">Generate QR</button>
+      </div>
+      <div id="wizard_qr_box" class="mt-3">
+        {% if smartlife_state and smartlife_state.qr_data_url %}
+        <div class="mb-2 text-sm text-slate-500">QR expires in {{ smartlife_ttl_seconds }}s</div>
+        <img id="wizard_qr_img" src="{{ smartlife_state.qr_data_url }}" alt="SmartLife QR" class="h-40 w-40 rounded-md bg-white p-2" />
+        {% else %}
+        <div id="wizard_qr_placeholder" class="text-sm text-slate-500">Generate a SmartLife QR to fetch linked devices and obtain local keys.</div>
+        {% endif %}
+      </div>
+      <div class="mt-2 flex items-center gap-2">
+        <button id="wizard_fetch_linked" type="button" class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-700">Fetch linked devices</button>
+        <button id="wizard_bulk_match" type="button" class="inline-flex items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 shadow-sm hover:bg-indigo-100">Auto-match all</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast container (stacked) -->
+    <div id="wizard_toast_container" class="fixed top-6 right-6 z-50 flex flex-col items-end gap-2"></div>
+  </div>
 </div>
 
 {% if discovered_devices %}
@@ -86,7 +115,10 @@
 
           <div class="field-group">
             <label for="encrypted_local_key-{{ loop.index }}" class="mb-1.5 block text-sm font-medium text-slate-600">Local key</label>
-            <input id="encrypted_local_key-{{ loop.index }}" type="text" name="encrypted_local_key" value="" required placeholder="Enter the local key for this switch" autocomplete="off" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            <div class="flex gap-2">
+              <input id="encrypted_local_key-{{ loop.index }}" type="text" name="encrypted_local_key" value="" required placeholder="Enter the local key for this switch" autocomplete="off" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+              <button type="button" class="smartlife-match-btn inline-flex items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 shadow-sm hover:bg-indigo-100" data-device-id="{{ device.device_id }}" data-index="{{ loop.index }}">Try SmartLife</button>
+            </div>
           </div>
 
           <div class="form-actions">
@@ -110,6 +142,22 @@
 {% endif %}
 
 <script>
+  // Styles for auto-match highlight and toast animations
+  const cpStyle = document.createElement('style');
+  cpStyle.innerHTML = `
+  .auto-matched { 
+    animation: cp-auto-match 1600ms ease-in-out; 
+    box-shadow: 0 6px 18px rgba(99,102,241,0.12), 0 0 0 3px rgba(99,102,241,0.08); 
+    border-color: #6366F1 !important; 
+  }
+  @keyframes cp-auto-match {
+    0% { transform: translateY(0) scale(1); }
+    30% { transform: scale(1.02); }
+    100% { transform: translateY(0) scale(1); }
+  }
+  .cp-toast { min-width: 220px; max-width: 360px; }
+  `;
+  document.head.appendChild(cpStyle);
   document.querySelectorAll('.discovery-toggle').forEach(function (button) {
     button.addEventListener('click', function () {
       const targetId = button.getAttribute('data-target');
@@ -119,6 +167,160 @@
       button.setAttribute('aria-expanded', String(!isOpen));
       if (target) {
         target.classList.toggle('is-open', !isOpen);
+      }
+    });
+  });
+
+  // Wizard SmartLife interactions
+  const genBtn = document.getElementById('wizard_generate_qr');
+  const qrImg = document.getElementById('wizard_qr_img');
+  const qrPlaceholder = document.getElementById('wizard_qr_placeholder');
+  const fetchBtn = document.getElementById('wizard_fetch_linked');
+  const toastContainer = document.getElementById('wizard_toast_container');
+
+  function showToast(message, type = 'info', timeout = 5000) {
+    if (!toastContainer) return;
+    const el = document.createElement('div');
+    el.className = 'cp-toast rounded-xl px-4 py-2 text-sm shadow-sm flex items-start gap-3';
+    el.setAttribute('role', 'status');
+    if (type === 'success') el.classList.add('bg-emerald-50', 'text-emerald-800');
+    else if (type === 'error') el.classList.add('bg-red-50', 'text-red-800');
+    else el.classList.add('bg-slate-50', 'text-slate-800');
+
+    const icon = document.createElement('div');
+    icon.className = 'shrink-0 mt-0.5';
+    icon.innerHTML = type === 'success' ? '✓' : (type === 'error' ? '✕' : 'ℹ');
+    const msg = document.createElement('div');
+    msg.textContent = message;
+
+    el.appendChild(icon);
+    el.appendChild(msg);
+    toastContainer.prepend(el);
+
+    // Auto-dismiss
+    setTimeout(() => {
+      el.style.transition = 'opacity 260ms ease, transform 260ms ease';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(-6px)';
+      setTimeout(() => el.remove(), 300);
+    }, timeout);
+  }
+
+  // persist scheme choice
+  const schemeSelect = document.getElementById('wizard_scheme');
+  try {
+    const saved = localStorage.getItem('chargepilot-smartlife-scheme');
+    if (saved && schemeSelect) schemeSelect.value = saved;
+  } catch (e) {}
+  if (schemeSelect) {
+    schemeSelect.addEventListener('change', () => {
+      try { localStorage.setItem('chargepilot-smartlife-scheme', schemeSelect.value); } catch (e) {}
+    });
+  }
+
+  if (genBtn) {
+    genBtn.addEventListener('click', async () => {
+      const userCode = document.getElementById('wizard_smartlife_user_code').value;
+      const scheme = schemeSelect ? schemeSelect.value : 'smartlife';
+      if (!userCode) return showToast('Enter your SmartLife user code first', 'error');
+      try {
+        const resp = await fetch('/devices/wizard/smartlife/login', {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
+          body: new URLSearchParams({ user_code: userCode, scheme }),
+        });
+        const json = await resp.json();
+        if (!json.ok) return showToast(json.error || 'Failed to start SmartLife login', 'error');
+        if (json.qr_data_url) {
+          if (qrImg) qrImg.src = json.qr_data_url;
+          if (qrPlaceholder) qrPlaceholder.style.display = 'none';
+          showToast('QR generated — scan in SmartLife app', 'success');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Failed to start SmartLife login', 'error');
+      }
+    });
+  }
+
+  async function bulkMatchAll() {
+    const articles = Array.from(document.querySelectorAll('.discovery-item'));
+    let matched = 0;
+    for (const art of articles) {
+      const did = art.dataset.deviceId;
+      const idxInput = art.querySelector('.smartlife-match-btn')?.dataset.index;
+      try {
+        const resp = await fetch('/devices/wizard/smartlife/match', {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
+          body: new URLSearchParams({ device_id: did }),
+        });
+        const json = await resp.json();
+        if (json.ok && json.local_key) {
+          const input = document.getElementById(`encrypted_local_key-${idxInput}`);
+          if (input) input.value = json.local_key;
+          const ipInput = document.getElementById(`ip_address-${idxInput}`);
+          if (ipInput && json.ip_address) ipInput.value = json.ip_address;
+          // visual highlight for matched item
+          art.classList.add('auto-matched');
+          matched += 1;
+        }
+      } catch (err) {
+        console.error('bulk match failed for', did, err);
+      }
+    }
+    showToast(`Auto-matched ${matched} devices`, matched ? 'success' : 'info');
+  }
+
+  if (fetchBtn) {
+    fetchBtn.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/devices/wizard/smartlife/fetch', {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
+        });
+          const json = await resp.json();
+          if (!json.ok) return showToast(json.error || 'Failed to fetch linked devices', 'error');
+          // If the server refreshed the QR (immediate expiry), present new QR to the user to re-scan
+          if (json.refreshed) {
+            if (json.qr_data_url && qrImg) qrImg.src = json.qr_data_url;
+            if (qrPlaceholder) qrPlaceholder.style.display = 'none';
+            showToast('QR refreshed — please scan the new code', 'info');
+            return;
+          }
+          showToast(`Fetched ${json.devices.length} linked devices`, 'success');
+          // auto-match immediately
+          await bulkMatchAll();
+      } catch (err) {
+        console.error(err);
+        showToast('Failed to fetch linked devices', 'error');
+      }
+    });
+  }
+
+  document.querySelectorAll('.smartlife-match-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const deviceId = btn.dataset.deviceId;
+      const idx = btn.dataset.index;
+      try {
+        const resp = await fetch('/devices/wizard/smartlife/match', {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
+          body: new URLSearchParams({ device_id: deviceId }),
+        });
+        const json = await resp.json();
+        if (!json.ok) return showToast(json.error || 'No match found', 'info');
+        const input = document.getElementById(`encrypted_local_key-${idx}`);
+        if (input) input.value = json.local_key || '';
+        const ipInput = document.getElementById(`ip_address-${idx}`);
+        if (ipInput && json.ip_address) ipInput.value = json.ip_address;
+        // highlight the parent discovery item
+        const art = btn.closest('.discovery-item');
+        if (art) art.classList.add('auto-matched');
+        showToast('Local key populated from SmartLife session', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Failed to match with SmartLife devices', 'error');
       }
     });
   });

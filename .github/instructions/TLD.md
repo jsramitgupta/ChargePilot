@@ -2,234 +2,260 @@
 
 ## 1. Scope
 
-This document captures the current code-level technical design of the repository. It describes the relevant modules, runtime flow, persistence model, and operational constraints that a future agent or maintainer must understand.
+This document reflects the current implementation state of the repository. It covers the app structure, runtime data flows, persistence model, SmartLife QR login bridge, local discovery workflow, and the constraints a future rebuild or Claude-driven implementation must respect.
 
 ## 2. Technology stack
 
-The repository currently uses:
+The project currently uses:
 
 - Python 3.12+
-- FastAPI
+- FastAPI 0.115+
 - SQLAlchemy 2.x
 - PostgreSQL via psycopg
 - Pydantic + pydantic-settings
-- TinyTuya
-- Jinja2 templates
-- pytest
-- Docker Compose
+- TinyTuya for local control and discovery
+- Tuya sharing SDK for SmartLife linked-device flow
+- Jinja2 templates for server-rendered dashboard pages
+- qrcode + Pillow-compatible support for QR generation
+- pytest for automated validation
+- Docker Compose for local deployment
 
 ## 3. Module-level responsibilities
 
 ### 3.1 `app/main.py`
 
-This is the entrypoint of the app. It:
+This is the application entrypoint and page router. It currently handles:
 
-- creates the FastAPI application object
-- calls `create_db_and_tables()` at import/startup time
-- mounts static files from `app/static`
-- registers the API routers under `/api/v1`
-- serves the dashboard and list pages via Jinja templates
+- FastAPI startup and DB bootstrap
+- static asset mounting
+- HTML dashboard and device pages
+- wizard endpoints for SmartLife QR login, linked-device fetch, and match logic
+- device CRUD and web forms for local discovery
+- SSE-capable updates for device state changes
 
-It is also the place where the app renders high-level HTML views for endpoints, device management, mappings, and events.
+The file is no longer only a telemetry and dashboard app. It is also the UI controller for the local device onboarding workflow.
 
 ### 3.2 `app/core/config.py`
 
-The settings object is built from `.env` values and env prefix `CHARGEPILOT_`.
+This contains the environment-backed settings model and the CHARGEPILOT_ prefix settings. It is still the main authority for database, secret, and auth configuration.
 
-Important fields in `Settings`:
+Key settings include:
 
-- `app_name`
-- `environment`
-- `secret_key`
-- `database_url`
-- `encryption_key`
-- `admin_username`
-- `admin_password`
-- `telemetry_rate_limit_per_minute`
-- `endpoint_offline_timeout_seconds`
-- `api_v1_prefix`
+- database URL
+- secret key
+- encryption key
+- admin credentials
+- telemetry and endpoint rules
+- app environment metadata
 
 ### 3.3 `app/core/database.py`
 
-This module does the database bootstrap and session wiring:
-
-- creates `engine`
-- builds `SessionLocal`
-- creates all tables on startup
-- calls `_ensure_table_columns()` to patch schema drift for fields such as `current_state`, `updated_at`, and `enabled`
+This sets up the SQLAlchemy engine and creates tables. It also performs schema patching for fields expected by the app. This is still essential because the app evolves faster than the database schema when features are added.
 
 ### 3.4 `app/services/rule_engine.py`
 
-This module implements battery hysteresis and cooldown behavior.
+This is the battery hysteresis module. It enforces:
 
-Key logic:
-
-```python
-if current_state and battery >= off_threshold:
-    TURN_OFF
-elif not current_state and battery <= on_threshold:
-    TURN_ON
-else:
-    NO_ACTION
-```
-
-The implementation also checks a minimum state-change interval before allowing a new state transition.
+- high and low threshold behavior
+- minimum state-change interval before action
+- explicit NO_ACTION logic when thresholds are not crossed
 
 ### 3.5 `app/services/tuya_service.py`
 
-This is the device abstraction layer for the local hardware controller.
+This module is the local device-control boundary. It encapsulates:
 
-It provides:
+- local discovery via `tinytuya.deviceScan()`
+- device state fetch and channel-aware `set_state()` calls
+- nested DPS extraction and payload normalization
+- error logging and command orchestration
 
-- `discover()` using `tinytuya.deviceScan()`
-- `_extract_dps()` to parse nested DPS payloads
-- `get_status()` to read current state from a switch
-- `turn_on()` / `turn_off()` / `set_state()` wrappers
-- structured logging around device requests and responses
+This layer remains the essential abstraction boundary and should not be bypassed by high-level logic.
 
-A key design choice is that the app does not assume a flat boolean state; it explicitly accounts for `dps`, `data.dps`, and `status` objects.
+### 3.6 `app/services/smartlife_service.py`
 
-### 3.6 `app/api/telemetry.py`
+This is the new critical component for the current state of the product. It handles:
 
-This is the main automation route. It validates telemetry, updates the endpoint, resolves mappings, and chooses the action to take.
+- QR creation and payload generation for SmartLife/Tuya app login
+- smart scheme selection (`smartlife` vs `tuyaSmart`)
+- persisted session data in `.smartlife_session.json`
+- polling for linked devices using `LoginControl().login_result()`
+- normalized mapping from provider objects to ChargePilot device dictionaries
+- automatic refresh of QR when provider returns an immediate invalid/expired result
 
-Important behaviors:
+This service is effectively the onboarding bridge between mobile app pairing and local Tuya device control.
 
-- rejects missing or invalid bearer token
-- rejects telemetry older than 10 minutes
-- upserts endpoint state by hostname
-- loads active `Mapping` rows
-- reads current device state bottom-up from Tuya
-- applies `switch_state` override when present
-- calls `evaluate_battery_action()` otherwise
-- writes `AutomationEvent` records after a decision
+### 3.7 `app/api/telemetry.py`
+
+This is still the core automation route. It validates telemetry, updates endpoint state, resolves mappings, evaluates battery actions, sends local control commands, and writes `AutomationEvent` records.
+
+It also publishes state-change events for SSE clients, which is essential for UI updates without page reloads.
 
 ## 4. Persistence model
 
 ### `Endpoint`
 
-Represents a laptop or telemetry source.
+Represents a laptop or endpoint sending telemetry.
 
 Key fields:
 
-- `hostname`
-- `ip_address`
-- `battery_percentage`
-- `charging`
-- `ac_connected`
-- `last_seen_at`
-- `agent_version`
-- `enabled`
-- `updated_at`
+- hostname
+- ip_address
+- battery_percentage
+- charging
+- ac_connected
+- last_seen_at
+- agent_version
+- enabled
+- updated_at
 
 ### `Device`
 
-Represents a Tuya switch or outlet.
+Represents a local switch or plug.
 
 Key fields:
 
-- `device_id`
-- `encrypted_local_key`
-- `ip_address`
-- `device_type`
-- `protocol_version`
-- `enabled`
-- `current_state`
-- `last_state_change_at`
+- device_id
+- encrypted_local_key
+- ip_address
+- device_type
+- protocol_version
+- enabled
+- current_state
+- last_state_change_at
 
 ### `DeviceChannel`
 
-Represents a channel or output index on a multi-gang device.
+Represents per-channel state and metadata on multi-output devices.
 
 Key fields:
 
-- `device_id`
-- `channel_index`
-- `name`
-- `dp_id`
-- `enabled`
-- `current_state`
+- device_id
+- channel_index
+- name
+- dp_id
+- enabled
+- current_state
 
 ### `Mapping`
 
-Links an endpoint to a device and optionally to a channel.
+Links an endpoint to a device or specific channel.
 
 Key fields:
 
-- `endpoint_id`
-- `device_id`
-- `channel_id`
-- `on_threshold`
-- `off_threshold`
-- `minimum_state_change_interval`
-- `enabled`
+- endpoint_id
+- device_id
+- channel_id
+- on_threshold
+- off_threshold
+- minimum_state_change_interval
+- enabled
 
 ### `AutomationEvent`
 
-Stores audit data about state changes and failures.
+Stores state transitions and failures for audit and debugging.
 
 Key fields:
 
-- `event_type`
-- `reason`
-- `previous_state`
-- `new_state`
-- `success`
-- `error`
+- event_type
+- reason
+- previous_state
+- new_state
+- success
+- error
 
-## 5. Request lifecycle
+### SmartLife session state
 
-High-level lifecycle of the core automation path:
+The mobile pairing flow stores state in a JSON file at `.smartlife_session.json`.
+
+Important fields:
+
+- `user_code`
+- `token`
+- `qr_scheme`
+- `qr_data_url`
+- `status`
+- `created_at`
+- `expires_at`
+- `session_data`
+- `devices`
+
+This is effectively a lightweight session cache and is not a replacement for the SQL database.
+
+## 5. Current runtime flows
+
+### A. Telemetry lifecycle
 
 ```text
 PowerShell agent
   -> POST /api/v1/telemetry
-  -> validate Authorization header
+  -> validate bearer token
   -> validate timestamp freshness
   -> upsert Endpoint row
-  -> load Mapping rows
-  -> read current device state
-  -> evaluate target state via rule_engine
-  -> call TuyaService.set_state()
-  -> persist device state
-  -> persist AutomationEvent
+  -> load active mappings
+  -> read live device state
+  -> evaluate battery rule
+  -> call local switch command
+  -> record AutomationEvent
+  -> publish SSE update
+```
+
+### B. Device wizard / SmartLife onboarding lifecycle
+
+```text
+User enters SmartLife user code
+  -> POST /devices/wizard/smartlife/login
+  -> SmartLifeService.start_login()
+  -> generate QR payload
+  -> save session + expiry metadata
+  -> return qr_data_url to client
+User scans QR in SmartLife app
+  -> POST /devices/wizard/smartlife/fetch
+  -> SmartLifeService.fetch_linked_devices()
+  -> poll login_result()
+  -> normalize linked devices
+  -> session.devices receives matched local keys and IPs
+  -> client auto-matches discovered devices
+```
+
+### C. LAN discovery and device registration
+
+```text
+User clicks Run scan
+  -> local device discovery
+  -> list discovered devices
+  -> choose device
+  -> either manual add or SmartLife match fill-in
+  -> persist new Device record
 ```
 
 ## 6. Concurrency and operational constraints
 
-- `TuyaService.discover()` uses an `asyncio.Lock` to serialize scan activity.
-- Device control decisions are evaluated per endpoint mapping, not globally.
-- The database is expected to be available at startup; schema creation is automated.
-- Local device state is read before command execution to minimize repeated toggles and avoid stale assumptions.
+- Local LAN control and discovery must remain serial enough to avoid overlapping scan calls.
+- SmartLife polling loops are bounded to a timeout window and may refresh QR if the token fails immediately.
+- Device metadata can vary widely across Tuya firmware and device families.
+- The app deliberately favors a single-process monolith over distributed orchestration.
 
-## 7. Security and production-readiness notes
+## 7. Security and resilience notes
 
-The current production posture is intentionally minimal:
-
-- bearer-token validation is implemented as a static comparison against a known token value
-- secrets are expected to be stored via environment variables
-- local device keys are not sanitized in logs beyond hide markers in the Tuya service
-
-This means the project is a functioning self-hosted prototype, but it should not be treated as fundamentally hardened against adversarial access.
+- Telemetry routes rely on bearer-token validation and a static token model in the current implementation.
+- SmartLife session data lives in a local file and should never be committed to source control.
+- Local keys must be treated as sensitive configuration and stored safely.
+- QR generation must prefer PNG because QR readers are more reliable with PNG payloads than SVG in the wild.
 
 ## 8. Test strategy in the repo
 
-The included tests focus on:
+The repo includes a small but important validation set:
 
-- battery threshold behavior
-- hysteresis and cooldown logic
-- CRUD flows for device mapping behavior
+- threshold behavior and hysteresis rules: `tests/unit/test_rule_engine.py`
+- API and mapping CRUD behavior: `tests/api/test_device_mapping_crud.py`
+- additional Tuya-related checks under `tests/unit` and `tests/integration`
 
-Notable test file:
-
-- `tests/unit/test_rule_engine.py`
-
-These tests validate the battery logic and should remain the canonical regression tests for threshold behavior.
+These tests are the baseline regression suite for the core automation path and should be preserved when rebuilding or refactoring.
 
 ## 9. Guidance for future rebuilds
 
-- Keep the rule engine separate from the API layer.
-- Keep all TinyTuya logic inside `TuyaService`.
-- Preserve event auditing.
-- Maintain explicit channel semantics for multi-gang devices.
-- Treat live hardware payload structure as a compatibility concern, not a fixed assumption.
+- Preserve the separation between battery logic, Tuya control, and SmartLife pairing logic.
+- Keep `SmartLifeService` isolated from the database layer if possible.
+- Treat local key recovery and device discovery as first-class onboarding steps, not afterthoughts.
+- Keep event logging and device state updates durable and visible.
+- Build from a local-first architecture with a simple monolith, not a cloud-first stack.

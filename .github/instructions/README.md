@@ -1,52 +1,68 @@
 # ChargePilot Project Reference Pack
 
-This directory captures the actual implementation state of the ChargePilot repository so an AI agent or future developer can understand the product, architecture, runtime flow, and deployment constraints without reverse-engineering the codebase.
+This directory captures the current implementation state of the ChargePilot repository so a future developer or Claude-based agent can understand the product, architecture, runtime flow, and deployment constraints without reverse-engineering the codebase.
 
 ## Included reference documents
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — runtime architecture, module boundaries, startup flow, and operational model.
-- [PRD.md](PRD.md) — product intent, user goals, requirements, and constraints as implemented in the codebase.
-- [TLD.md](TLD.md) — detailed technical design for the monolith, data model, and service boundaries.
-- [API_SPEC.md](API_SPEC.md) — exact route surface and payload contracts for the API.
-- [DEPLOYMENT.md](DEPLOYMENT.md) — environment variables, compose setup, and deployment steps.
-- [RUNBOOK.md](RUNBOOK.md) — local setup, debugging checklist, and operational guidance.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — architecture, runtime boundaries, and current module layout.
+- [PRD.md](PRD.md) — product intent, user goals, functional requirements, and current scope.
+- [TLD.md](TLD.md) — detailed technical design for the monolith, services, flows, and data model.
+- [API_SPEC.md](API_SPEC.md) — the current API surface and payload contracts.
+- [DEPLOYMENT.md](DEPLOYMENT.md) — environment, Docker, and runtime setup notes.
+- [RUNBOOK.md](RUNBOOK.md) — debugging, validation, and operational checklist.
 
-## What this codebase does
+## What this codebase does now
 
-The project is a local battery-automation system for Windows laptops:
+The project is a local-first battery automation platform for Windows laptops and local Tuya devices. In its current form it includes:
 
-- a laptop agent sends battery telemetry over HTTPS
-- the backend verifies bearer-token access
-- the app matches the laptop endpoint to a configured device mapping
-- a rule engine decides whether a switch should be toggled
-- TinyTuya issues the local LAN command to a smart switch or outlet
-- automation events are stored for later inspection
+- Windows laptop telemetry ingestion via a PowerShell agent
+- endpoint-to-device mappings and automation rules
+- local Tuya device discovery and state control over the LAN
+- a SmartLife/Tuya QR login flow for linked-device recovery and local key matching
+- a wizard-based device onboarding flow using AJAX and local session state
+- SSE-driven UI updates and current-state refreshes
 
-## Implementation facts captured from the repo
+## Current implementation facts captured from the repo
 
-- Runtime stack: Python 3.12, FastAPI, SQLAlchemy 2.x, PostgreSQL, TinyTuya, Jinja2, pytest.
-- App entrypoint: `app/main.py` mounts static files, registers routers, and renders dashboard pages.
+- Runtime stack: Python 3.12, FastAPI, SQLAlchemy 2.x, PostgreSQL, TinyTuya, tuya-device-sharing-sdk, Jinja2, pytest.
+- App entrypoint: `app/main.py` renders HTML dashboard pages and also hosts the wizard flow for SmartLife integration.
 - Settings prefix: `CHARGEPILOT_` via `app/core/config.py`.
-- Database bootstrap: `create_db_and_tables()` runs on app startup and ensures schema drift columns are added.
-- Telemetry authentication: bearer token is parsed by `app/core/security.py` and compared against the static `test-endpoint-token`.
+- Database bootstrap: `create_db_and_tables()` runs on startup and ensures missing columns are added.
+- Telemetry auth: bearer token validation is still kept simple and should be hardened before production exposure.
+- SmartLife flow: `app/services/smartlife_service.py` generates QR images, polls login results, saves session state, and refreshes QR on immediate expiry.
 - Rule defaults: `on_threshold=79`, `off_threshold=99`, `minimum_state_change_interval=300`.
-- Device state normalization: `TuyaService._extract_dps()` handles nested `dps`, `data.dps`, and `status` payloads.
-- Agent contract: `agent/BatteryAgent.ps1` sends `switch_state`, `battery_percentage`, `charging`, `ac_connected`, and timestamp metadata.
+- Device discovery: `tinytuya` scan and local wizard form support auto-matching local key and IP fields.
+- UI pattern: the app uses Jinja templates plus some AJAX and toast-based interactions rather than a separate frontend framework.
 
 ## File map relevant to AI understanding
 
 ```text
-app/main.py                 # app bootstrap and HTML views
-app/api/*.py               # routers
-app/core/*.py              # settings, DB, security
-app/models/*.py            # database schema
-app/services/*.py          # rule engine and TinyTuya service
-app/schemas/*.py           # API models
+app/main.py                 # app bootstrap, HTML pages, wizard routes
+app/api/*.py               # routers for telemetry, devices, events, and mappings
+app/core/*.py              # settings, DB session, auth helpers
+app/models/*.py            # ORM schema
+app/services/*.py          # device logic, rule logic, SmartLife flow, SSE
+app/templates/*.html       # dashboard and wizard pages
+app/static/*.css           # styling
 agent/BatteryAgent.ps1     # telemetry sender
-docker-compose.yml         # runtime container config
+agentv2/                  # alternate agent flow or future version
+docker-compose.yml         # runtime config
 tests/                    # validation cases
 ```
 
 ## Current status
 
-The repository is structured as a small local-first product prototype. It is meant to be self-hosted and local-only, and the technical details in these documents should be treated as the authoritative implementation reference for this codebase.
+The repository is a working local-first product prototype with an expanded onboarding flow. It is meant to be self-hosted and local-only, and the technical details in these documents should be treated as the authoritative implementation reference for this codebase.
+
+## Claude rebuild guidance
+
+If this project has to be rebuilt from scratch, the safe order is:
+
+1. build the FastAPI app and core DB schema
+2. add telemetry ingestion and mapping logic
+3. add Tuya discovery and local device control abstraction
+4. add battery rule engine and automation event logging
+5. add SmartLife QR onboarding and local-key matching flow
+6. add template-based UI and SSE for operational visibility
+
+This order preserves the system's practical local-first architecture and minimizes unnecessary churn.

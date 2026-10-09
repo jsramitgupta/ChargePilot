@@ -2,141 +2,164 @@
 
 ## 1. Product vision
 
-ChargePilot is a self-hosted battery automation platform for Windows laptops. It turns local smart switches on and off based on laptop battery thresholds with a local-first architecture that avoids cloud control for routine operations.
+ChargePilot is a self-hosted local automation platform for Windows laptops. It monitors battery state, evaluates configurable thresholds, and toggles local smart switches or plugs on the same LAN. The current product is not a cloud service; it is a local-first control system that remains usable even when the device is offline from the internet.
 
-The product is designed for users who want their laptop charging or AC power flow to respond to battery state without relying on a vendor-managed cloud service.
+The current product state extends the original battery automation idea with a missing but important layer: discovering and registering local Tuya devices via LAN scan, and optionally linking devices through the SmartLife/Tuya QR login flow when the user needs a local key or wants to import a device that was previously paired via the mobile app.
 
 ## 2. Problem statement
 
-The app addresses a practical need: some users want a laptop or accessory to be powered down when the battery is sufficiently charged, and powered back on when the battery is low enough. The product aims to provide that behavior in a local environment with explicit thresholds and a visible event trail.
+Users want an automatic way to keep a laptop or accessory powered in a safe, energy-aware pattern:
 
-The codebase implements that model through:
+- turn on power when the battery is low
+- turn off power when the battery is high enough
+- keep behavior local to the LAN and avoid cloud dependence for day-to-day automation
+- recover device details even when a device is not discoverable by IP alone
+
+The codebase addresses this with:
 
 - telemetry ingestion from a Windows laptop agent
 - endpoint-to-device mapping for automation targets
-- local Tuya control over the LAN
-- hysteresis-based threshold decisions
-- auditing of device actions and failures
+- local Tuya switch discovery and control over the LAN
+- SmartLife/Tuya QR login support for retrieving linked devices and local keys
+- hysteresis-based threshold decisions and event logging
 
 ## 3. Target users
 
 ### Primary user
 
-A self-hosting user who owns a Windows laptop and a local Tuya-compatible switch or outlet.
+A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch or plug, and a desire to automate charging behavior without depending on a cloud app or SaaS backend.
 
 ### Secondary users
 
-- home lab or office users
-- users who prefer local control over cloud-driven automation
-- users who want a lightweight self-hosted automation system without a SaaS account
+- home-lab and office users who want local automation
+- users managing multiple switches or plugs on a local network
+- users who own devices that are only visible after a SmartLife/Tuya pairing or QR login
+- admins who want a lightweight dashboard and event log for troubleshooting
 
 ## 4. Core user goals
 
 1. Send laptop battery telemetry to a local ChargePilot server.
-2. Attach a laptop endpoint to a switch or channel.
-3. Automatically turn a switch on when the battery drops below the configured level.
-4. Automatically turn a switch off when the battery rises above the configured level.
-5. Avoid rapid relay chatter with hysteresis and interval guards.
-6. Inspect endpoint, device, and event data through the dashboard or API.
+2. Identify or import the local switch or plug for a mapped endpoint.
+3. Discover devices available on the LAN or recover them from a SmartLife linked-device session.
+4. Auto-match discovered devices with SmartLife session state to populate local keys and IP addresses.
+5. Automatically turn a switch on or off based on battery thresholds and cooldown rules.
+6. Inspect endpoint, device, mapping, and event state from the dashboard or API.
 
-## 5. Functional requirements
+## 5. Current product scope
 
 ### 5.1 Telemetry ingestion
 
-- The system accepts authenticated telemetry from a battery agent.
-- The telemetry includes hostname, IP, battery percentage, charging state, AC state, switch state, timestamp, and agent version.
-- The system records the latest battery information per endpoint.
-- The system rejects telemetry that is too old or missing a valid bearer token.
+- The system accepts authenticated telemetry from the PowerShell agent.
+- Payload includes hostname, IP, battery percentage, charging status, AC status, switch state, timestamp, and agent version.
+- The app records the latest battery state per endpoint and uses it to evaluate mappings.
+- Stale telemetry is rejected, and invalid bearer tokens are rejected.
 
-### 5.2 Device management
+### 5.2 Local discovery and switch registration
 
-- The app allows registering a local Tuya switch or plug.
-- Device metadata includes name, `device_id`, IP, protocol version, local key, and device type.
-- Channel-based device topologies are supported with `DeviceChannel` records and per-channel index values.
+- Users can run a LAN scan to discover Tuya devices on the local network.
+- Discovered devices are shown in a device wizard for manual review and addition.
+- Device forms accept name, device ID, IP, protocol version, channel count, and local key.
+- Users can bulk auto-match local keys and IPs from the SmartLife session.
 
-### 5.3 Mapping and automation
+### 5.3 SmartLife/Tuya QR login flow
 
-- A laptop endpoint can be mapped to a device and optionally to a specific channel.
-- Each mapping has an `on_threshold`, `off_threshold`, and cooldown window.
-- The rule engine decides whether a state command should be sent.
-- The app can process both automated and explicit state changes.
+- Users can enter a SmartLife user ID and choose a QR scheme such as SmartLife or TuyaSmart.
+- The app generates a QR image and returns it to the client.
+- The user scans it in the SmartLife app.
+- The app polls for linked devices and matches them to LAN-discovered devices.
+- If the QR token is expired or invalid immediately, the server refreshes the QR automatically and returns the new payload without requiring the user to click retry manually.
 
-### 5.4 State control and automation logging
+### 5.4 Device mapping and automation
 
-- A device can be turned on or off manually through the app flow or API.
-- Channel-specific switching is supported.
-- Every action produces an `AutomationEvent` with state before/after and success/error metadata.
+- An endpoint can be mapped to a device and optionally a specific channel.
+- Each mapping carries `on_threshold`, `off_threshold`, and a cooldown interval.
+- The rule engine makes a state decision based on the battery and the last state-change timestamp.
+- Both direct switch actions and battery-driven automation are supported.
 
-### 5.5 Observability
+### 5.5 Operational visibility
 
-- The dashboard shows summary data for endpoints, devices, and active mappings.
-- Event logs record operational decisions and failures for debugging.
+- A dashboard plus Jinja pages show devices, endpoints, mappings, and events.
+- Event logs capture decision reasons and success/failure status.
+- SSE streaming is available for real-time update pushes to UI clients.
 
-## 6. Non-functional requirements
+## 6. Functional requirements
+
+### 6.1 Authentication and safety
+
+- The app requires a bearer token for endpoint telemetry.
+- The backend validates bearer data before accepting telemetry.
+- Device actions should fail gracefully and leave an event trail even when control fails.
+
+### 6.2 Local-control requirements
+
+- Tuya state changes are performed by local-device access, not by cloud automation.
+- The app supports channel-specific operations and nested DPS extraction.
+- Device keys, IPs, and protocol metadata are required for local control to work reliably.
+
+### 6.3 SmartLife credentials and device import
+
+- QR generation must support PNG-first output with SVG fallback.
+- QR payloads must embed the correct app-visible scheme (for example `smartlife--qrLogin?token=` or `tuyaSmart--qrLogin?token=`).
+- The flow must persist session state long enough to match linked devices after scanning.
+- The frontend should surface success/error info without blocking the user with browser alerts.
+
+### 6.4 UX requirements
+
+- The device wizard must support scanning, SmartLife login, device matching, and add-switch flows in one interface.
+- AJAX responses should allow the UI to render refreshed QR payloads and update state without complete page reloads.
+- Toasts should communicate status, warnings, and refresh actions clearly.
+
+## 7. Non-functional requirements
 
 ### Security
 
-- Secrets and local keys must live in environment variables or `.env` rather than source files.
-- Telemetry routes require a bearer token.
-- The app is intentionally local-only and does not require cloud access for automation.
+- Secrets and local keys must be stored outside source control, ideally in environment variables or a local `.env` file.
+- The SmartLife session should not be committed to source control.
+- The app should not assume network trust beyond the local environment.
 
 ### Reliability
 
-- Switch calls should fail gracefully and not crash the request path.
-- Device state should be recovered from live status checks when possible.
-- Database state should remain visible for event troubleshooting.
+- Device discovery and control should be tolerant of missing metadata and transient API issues.
+- The QR flow must degrade gracefully when the provider response is partial or expired.
+- Telemetry should continue to work even if the battery agent is restarted or the network changes.
 
 ### Maintainability
 
-- The code should remain modular within a monolith.
-- Device-specific logic should be centralized in the TinyTuya layer.
-- Rule logic should be isolated from API concerns.
+- Core battery logic should remain separate from local-Tuya integration logic.
+- SmartLife-specific code should stay isolated in a service layer.
+- Dashboard behavior should remain simple enough to reason about without a separate frontend framework.
 
 ### Performance
 
-- Battery telemetry processing is lightweight and synchronous enough for HTTP request handling.
-- No message bus or background worker system is required for the first implementation.
+- Battery telemetry processing is lightweight and synchronous enough for a local app.
+- Discovery and QR polling are simple polling loops that operate within bounded timeout windows.
 
-## 7. Constraints and assumptions
+## 8. Constraints and assumptions
 
-- The project is self-hosted, not SaaS.
-- Local network access is required for smart switch control.
-- The Windows PowerShell agent is a supported part of the system design.
-- This is a local prototype and not a multi-tenant platform.
+- This is a self-hosted, local-first system rather than a SaaS product.
+- LAN access is required for device discovery and state changes.
+- Local Tuya control depends on correct device IP, protocol version, and local key metadata.
+- SmartLife QR login relies on the mobile app flow and provider TTL values, which can vary by response.
+- The app currently favors a modular monolith instead of a microservice architecture.
 
-## 8. Success criteria
+## 9. Success criteria
 
-The implementation is considered successful when:
+The product is considered successful when:
 
-- a laptop agent can send telemetry reliably
+- a Windows laptop sends telemetry to the app reliably
 - the server updates endpoint state and evaluates mappings
-- a Tuya switch state changes based on thresholds and cooldown rules
-- event logs expose the reasoning and outcome of each state change
-- the app remains functional in a local LAN environment without cloud automation
+- a smart switch toggles according to battery thresholds with hysteresis and cooldown rules
+- a user can discover a device locally and add it from the wizard
+- a user can log in via SmartLife QR, fetch linked devices, and auto-fill local key and IP values
+- future rebuilds can recreate the same architecture without reverse-engineering the app
 
-## 9. Scope and out-of-scope
+## 10. Key findings captured from the implementation
 
-### In scope
+The current implementation shows that the project has matured from a basic battery rule engine into a hybrid product:
 
-- battery telemetry ingestion
-- threshold-based switching
-- local Tuya control
-- mapping and event inspection
-- dashboard and REST interfaces
+- it is still fundamentally a local battery automation engine
+- it now also includes a LAN-discovery and SmartLife metadata onboarding path
+- the main risk is device-specific behavior, especially QR expiry, local key extraction, and Tuya protocol variations
+- operational UX matters: a user should be able to scan a QR, fetch devices, and auto-match them without manual debugging
 
-### Out of scope for the current codebase
-
-- multi-user SaaS accounts
-- mobile app frontend
-- advanced scheduling, alerts, or cloud integrations
-- distributed orchestration or queueing infrastructure
-
-## 10. Product facts captured from the code
-
-The implemented system currently assumes:
-
-- `switch_state` can be sent from the laptop agent and used as an explicit override
-- default charge thresholds are `79` and `99`
-- minimum delay between changes is 300 seconds
-- local device state may require `dps` extraction and channel awareness
-- failure details should be visible in automation events for later diagnosis
+This is the product model that future Claude-driven rebuilds should preserve.

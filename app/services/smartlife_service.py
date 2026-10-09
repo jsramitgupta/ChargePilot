@@ -169,12 +169,36 @@ class SmartLifeService:
         qr_data_url = SmartLifeService._build_qr_image(token, qr_scheme=qr_scheme)
         # record when the token was created so callers can show TTL / refresh hints
         created_at = int(time.time())
-        # default TTL: 150s (matches fetch polling window); providers may vary
-        expires_at = created_at + 150
+        # Try to honor any TTL/expiry information returned by the provider when available.
+        # Providers may include 'ttl', 'expire_time' (seconds), or a timestamp 't' (ms).
+        ttl = None
+        try:
+            if isinstance(result, dict):
+                if result.get("ttl"):
+                    ttl = int(result.get("ttl"))
+                elif result.get("expire_time"):
+                    ttl = int(result.get("expire_time"))
+            # Some responses include a top-level 't' (ms timestamp) indicating expiry time
+            if ttl is None and isinstance(response, dict) and response.get("t"):
+                try:
+                    t_ms = int(response.get("t"))
+                    # convert ms timestamp to seconds from now
+                    now_ms = int(time.time() * 1000)
+                    ttl = max(0, int((t_ms - now_ms) / 1000))
+                except Exception:
+                    ttl = None
+        except Exception:
+            ttl = None
+
+        # default TTL fallback: 150s (matches fetch polling window); providers may vary
+        if ttl is None or ttl <= 0:
+            ttl = 150
+        expires_at = created_at + int(ttl)
         session = SmartLifeService.load_session()
         session.update({
             "user_code": cleaned,
             "token": token,
+            "qr_scheme": (qr_scheme or "smartlife").strip(),
             "qr_data_url": qr_data_url,
             "status": "pending",
             "created_at": created_at,
@@ -194,12 +218,16 @@ class SmartLifeService:
 
         login_control = LoginControl()
         deadline = time.monotonic() + 150
+        first_attempt = True
         while time.monotonic() < deadline:
             try:
                 ok, result = login_control.login_result(cleaned_token, CLIENT_ID, cleaned_user_code)
             except Exception:
                 time.sleep(2)
+                first_attempt = False
                 continue
+
+            # Successful link: populate session and return normalized devices
             if ok:
                 session.update(
                     {
@@ -228,6 +256,20 @@ class SmartLifeService:
                 session["devices"] = devices
                 SmartLifeService.save_session(session)
                 return devices
+
+            # If the first check failed immediately (possible immediate expiry or provider-side issue),
+            # generate a fresh QR and return that to the caller so the client can present it for re-scan.
+            if first_attempt:
+                try:
+                    scheme = session.get("qr_scheme") or "smartlife"
+                    new_session = SmartLifeService.start_login(cleaned_user_code, qr_scheme=scheme)
+                    # return a special dict indicating refresh required
+                    return {"refreshed": True, "qr_data_url": new_session.get("qr_data_url"), "expires_at": new_session.get("expires_at"), "user_code": new_session.get("user_code")}
+                except Exception:
+                    # If refresh failed, fall back to continuing the polling loop and eventual timeout
+                    pass
+
+            first_attempt = False
             time.sleep(2)
 
         raise TimeoutError("SmartLife QR scan timed out. Please generate a new QR code and confirm the login on your phone.")

@@ -309,9 +309,20 @@ async def devices_view(request: Request, db: Session = Depends(get_db)):
 @app.get("/devices/wizard", response_class=HTMLResponse)
 async def device_scan_wizard(request: Request, db: Session = Depends(get_db)):
     discovered_devices = await TuyaService().discover()
+    smartlife_state = SmartLifeService.load_session()
+    smartlife_ttl_seconds = None
+    try:
+        import time
+
+        expires = smartlife_state.get("expires_at")
+        if expires:
+            smartlife_ttl_seconds = max(0, int(int(expires) - time.time()))
+    except Exception:
+        smartlife_ttl_seconds = None
+
     return templates.TemplateResponse(
         "device_wizard.html",
-        {"request": request, "discovered_devices": discovered_devices},
+        {"request": request, "discovered_devices": discovered_devices, "smartlife_state": smartlife_state, "smartlife_ttl_seconds": smartlife_ttl_seconds},
     )
 
 
@@ -401,6 +412,54 @@ async def smartlife_login(request: Request, user_code: str = Form(...), scheme: 
     return RedirectResponse(url="/devices", status_code=303)
 
 
+@app.post("/devices/wizard/smartlife/login")
+async def wizard_smartlife_login(request: Request, user_code: str = Form(...), scheme: str = Form("smartlife")):
+    try:
+        session = SmartLifeService.start_login(user_code, qr_scheme=scheme)
+    except ValueError as exc:
+        if _is_ajax(request):
+            return JSONResponse({"ok": False, "error": str(exc)})
+        request.session["smartlife_error"] = str(exc)
+        return RedirectResponse(url="/devices/wizard", status_code=303)
+
+    if _is_ajax(request):
+        return JSONResponse({"ok": True, "qr_data_url": session.get("qr_data_url"), "expires_at": session.get("expires_at"), "user_code": session.get("user_code")})
+    return RedirectResponse(url="/devices/wizard", status_code=303)
+
+
+@app.post("/devices/wizard/smartlife/fetch")
+async def wizard_smartlife_fetch(request: Request):
+    try:
+        result = SmartLifeService.fetch_linked_devices()
+    except (TimeoutError, ValueError) as exc:
+        if _is_ajax(request):
+            return JSONResponse({"ok": False, "error": str(exc)})
+        request.session["smartlife_error"] = str(exc)
+        return RedirectResponse(url="/devices/wizard", status_code=303)
+    # If the service returned a refresh instruction, pass it through to the client
+    if isinstance(result, dict) and result.get("refreshed"):
+        if _is_ajax(request):
+            return JSONResponse({"ok": True, "refreshed": True, "qr_data_url": result.get("qr_data_url"), "expires_at": result.get("expires_at"), "user_code": result.get("user_code")})
+        request.session["smartlife_error"] = "QR refreshed; please scan the new code."
+        return RedirectResponse(url="/devices/wizard", status_code=303)
+
+    # Normal successful case: result is a list of devices
+    session = SmartLifeService.load_session()
+    if _is_ajax(request):
+        return JSONResponse({"ok": True, "devices": session.get("devices", [])})
+    return RedirectResponse(url="/devices/wizard", status_code=303)
+
+
+@app.post("/devices/wizard/smartlife/match")
+async def wizard_smartlife_match(request: Request, device_id: str = Form(...)):
+    session = SmartLifeService.load_session()
+    devices = session.get("devices", []) if isinstance(session.get("devices"), list) else []
+    for d in devices:
+        if str(d.get("device_id")) == str(device_id):
+            return JSONResponse({"ok": True, "local_key": d.get("encrypted_local_key"), "ip_address": d.get("ip_address")})
+    return JSONResponse({"ok": False, "error": "Matching device not found in SmartLife linked devices. Make sure you fetched linked devices after scanning the QR."})
+
+
 @app.post("/devices/smartlife/fetch")
 async def smartlife_fetch(request: Request, db: Session = Depends(get_db)):
     current_user = get_current_user(request, db)
@@ -408,12 +467,21 @@ async def smartlife_fetch(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse(url="/login", status_code=303)
 
     try:
-        SmartLifeService.fetch_linked_devices()
+        result = SmartLifeService.fetch_linked_devices()
     except (TimeoutError, ValueError) as exc:
         request.session["smartlife_error"] = str(exc)
+        if _is_ajax(request):
+            return JSONResponse({"ok": False, "error": str(exc)})
+        return RedirectResponse(url="/devices", status_code=303)
+
+    # If the service instructs a QR refresh, return the new QR to the client for re-scan
+    if isinstance(result, dict) and result.get("refreshed"):
+        if _is_ajax(request):
+            return JSONResponse({"ok": True, "refreshed": True, "qr_data_url": result.get("qr_data_url"), "expires_at": result.get("expires_at"), "user_code": result.get("user_code")})
+        request.session["smartlife_error"] = "QR refreshed; please scan the new code."
+        return RedirectResponse(url="/devices", status_code=303)
+
     if _is_ajax(request):
-        if request.session.get("smartlife_error"):
-            return JSONResponse({"ok": False, "error": request.session.get("smartlife_error")})
         return JSONResponse({"ok": True, "redirect": "/devices"})
     return RedirectResponse(url="/devices", status_code=303)
 
