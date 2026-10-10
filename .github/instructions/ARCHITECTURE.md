@@ -39,9 +39,9 @@ Scan from SmartLife app
   ↓
 Fetch linked devices
   ↓
-Normalize and match device metadata
+Match local keys by device ID to LAN scan results
   ↓
-Populate local key and IP for device creation or add flow
+Populate only the local key; device details and IP come from LAN scan
 ```
 
 ## 3. Current application modules
@@ -108,8 +108,9 @@ Current services include:
 1. The user enters a SmartLife user code and chooses a QR scheme.
 2. The app starts a login and returns a QR image payload.
 3. The user scans the QR in the SmartLife app.
-4. The app polls for linked devices and normalizes them.
-5. Matching local keys and IPs are filled into the device form automatically.
+4. The app polls for linked local keys and device IDs only.
+5. The local key is matched to the selected LAN scan result by device ID; all
+   other fields, including the local IP address, come from the scan.
 6. The user adds the switch to the database and the local control path is ready.
 
 ## 5. Data and control boundaries
@@ -120,11 +121,27 @@ The app assumes the device is reachable on the LAN and uses the IP, protocol ver
 
 ### SmartLife onboarding boundary
 
-The SmartLife flow is a pairing and metadata retrieval step. It does not replace Tuya local control; it supplies the information required to operate the device locally.
+The SmartLife flow is an opt-in local-key retrieval step. It does not replace
+Tuya local control or supply device metadata. Device identity, name, IP address,
+and protocol come from LAN scanning (or manual entry).
+
+The Switches page exposes distinct LAN discovery and manual-add options. LAN
+discovery uses TinyTuya from the ChargePilot host and intentionally excludes
+local keys from its response. Smart Life QR pairing is opt-in; it uses the
+account user code and explicit QR confirmation, and keeps linked device IDs
+and local keys in process memory for up to ten minutes. The wizard matches
+keys to LAN scan results by device ID. The account ID can optionally be
+remembered on the signed-in user's record; the provider session or local keys
+must never be persisted to browser storage or source-controlled files.
 
 ### State and audit boundary
 
 Every automation decision is persisted in `AutomationEvent` records with previous and new state, success, and reason metadata.
+
+The Events page queries the event log with server-side pagination (50, 100, or
+500 rows per page). A background retention task purges events older than 30
+days immediately at startup and then every 24 hours; retention applies across
+tenants.
 
 ## 6. Database bootstrap and schema compatibility
 
@@ -178,6 +195,24 @@ The SmartLife bridge handles:
 - preserve battery thresholds and event logging as core product behavior
 - keep the SmartLife flow isolated from core automation logic
 - keep the UI simple, local, and server-rendered when possible
+
+### Shared UI theme and regression coverage
+
+The web UI uses the semantic color tokens in `app/static/style.css` as its
+source of truth. Light and dark themes must define the same semantic tokens
+(`--bg`, `--panel`, `--soft`, `--muted`, `--line`, and `--primary`) so page
+surfaces, text, borders, and controls change together. Use the shared
+`.ui-page-hero`, `.ui-accent-surface`, and `.ui-modal-heading` classes for page
+hero panels, highlighted sections, and wizard/modal headers. Blue is the
+product accent; green, amber, and red are reserved for state and feedback.
+
+When changing shared colors or adding a page/wizard surface, keep both themes
+readable and add/update coverage in `tests/unit/test_ui_theme.py`. Avoid broad
+dark-theme overrides on generic elements such as `div` and `span`; style
+semantic components so utility text colors and status colors remain legible.
+Configured switch cards and channel rows use the same panel surfaces in both
+power states; show the live state with its indicator, label, and accent border
+rather than changing the whole card background.
 
 ## 9. Risks and operational concerns
 

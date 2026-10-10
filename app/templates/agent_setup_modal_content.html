@@ -1,0 +1,89 @@
+{% if tenant or is_super_admin %}
+<div class="agent-guide-steps">
+  {% if is_super_admin %}
+  <section class="agent-guide-global-token">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <p class="text-[10px] font-extrabold uppercase tracking-[0.16em] text-blue-700">Super Admin · Global token</p>
+        <p class="mt-1 text-xs leading-5 text-slate-600">This replaces <code>test-endpoint-token</code>. Tenant tokens are unaffected.</p>
+      </div>
+      <form method="post" action="/agent/global-token" data-no-ajax onsubmit="return confirm('Regenerate the global agent token? Agents using the current global token will stop authenticating.');">
+        <input type="hidden" name="action" value="regenerate" />
+        <button type="submit" class="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100">Regenerate</button>
+      </form>
+    </div>
+    <form method="post" action="/agent/global-token" data-no-ajax class="mt-3 flex flex-col gap-2 sm:flex-row">
+      <input type="hidden" name="action" value="save" />
+      <label class="sr-only" for="modal-global-agent-token">Global agent token</label>
+      <input id="modal-global-agent-token" name="token" type="text" minlength="16" maxlength="512" required value="{{ global_agent_token }}" autocomplete="off" spellcheck="false" class="min-w-0 flex-1 rounded-lg border border-blue-200 bg-white px-3 py-2 font-mono text-xs text-slate-900" />
+      <button type="submit" class="rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white hover:bg-blue-800">Save token</button>
+    </form>
+    {% if not tenant %}
+    <p class="mt-2 text-[11px] leading-4 text-blue-800">Your install command uses this token. Changing it requires reconfiguring agents using the previous value.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <div class="agent-guide-step">
+    <span>1</span>
+    <div>
+      <h3>Download the scripts</h3>
+      <p>Save the ZIP on the Windows laptop you want ChargePilot to monitor.</p>
+      <a href="/agent/download" data-no-ajax class="mt-3 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2.5 text-xs font-bold text-white transition hover:bg-blue-700">
+        <span aria-hidden="true">↓</span> Download agent scripts
+      </a>
+      <span class="ml-2 text-[11px] text-slate-500">ZIP · PowerShell · Windows 10/11</span>
+    </div>
+  </div>
+
+  <div class="agent-guide-step">
+    <span>2</span>
+    <div>
+      <h3>Extract and open PowerShell</h3>
+      <p>Extract the ZIP, then open PowerShell in the folder containing <code>CreateAgentScheduledTask.ps1</code>.</p>
+    </div>
+  </div>
+
+  <div class="agent-guide-step">
+    <span>3</span>
+    <div class="min-w-0">
+      <h3>Run the install command</h3>
+      <p>Copy this command and run it in that PowerShell window. It configures the current {{ token_scope }} and installs a scheduled task that reports every five minutes.</p>
+      <div class="agent-command-wrap mt-3">
+        <code id="modal-agent-install-command" class="agent-install-command">{{ install_command }}</code>
+        <button type="button" class="agent-copy-button" data-copy-target="modal-agent-install-command" aria-label="Copy install command">Copy</button>
+      </div>
+      <p id="agent-copy-status" class="mt-1 min-h-4 text-[11px] text-slate-500" aria-live="polite"></p>
+      <p class="mt-2 text-[11px] leading-4 text-slate-500">The installer uses a process-scoped execution-policy bypass and does not change your system policy.</p>
+    </div>
+  </div>
+
+  <div class="agent-guide-step">
+    <span>4</span>
+    <div>
+      <h3>Confirm the laptop is connected</h3>
+      <p>After the agent's first report, find the laptop under <a href="/endpoints" data-close-agent-guide-link>Endpoints</a>. You can then create a battery mapping.</p>
+    </div>
+  </div>
+
+  {% if tenant and current_user.is_admin %}
+  <section class="agent-guide-token">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <p class="text-[10px] font-extrabold uppercase tracking-[0.14em] text-slate-500">Tenant agent token</p>
+        <p class="mt-1 text-[11px] leading-4 text-slate-500">Regenerating it will disconnect agents using the old token.</p>
+      </div>
+      <form method="post" action="/tenant/rotate-agent-token" data-no-ajax onsubmit="return confirm('Regenerate this tenant token? Agents using the old token will stop authenticating until reconfigured.');">
+        <button type="submit" class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100">Regenerate token</button>
+      </form>
+    </div>
+    <code class="mt-3 block overflow-wrap-anywhere rounded-lg border border-slate-200 bg-white px-3 py-2.5 font-mono text-xs text-slate-800">{{ tenant_token }}</code>
+  </section>
+  {% endif %}
+</div>
+{% else %}
+<section class="rounded-xl border border-amber-200 bg-amber-50 p-5">
+  <h3 class="font-semibold text-amber-900">No tenant is assigned to this account</h3>
+  <p class="mt-2 text-sm leading-5 text-amber-800">Agent scripts require a tenant-specific token. Ask your administrator to assign this account to a tenant.</p>
+</section>
+{% endif %}

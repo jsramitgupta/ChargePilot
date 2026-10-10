@@ -15,6 +15,10 @@ Requires-Dist: jinja2==3.1.4
 Requires-Dist: bcrypt==4.1.2
 Requires-Dist: itsdangerous==2.2.0
 Requires-Dist: python-multipart==0.0.9
+Requires-Dist: tinytuya==1.20.0
+Requires-Dist: tuya-device-sharing-sdk==0.2.15
+Requires-Dist: qrcode[pil]==8.0
+Requires-Dist: tzdata==2024.1
 Provides-Extra: dev
 Requires-Dist: pytest==8.3.2; extra == "dev"
 Requires-Dist: pytest-asyncio==0.23.8; extra == "dev"
@@ -46,6 +50,9 @@ The current codebase is a modular monolith built with FastAPI and SQLAlchemy. It
 - PostgreSQL / psycopg
 - Pydantic + pydantic-settings
 - TinyTuya 1.20.0
+- tuya-device-sharing-sdk for Smart Life QR pairing
+- qrcode for Smart Life sign-in QR images
+- tzdata for timezone handling in containerized deployments
 - Jinja2 templates
 - pytest for automated checks
 
@@ -107,7 +114,9 @@ Expected payload:
 }
 ```
 
-The request is authenticated with a bearer token passed in the `Authorization` header. The current implementation validates a static value from `validate_endpoint_auth()` and compares it to `test-endpoint-token`.
+The request is authenticated with the tenant's agent token in the `Authorization` bearer header. Sign in to ChargePilot and open **Install Agent** in the top navigation to download the Windows scripts and get the PowerShell installation command for the current token. Tenant admins can regenerate the tenant token there; existing agents must be reconfigured after rotation. Super Admins can update or regenerate the installation-wide global agent token from the same page. A random global token is created during fresh database initialization and is stored in the database for tenantless Super Admin installations.
+
+Extract `chargepilot-agent-scripts.zip`, open PowerShell in that folder, and run the displayed command. The installer saves the token in the local agent configuration and registers the recurring scheduled task. The ZIP download requires an authenticated ChargePilot session and does not contain the tenant token.
 
 ### Automation rule
 
@@ -119,65 +128,63 @@ Battery decisions are evaluated in `app/services/rule_engine.py` and apply hyste
 
 The app prevents rapid toggling and only fires if the battery crosses threshold values with enough time since the last state change.
 
+### Automation event history
+
+The Events page is paginated on the server and lets you display 50, 100, or
+500 event rows per page. Events older than 30 days are automatically purged at
+application startup and once every 24 hours while the application is running.
+
 ### Local switch control
 
 `app/services/tuya_service.py` encapsulates TinyTuya interactions:
 
 - local discovery via `deviceScan()`
+- authenticated “Scan local network” wizard on the Switches page
 - request normalization for nested `dps` payloads
 - channel-specific state checks and toggles
 - structured logging of device commands and results
 
 This service is intentionally isolated so the rest of the app avoids direct TinyTuya dependency leakage.
 
+### Switch onboarding
+
+The Switches page offers separate LAN-scan and manual-add paths. A LAN scan runs
+from the ChargePilot server, so the server must be on the same reachable LAN as
+the Tuya devices and its firewall/network must allow TinyTuya discovery traffic.
+The scan returns device IDs, names, IP addresses, and protocol versions; it
+never fills or returns a local key.
+
+The local key field stays blank until entered manually or retrieved through
+Smart Life QR pairing. Smart Life returns only the local key and device ID
+needed to match that key; it does not populate device details. Select the
+matching TinyTuya LAN scan result to fill the device name, ID, IP address, and
+protocol version. The wizard can optionally remember the Smart Life user ID on
+the signed-in ChargePilot account; the account password, QR session, and local
+keys are never saved as that preference. Pairing follows the device-sharing flow used by
+[tuya-local-key](https://github.com/vineetchoudhary/tuya-local-key): it uses the
+Smart Life user code and requires the user to approve the QR sign-in in the
+mobile app; ChargePilot never asks for the account password. Linked-device keys
+are held temporarily in server memory and returned only to the authenticated
+account that started pairing. They are not written to a Smart Life session
+file. The Smart Life account is used only for key retrieval; device details,
+including the local IP address, come from the LAN scan (or manual entry).
+
 ## Environment configuration
 
-The application reads settings using `pydantic-settings` with the environment prefix `CHARGEPILOT_`.
+The application reads settings using `pydantic-settings` with the environment prefix `CHARGEPILOT_`. For Compose, copy `.env.example` to `.env`, then set unique secret, admin-password, and PostgreSQL-password values. Generate URL-safe values with `python -c "import secrets; print(secrets.token_urlsafe(32))"`. The `.env` file is ignored by Git. `CHARGEPILOT_ENCRYPTION_KEY` is currently reserved and is not yet used to encrypt local keys at rest.
 
-Important variables:
-
-```env
-CHARGEPILOT_SECRET_KEY=...
-CHARGEPILOT_DATABASE_URL=postgresql+psycopg://user:pass@host:5432/chargepilot
-CHARGEPILOT_ENCRYPTION_KEY=...
-CHARGEPILOT_ADMIN_USERNAME=admin
-CHARGEPILOT_ADMIN_PASSWORD=...
-CHARGEPILOT_TELEMETRY_RATE_LIMIT_PER_MINUTE=60
-CHARGEPILOT_ENDPOINT_OFFLINE_TIMEOUT_SECONDS=600
-```
-
-## Quick start
-
-1. Create a Python environment (3.12+).
-2. Install dependencies:
+## Quick start: fresh PostgreSQL deployment
 
 ```bash
-python -m pip install -e .[dev]
-```
-
-3. Configure `.env` with the values above.
-4. Start the app:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-5. Optionally run with Docker Compose:
-
-```bash
+docker compose config
 docker compose up --build -d
 ```
 
-## Docker deployment notes
+The Compose stack starts PostgreSQL 16 with persistent storage, waits for database health before starting the app, and runs the app as a non-root user. `/health` reports process liveness; `/ready` checks database connectivity. `docker compose down` preserves database data; `docker compose down -v` deletes it.
 
-The project includes a Compose file that exposes port `8000` and starts the app with:
+For local Python development, install with `python -m pip install -e .[dev]`, set `CHARGEPILOT_DATABASE_URL` to a reachable existing PostgreSQL database, and run `uvicorn app.main:app --reload`. The app creates tables and the initial admin account at startup on an empty database.
 
-```bash
-python -c "from app.core.database import create_db_and_tables; create_db_and_tables()"
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-The app creates its schema automatically when it boots, using `create_db_and_tables()` from `app/core/database.py`.
+The repository does not currently contain Alembic revision files. `create_all()` initializes a fresh database but is not a versioned migration system; back up existing databases and manage schema-changing upgrades deliberately.
 
 ## Operational observations from the codebase
 
@@ -207,7 +214,7 @@ pytest tests/api/test_device_mapping_crud.py -q
 This codebase is a compact local automation system, not a distributed SaaS product. The most important design constraints are:
 
 - local network access is required for Tuya control
-- telemetry auth is currently a bearer token check with a test token
+- telemetry auth uses generated bearer tokens for new installations; rotate the legacy `test-endpoint-token` after upgrading an older database
 - device actions depend on the actual switch payload format
 - the rule engine uses hysteresis and a cooldown window to avoid chatter
 - all automation outcomes are persisted in the database as events

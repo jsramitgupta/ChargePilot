@@ -29,3 +29,13 @@ async def test_discover_retries_after_socket_address_in_use_error():
     assert len(discovered) == 1
     assert discovered[0]["device_id"] == "abc123"
     assert calls["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_discover_surfaces_network_scan_failures():
+    with patch(
+        "app.services.tuya_service.deviceScan",
+        side_effect=RuntimeError("network unavailable"),
+    ):
+        with pytest.raises(RuntimeError, match="TinyTuya local network scan failed"):
+            await TuyaService().discover()

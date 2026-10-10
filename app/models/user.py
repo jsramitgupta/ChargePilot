@@ -1,6 +1,8 @@
 from uuid import uuid4
 
-from sqlalchemy import Boolean, String, func
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -16,4 +18,9 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(40), default="standard_user")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
-    created_at: Mapped[str] = mapped_column(String(64), server_default=func.now())
+    smartlife_user_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )

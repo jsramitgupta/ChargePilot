@@ -3,11 +3,13 @@ pyproject.toml
 app/__init__.py
 app/main.py
 app/api/__init__.py
+app/api/auth.py
 app/api/devices.py
 app/api/endpoints.py
 app/api/events.py
 app/api/health.py
 app/api/mappings.py
+app/api/onboarding.py
 app/api/telemetry.py
 app/core/__init__.py
 app/core/config.py
@@ -19,6 +21,7 @@ app/models/device.py
 app/models/endpoint.py
 app/models/event.py
 app/models/mapping.py
+app/models/system_setting.py
 app/models/telemetry.py
 app/models/tenant.py
 app/models/user.py
@@ -31,7 +34,9 @@ app/schemas/telemetry.py
 app/services/__init__.py
 app/services/broadcaster.py
 app/services/endpoint_service.py
+app/services/event_retention.py
 app/services/rule_engine.py
+app/services/smartlife_service.py
 app/services/tuya_service.py
 chargepilot.egg-info/PKG-INFO
 chargepilot.egg-info/SOURCES.txt

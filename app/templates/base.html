@@ -16,7 +16,7 @@
         },
       };
     </script>
-    <link rel="stylesheet" href="/static/style.css?v=4" />
+    <link rel="stylesheet" href="/static/style.css?v=18" />
   </head>
   <body class="min-h-full bg-slate-50 text-slate-900 antialiased" data-user-timezone="{{ request.session.get('user_timezone') or 'UTC' }}">
     <div class="min-h-screen">
@@ -47,6 +47,7 @@
             </button>
 
             {% if request.session.get('user_id') %}
+              <button id="open-agent-guide" type="button" class="agent-header-button">Download Agent</button>
               <a href="/profile" class="header-account-link">Profile</a>
               <a href="/logout" class="header-account-link">Logout</a>
             {% else %}
@@ -80,6 +81,24 @@
         {% block content %}{% endblock %}
       </main>
     </div>
+
+    {% if request.session.get('user_id') %}
+    <div id="agent-guide-modal" class="agent-guide-modal hidden" aria-hidden="true">
+      <button type="button" class="agent-guide-backdrop" data-close-agent-guide aria-label="Close agent setup guide"></button>
+      <section class="agent-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-guide-title">
+        <header class="agent-guide-dialog-header ui-modal-heading">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Windows setup</p>
+            <h2 id="agent-guide-title" class="mt-1 text-xl font-bold text-slate-900">Deploy the ChargePilot agent</h2>
+          </div>
+          <button type="button" class="agent-guide-close" data-close-agent-guide aria-label="Close agent setup guide">×</button>
+        </header>
+        <div id="agent-guide-content" class="agent-guide-content" aria-live="polite">
+          <div class="agent-guide-loading"><span class="agent-guide-spinner" aria-hidden="true"></span>Preparing your secure install guide…</div>
+        </div>
+      </section>
+    </div>
+    {% endif %}
 
     <script>
       const navToggle = document.querySelector('.nav-toggle');
@@ -157,19 +176,8 @@
         });
       }
 
-      document.querySelectorAll('.channel-toggle').forEach((button) => {
-        button.addEventListener('click', () => {
-          const panelId = button.dataset.target;
-          const panel = document.getElementById(panelId);
-          if (!panel) return;
-
-          const isHidden = panel.classList.toggle('hidden');
-          button.textContent = isHidden ? 'Toggle channels' : 'Hide channels';
-        });
-      });
-
       applyTheme();
     </script>
-    <script src="/static/ajax.js?v=4"></script>
+    <script src="/static/ajax.js?v=17"></script>
   </body>
 </html>

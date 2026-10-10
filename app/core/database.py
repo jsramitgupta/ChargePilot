@@ -1,4 +1,5 @@
 from collections.abc import Generator
+import secrets
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -20,6 +21,7 @@ from app.models.mapping import Mapping  # noqa: F401,E402
 from app.models.telemetry import BatteryReading  # noqa: F401,E402
 from app.models.tenant import Tenant  # noqa: F401,E402
 from app.models.user import User  # noqa: F401,E402
+from app.models.system_setting import SystemSetting  # noqa: F401,E402
 
 
 engine_kwargs = {"pool_pre_ping": True}
@@ -64,6 +66,7 @@ def _ensure_table_columns() -> None:
             "tenant_id": "VARCHAR(36)",
             "role": "VARCHAR(40) NOT NULL DEFAULT 'standard_user'",
             "timezone": "VARCHAR(64) NOT NULL DEFAULT 'UTC'",
+            "smartlife_user_code": "VARCHAR(120)",
         },
         "device_channels": {
             "enabled": "BOOLEAN NOT NULL DEFAULT TRUE",
@@ -117,8 +120,6 @@ def _ensure_cascade_foreign_keys() -> None:
 
 
 def ensure_default_admin_user() -> None:
-    from app.models.user import User
-
     with SessionLocal() as db:
         existing = db.query(User).filter(User.username == settings.admin_username).first()
         if existing is not None:
@@ -140,11 +141,20 @@ def ensure_default_admin_user() -> None:
         db.commit()
 
 
+def ensure_default_system_settings() -> None:
+    with SessionLocal() as db:
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "global_agent_token").first()
+        if setting is None:
+            db.add(SystemSetting(key="global_agent_token", value=secrets.token_urlsafe(32)))
+            db.commit()
+
+
 def create_db_and_tables() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_table_columns()
     _ensure_cascade_foreign_keys()
     ensure_default_admin_user()
+    ensure_default_system_settings()
 
 
 def get_db() -> Generator[Session, None, None]:

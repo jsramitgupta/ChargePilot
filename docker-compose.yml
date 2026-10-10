@@ -1,22 +1,47 @@
-version: '3.9'
-
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${CHARGEPILOT_POSTGRES_DB:?Set CHARGEPILOT_POSTGRES_DB in .env}
+      POSTGRES_USER: ${CHARGEPILOT_POSTGRES_USER:?Set CHARGEPILOT_POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${CHARGEPILOT_POSTGRES_PASSWORD:?Set CHARGEPILOT_POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
   app:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    env_file:
-      - .env
     environment:
-      CHARGEPILOT_DATABASE_URL: ${CHARGEPILOT_DATABASE_URL:-postgresql+psycopg://chargepilot:chargepilot@host.docker.internal:5432/chargepilot}
-      CHARGEPILOT_SECRET_KEY: ${CHARGEPILOT_SECRET_KEY:-change-me-in-production}
-      CHARGEPILOT_ENCRYPTION_KEY: ${CHARGEPILOT_ENCRYPTION_KEY:-replace-with-32-byte-base64-key}
-      CHARGEPILOT_ADMIN_USERNAME: ${CHARGEPILOT_ADMIN_USERNAME:-admin}
-      CHARGEPILOT_ADMIN_PASSWORD: ${CHARGEPILOT_ADMIN_PASSWORD:-change-me}
+      CHARGEPILOT_ENVIRONMENT: production
+      CHARGEPILOT_DATABASE_URL: postgresql+psycopg://${CHARGEPILOT_POSTGRES_USER:?Set CHARGEPILOT_POSTGRES_USER in .env}:${CHARGEPILOT_POSTGRES_PASSWORD:?Set CHARGEPILOT_POSTGRES_PASSWORD in .env}@db:5432/${CHARGEPILOT_POSTGRES_DB:?Set CHARGEPILOT_POSTGRES_DB in .env}
+      CHARGEPILOT_SECRET_KEY: ${CHARGEPILOT_SECRET_KEY:?Set CHARGEPILOT_SECRET_KEY in .env}
+      CHARGEPILOT_ENCRYPTION_KEY: ${CHARGEPILOT_ENCRYPTION_KEY:?Set CHARGEPILOT_ENCRYPTION_KEY in .env}
+      CHARGEPILOT_ADMIN_USERNAME: ${CHARGEPILOT_ADMIN_USERNAME:?Set CHARGEPILOT_ADMIN_USERNAME in .env}
+      CHARGEPILOT_ADMIN_PASSWORD: ${CHARGEPILOT_ADMIN_PASSWORD:?Set CHARGEPILOT_ADMIN_PASSWORD in .env}
     ports:
       - "8000:8000"
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    command: >
-      sh -c "python -c \"from app.core.database import create_db_and_tables; create_db_and_tables()\" && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  postgres-data:

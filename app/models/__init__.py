@@ -5,6 +5,7 @@ from app.models.mapping import Mapping
 from app.models.telemetry import BatteryReading
 from app.models.tenant import Tenant
 from app.models.user import User
+from app.models.system_setting import SystemSetting
 
 __all__ = [
     "User",
@@ -15,4 +16,5 @@ __all__ = [
     "Mapping",
     "BatteryReading",
     "AutomationEvent",
+    "SystemSetting",
 ]

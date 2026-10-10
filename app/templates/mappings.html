@@ -3,147 +3,215 @@
 {% block title %}Mappings | ChargePilot{% endblock %}
 
 {% block content %}
-<div class="mb-6 flex items-end justify-between gap-4">
+<div class="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
   <div>
     <p class="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Automation</p>
-    <h1 class="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Map laptop to switch</h1>
+    <h1 class="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Laptop to switch mappings</h1>
+    <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Connect each laptop to a switch and decide how battery levels should control it.</p>
   </div>
+  <button id="open-mapping-wizard" type="button" class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5 hover:bg-blue-700">
+    <span class="text-lg leading-none" aria-hidden="true">+</span>
+    Add mapping
+  </button>
 </div>
 
 {% if error_message %}
-<div class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+<div class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">
   {{ error_message }}
 </div>
 {% endif %}
 
-<div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
-  <div class="mb-5 flex items-center justify-between border-b border-slate-200 pb-3">
-    <h2 class="text-lg font-semibold text-slate-900">New mapping</h2>
-    <span class="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-700">Live</span>
+<section class="mapping-list-panel rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6" aria-labelledby="mapping-list-title">
+  <div class="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
+    <div>
+      <h2 id="mapping-list-title" class="text-lg font-semibold text-slate-900">Current mappings</h2>
+      <p class="mt-1 text-sm text-slate-500">Review the endpoint, switch, channel, and automation rules for each mapping.</p>
+    </div>
+    <span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">{{ mappings|length }} configured</span>
   </div>
 
-  <form method="post" action="/mappings" class="space-y-5">
-    <div class="grid gap-5 sm:grid-cols-2">
-      <div>
-        <label for="endpoint_id" class="mb-1.5 block text-sm font-medium text-slate-600">Endpoint</label>
-        <select id="endpoint_id" name="endpoint_id" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
-          {% for endpoint in endpoints %}
-            <option value="{{ endpoint.id }}">{{ endpoint.hostname }}{% if endpoint.ip_address %} • {{ endpoint.ip_address }}{% endif %}</option>
-          {% else %}
-            <option value="" disabled>No endpoints available</option>
-          {% endfor %}
-        </select>
+  <div class="mapping-list">
+    {% for mapping in mappings %}
+    <article class="mapping-card">
+      <div class="mapping-card-main">
+        <div class="mapping-route">
+          <div class="mapping-entity">
+            <span class="mapping-entity-icon endpoint-icon" aria-hidden="true">PC</span>
+            <div class="min-w-0">
+              <span class="mapping-overline">Endpoint</span>
+              <h3 class="mapping-entity-name">{{ mapping.endpoint_name }}</h3>
+            </div>
+          </div>
+          <span class="mapping-route-arrow" aria-hidden="true">→</span>
+          <div class="mapping-entity">
+            <span class="mapping-entity-icon switch-icon" aria-hidden="true">⌁</span>
+            <div class="min-w-0">
+              <span class="mapping-overline">Smart switch</span>
+              <h3 class="mapping-entity-name">{{ mapping.device_name }}</h3>
+            </div>
+          </div>
+        </div>
+        <div class="mapping-details">
+          <span class="mapping-detail-pill"><span aria-hidden="true">▦</span>{{ mapping.channel_name }}</span>
+          <span class="mapping-detail-pill">Turn on at <strong>{{ mapping.on_threshold }}% or below</strong></span>
+          <span class="mapping-detail-pill">Turn off at <strong>{{ mapping.off_threshold }}% or above</strong></span>
+          <span class="mapping-detail-pill">Minimum interval <strong>{{ mapping.minimum_state_change_interval }} sec</strong></span>
+        </div>
+        <p class="mapping-id">Mapping ID <span>{{ mapping.id }}</span></p>
       </div>
+      <form method="post" action="/mappings/{{ mapping.id }}/delete" class="mapping-card-action">
+        <button type="submit" class="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100">Delete mapping</button>
+      </form>
+    </article>
+    {% else %}
+    <div class="mapping-empty-state">
+      <span class="mapping-empty-icon" aria-hidden="true">⌁</span>
+      <h3>No mappings configured yet</h3>
+      <p>Add a mapping to connect a laptop with a smart switch and automate battery-based control.</p>
+      <button type="button" class="mt-4 inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700" data-open-mapping-wizard>Set up your first mapping</button>
+    </div>
+    {% endfor %}
+  </div>
+</section>
 
+<div id="mapping-modal" class="mapping-modal hidden" aria-hidden="true">
+  <div class="mapping-modal-backdrop" data-close-mapping-wizard></div>
+  <section class="mapping-dialog" role="dialog" aria-modal="true" aria-labelledby="mapping-wizard-title" aria-describedby="mapping-wizard-description">
+    <header class="mapping-dialog-header ui-modal-heading">
       <div>
-        <label for="deviceSelect" class="mb-1.5 block text-sm font-medium text-slate-600">Smart switch</label>
-        <select id="deviceSelect" name="device_id" required class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
-          {% for device in devices %}
-            <option value="{{ device.id }}">{{ device.name }}</option>
-          {% else %}
-            <option value="" disabled>No devices available</option>
-          {% endfor %}
-        </select>
+        <p class="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Mapping setup</p>
+        <h2 id="mapping-wizard-title" class="mt-1 text-xl font-bold text-slate-900">Create a mapping</h2>
+        <p id="mapping-wizard-description" class="mt-1 text-sm text-slate-500">A few quick steps to connect your laptop and switch.</p>
       </div>
+      <button id="close-mapping-wizard" type="button" class="mapping-modal-close" aria-label="Close mapping setup">×</button>
+    </header>
 
-      <div class="sm:col-span-2">
-        <label for="channelSelect" class="mb-1.5 block text-sm font-medium text-slate-600">Channel</label>
-        <select id="channelSelect" name="channel_id" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
-          {% for channel in channels %}
-            <option value="{{ channel.id }}" data-device-id="{{ channel.device_id }}">{{ channel.device.name }} - {{ channel.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div>
-        <label for="on_threshold" class="mb-1.5 block text-sm font-medium text-slate-600">on_threshold</label>
-        <input id="on_threshold" name="on_threshold" type="number" min="0" max="100" value="79" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
-      </div>
-
-      <div>
-        <label for="off_threshold" class="mb-1.5 block text-sm font-medium text-slate-600">off_threshold</label>
-        <input id="off_threshold" name="off_threshold" type="number" min="0" max="100" value="99" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
-      </div>
-
-      <div>
-        <label for="minimum_state_change_interval" class="mb-1.5 block text-sm font-medium text-slate-600">minimum_state_change_interval</label>
-        <input id="minimum_state_change_interval" name="minimum_state_change_interval" type="number" min="0" value="300" class="mt-1 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
-      </div>
+    <div class="mapping-progress" aria-label="Wizard progress">
+      <div class="mapping-progress-step is-current" data-mapping-progress="1"><span>1</span><span>Endpoint</span></div>
+      <div class="mapping-progress-line" aria-hidden="true"></div>
+      <div class="mapping-progress-step" data-mapping-progress="2"><span>2</span><span>Switch</span></div>
+      <div class="mapping-progress-line" aria-hidden="true"></div>
+      <div class="mapping-progress-step" data-mapping-progress="3"><span>3</span><span>Rules</span></div>
+      <div class="mapping-progress-line" aria-hidden="true"></div>
+      <div class="mapping-progress-step" data-mapping-progress="4"><span>4</span><span>Review</span></div>
     </div>
 
-    <div class="flex justify-end">
-      <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">Create mapping</button>
-    </div>
-  </form>
-</div>
+    <form id="mapping-wizard-form" method="post" action="/mappings">
+      <div class="mapping-wizard-body">
+        <section class="mapping-wizard-panel" data-mapping-wizard-step="1" aria-labelledby="mapping-step-one-title">
+          <span class="mapping-step-kicker">Step 1 of 4</span>
+          <h3 id="mapping-step-one-title" class="mapping-step-title">Which laptop are you automating?</h3>
+          <p class="mapping-step-copy">Choose the endpoint whose battery should trigger this switch.</p>
+          <label for="endpoint_id" class="mb-1.5 mt-5 block text-sm font-medium text-slate-600">Endpoint</label>
+          <select id="endpoint_id" name="endpoint_id" required class="block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100">
+            {% for endpoint in endpoints %}
+              <option value="{{ endpoint.id }}">{{ endpoint.hostname }}{% if endpoint.ip_address %} • {{ endpoint.ip_address }}{% endif %}</option>
+            {% else %}
+              <option value="" disabled selected>No endpoints available</option>
+            {% endfor %}
+          </select>
+          {% if not endpoints %}
+          <p class="mt-2 text-xs text-amber-700">Add an endpoint and send its first telemetry update before creating a mapping.</p>
+          {% endif %}
+        </section>
 
-<script>
-  const deviceSelect = document.getElementById('deviceSelect');
-  const channelSelect = document.getElementById('channelSelect');
+        <section class="mapping-wizard-panel hidden" data-mapping-wizard-step="2" aria-labelledby="mapping-step-two-title">
+          <span class="mapping-step-kicker">Step 2 of 4</span>
+          <h3 id="mapping-step-two-title" class="mapping-step-title">Choose a smart switch</h3>
+          <p class="mapping-step-copy">Select the switch and the channel this laptop will control.</p>
+          <input id="deviceSelect" type="hidden" name="device_id" value="" />
 
-  function updateChannelOptions() {
-    const selectedDeviceId = deviceSelect?.value || '';
-    const allOptions = Array.from(channelSelect.options);
-    let hasVisibleChannel = false;
+          <div class="mt-5">
+            <span id="channel-picker-label" class="mb-1.5 block text-sm font-medium text-slate-600">Available switches and channels</span>
+            <select id="channelSelect" name="channel_id" class="sr-only" aria-hidden="true" tabindex="-1">
+              <option value="" data-device-id="">Default device state</option>
+              {% for channel in channels %}
+                <option value="{{ channel.id }}" data-device-id="{{ channel.device_id }}">{{ channel.device.name }} - {{ channel.name }}</option>
+              {% endfor %}
+            </select>
+            <div id="channel-picker" class="channel-picker" aria-labelledby="channel-picker-label">
+              <p id="channel-picker-selected" class="channel-picker-selection-note" aria-live="polite">Choose a switch below.</p>
+              <div class="channel-picker-groups">
+                {% for device in devices %}
+                {% set device_channels = channels|selectattr('device_id', 'equalto', device.id)|list %}
+                <section class="channel-picker-group" data-device-group="{{ device.id }}">
+                  <button type="button" class="channel-picker-device" data-channel-group-toggle="{{ device.id }}" data-device-select="{{ device.id }}" aria-expanded="false" aria-controls="channel-group-{{ device.id }}">
+                    <span class="channel-picker-device-icon" aria-hidden="true">⌁</span>
+                    <span class="channel-picker-device-name">{{ device.name }}</span>
+                    <span class="channel-picker-count">{{ device_channels|length }} channel{% if device_channels|length != 1 %}s{% endif %}</span>
+                    <span class="channel-picker-group-chevron" aria-hidden="true">⌄</span>
+                  </button>
+                  <div id="channel-group-{{ device.id }}" class="channel-picker-options hidden">
+                    {% if not device_channels %}
+                    <button type="button" class="channel-picker-option" data-picker-default="{{ device.id }}" data-device-id="{{ device.id }}" aria-pressed="false">
+                      <span class="channel-picker-option-icon" aria-hidden="true">⌁</span>
+                      <span class="channel-picker-option-name">Use default switch state</span>
+                      <span class="channel-picker-check" aria-hidden="true">✓</span>
+                    </button>
+                    {% endif %}
+                    {% for channel in device_channels %}
+                    <button type="button" class="channel-picker-option" data-picker-channel="{{ channel.id }}" data-device-id="{{ device.id }}" aria-pressed="false">
+                      <span class="channel-picker-option-icon" aria-hidden="true">{{ loop.index }}</span>
+                      <span class="channel-picker-option-name">{{ channel.name }}</span>
+                      <span class="channel-picker-check" aria-hidden="true">✓</span>
+                    </button>
+                    {% endfor %}
+                  </div>
+                </section>
+                {% endfor %}
+                {% if not devices %}
+                <p class="channel-picker-empty">No switches are available. Add a switch before creating a mapping.</p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </section>
 
-    allOptions.forEach((option) => {
-      const matches = option.dataset.deviceId === selectedDeviceId;
-      option.hidden = !matches;
-      if (matches) {
-        hasVisibleChannel = true;
-      }
-    });
+        <section class="mapping-wizard-panel hidden" data-mapping-wizard-step="3" aria-labelledby="mapping-step-three-title">
+          <span class="mapping-step-kicker">Step 3 of 4</span>
+          <h3 id="mapping-step-three-title" class="mapping-step-title">Set battery automation rules</h3>
+          <p class="mapping-step-copy">The switch turns on at the lower threshold and turns off at the upper threshold.</p>
+          <div class="mt-5 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label for="on_threshold" class="mb-1.5 block text-sm font-medium text-slate-600">Turn on at or below (%)</label>
+              <input id="on_threshold" name="on_threshold" type="number" min="0" max="100" value="79" required class="block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+            <div>
+              <label for="off_threshold" class="mb-1.5 block text-sm font-medium text-slate-600">Turn off at or above (%)</label>
+              <input id="off_threshold" name="off_threshold" type="number" min="0" max="100" value="99" required class="block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            </div>
+            <div class="sm:col-span-2">
+              <label for="minimum_state_change_interval" class="mb-1.5 block text-sm font-medium text-slate-600">Minimum time between switch changes (seconds)</label>
+              <input id="minimum_state_change_interval" name="minimum_state_change_interval" type="number" min="0" value="300" required class="block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+              <p class="mt-1.5 text-xs text-slate-500">Prevents repeated switching during brief battery fluctuations.</p>
+            </div>
+          </div>
+        </section>
 
-    if (!hasVisibleChannel) {
-      channelSelect.value = '';
-    } else if (channelSelect.value && channelSelect.selectedOptions[0]?.hidden) {
-      channelSelect.value = '';
-    }
-  }
+        <section class="mapping-wizard-panel hidden" data-mapping-wizard-step="4" aria-labelledby="mapping-step-four-title">
+          <span class="mapping-step-kicker">Step 4 of 4</span>
+          <h3 id="mapping-step-four-title" class="mapping-step-title">Review before saving</h3>
+          <p class="mapping-step-copy">Make sure the endpoint, switch, and battery rules are correct.</p>
+          <dl class="mapping-review-card">
+            <div><dt>Endpoint</dt><dd id="mapping-summary-endpoint">—</dd></div>
+            <div><dt>Smart switch</dt><dd id="mapping-summary-device">—</dd></div>
+            <div><dt>Channel</dt><dd id="mapping-summary-channel">—</dd></div>
+            <div><dt>Turn on</dt><dd id="mapping-summary-on-threshold">—</dd></div>
+            <div><dt>Turn off</dt><dd id="mapping-summary-off-threshold">—</dd></div>
+            <div><dt>Minimum interval</dt><dd id="mapping-summary-interval">—</dd></div>
+          </dl>
+        </section>
+      </div>
 
-  deviceSelect?.addEventListener('change', updateChannelOptions);
-  updateChannelOptions();
-</script>
-
-<div class="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6">
-  <div class="mb-5 flex items-center justify-between border-b border-slate-200 pb-3">
-    <h2 class="text-lg font-semibold text-slate-900">Active mappings</h2>
-    <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">{{ mappings|length }} total</span>
-  </div>
-
-  <div class="overflow-hidden rounded-2xl border border-slate-200">
-    <table class="min-w-full divide-y divide-slate-200 text-left">
-      <thead class="bg-slate-50">
-        <tr>
-          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Endpoint</th>
-          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Device</th>
-          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Channel</th>
-          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Thresholds</th>
-          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Mapping ID</th>
-          <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">Action</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-200 bg-white">
-        {% for mapping in mappings %}
-        <tr>
-          <td class="px-4 py-3 text-sm font-medium text-slate-700">{{ mapping.endpoint_name }}</td>
-          <td class="px-4 py-3 text-sm text-slate-600">{{ mapping.device_name }}</td>
-          <td class="px-4 py-3 text-sm text-slate-600">{{ mapping.channel_name }}</td>
-          <td class="px-4 py-3 text-sm text-slate-600">on={{ mapping.on_threshold }} / off={{ mapping.off_threshold }}</td>
-          <td class="px-4 py-3 text-sm font-mono text-slate-500">{{ mapping.id }}</td>
-          <td class="px-4 py-3 text-right">
-            <form method="post" action="/mappings/{{ mapping.id }}/delete">
-              <button type="submit" class="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="5" class="px-4 py-10 text-center text-sm text-slate-500">No mappings yet.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+      <footer class="mapping-wizard-footer">
+        <button type="button" id="mapping-wizard-back" class="mapping-wizard-back" data-mapping-wizard-back hidden>Back</button>
+        <div class="ml-auto flex gap-2">
+          <button type="button" class="mapping-wizard-cancel" data-close-mapping-wizard>Cancel</button>
+          <button type="button" class="mapping-wizard-next" data-mapping-wizard-next>Continue</button>
+          <button type="submit" class="mapping-wizard-next" data-mapping-wizard-submit hidden>Create mapping</button>
+        </div>
+      </footer>
+    </form>
+  </section>
 </div>
 {% endblock %}

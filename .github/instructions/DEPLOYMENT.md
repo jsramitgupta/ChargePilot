@@ -2,83 +2,65 @@
 
 ## 1. Deployment model
 
-The project is designed to run as a single Python app and a PostgreSQL database, with the database managed outside the app process. In the included `docker-compose.yml`, the application container exposes port `8000` and expects a PostgreSQL connection string in the environment.
+The documented fresh deployment runs ChargePilot and PostgreSQL as Compose services. PostgreSQL data is persisted in a named volume; the app waits for the database health check before starting.
 
-The code assumes the following topology:
-
-- PostgreSQL: external database service or containerized database
-- ChargePilot app: FastAPI process running in Docker or locally
-- Windows laptop agent: PowerShell sender using the app API
-- Tuya switch: reachable over the local network
+The app must be able to reach Tuya devices on the LAN for discovery and local control. A Docker bridge network may limit LAN broadcast discovery; if so, run the app with suitable host networking or deploy it directly on the LAN.
 
 ## 2. Prerequisites
 
-- Python 3.12+
-- Docker Desktop or Docker Engine
-- PostgreSQL instance available to the app
+- Python 3.12+ for local installs
+- Docker Desktop or Docker Engine with Compose
 - local network access to the Tuya device
 - Windows laptop capable of running `agent/BatteryAgent.ps1`
 
 ## 3. Environment variables
 
-The app loads values with the prefix `CHARGEPILOT_` from `.env` via `pydantic-settings`.
+Compose reads the root `.env` file for variable substitution. The app itself reads `CHARGEPILOT_` settings from its process environment.
 
-Minimum required values:
+Required Compose settings:
 
 ```env
-CHARGEPILOT_SECRET_KEY=replace-me
-CHARGEPILOT_DATABASE_URL=postgresql+psycopg://chargepilot:chargepilot@localhost:5432/chargepilot
-CHARGEPILOT_ENCRYPTION_KEY=replace-with-32-byte-base64-key
+CHARGEPILOT_SECRET_KEY=<unique-random-secret>
+CHARGEPILOT_ENCRYPTION_KEY=<unique-random-value>
 CHARGEPILOT_ADMIN_USERNAME=admin
-CHARGEPILOT_ADMIN_PASSWORD=change-me
+CHARGEPILOT_ADMIN_PASSWORD=<unique-strong-password>
+CHARGEPILOT_POSTGRES_DB=chargepilot
+CHARGEPILOT_POSTGRES_USER=chargepilot
+CHARGEPILOT_POSTGRES_PASSWORD=<url-safe-random-password>
 ```
 
-Other supported settings:
+Other supported settings include:
 
 ```env
 CHARGEPILOT_TELEMETRY_RATE_LIMIT_PER_MINUTE=60
 CHARGEPILOT_ENDPOINT_OFFLINE_TIMEOUT_SECONDS=600
 ```
 
-The compose file sets the app environment to read these values from `.env` and passes them into the container.
+Generate random values rather than using placeholders. Python's `secrets.token_urlsafe(32)` is suitable for the secret key and PostgreSQL password; keep the PostgreSQL password URL-safe because Compose embeds it in the SQLAlchemy URL. The `.env` file is ignored by Git and must remain private. `CHARGEPILOT_ENCRYPTION_KEY` is currently reserved configuration and is not yet used by the local-key storage implementation.
 
-## 4. Docker Compose deployment
+Compose sets `CHARGEPILOT_ENVIRONMENT=production`; startup rejects a non-PostgreSQL URL, default/short secret keys, and short admin passwords.
 
-The repository includes the following container config:
+## 4. Fresh Docker Compose deployment
 
-```yaml
-services:
-  app:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    env_file:
-      - .env
-    environment:
-      CHARGEPILOT_DATABASE_URL: ${CHARGEPILOT_DATABASE_URL:-postgresql+psycopg://chargepilot:chargepilot@host.docker.internal:5432/chargepilot}
-    ports:
-      - "8000:8000"
-    command: >
-      sh -c "python -c \"from app.core.database import create_db_and_tables; create_db_and_tables()\" && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+From the repository root, create and populate the ignored environment file:
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+python -c "import secrets; print('CHARGEPILOT_SECRET_KEY=' + secrets.token_urlsafe(32)); print('CHARGEPILOT_ENCRYPTION_KEY=' + secrets.token_urlsafe(32)); print('CHARGEPILOT_POSTGRES_PASSWORD=' + secrets.token_urlsafe(32)); print('CHARGEPILOT_ADMIN_PASSWORD=' + secrets.token_urlsafe(24))"
 ```
 
-Start it with:
+Copy the generated values into `.env` and set the admin username. Save the admin password securely; it is used to sign in after initialization.
+
+Validate configuration and start the deployment:
 
 ```bash
+docker compose config
 docker compose up --build -d
 ```
 
-Check logs with:
+The Compose configuration defines PostgreSQL 16, a persistent volume, PostgreSQL health checking, and an app `/ready` health check. The app container runs as an unprivileged user. Check logs with `docker compose logs -f app`; stop services with `docker compose down`. This preserves the database volume. To permanently delete the database and all stored ChargePilot data, use `docker compose down -v`.
 
-```bash
-docker compose logs -f app
-```
-
-Stop it with:
-
-```bash
-docker compose down
-```
+`/health` reports process liveness. `/ready` executes a database query and returns HTTP 503 while PostgreSQL is unavailable.
 
 ## 5. Local Python deployment
 
@@ -88,106 +70,61 @@ Install dependencies:
 python -m pip install -e .[dev]
 ```
 
-Then run:
+Configure `CHARGEPILOT_DATABASE_URL` to a reachable, existing PostgreSQL database, set strong secret/admin values, then run:
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-The app calls `create_db_and_tables()` on startup, so the base schema should be created automatically when the database is reachable.
+The app creates its schema and initial admin account at startup. The database role must own the application tables or have privileges to create and alter them.
 
-## 6. Database setup
+## 6. Database initialization and upgrades
 
-The application expects a PostgreSQL database. The default development connection string is:
+On a genuinely empty database, startup uses SQLAlchemy `Base.metadata.create_all()` followed by the compatibility column and foreign-key adjustments in `app/core/database.py`. The `users.created_at` column is PostgreSQL `TIMESTAMPTZ`, matching its server-side `now()` default.
 
-```env
-CHARGEPILOT_DATABASE_URL=postgresql+psycopg://chargepilot:chargepilot@localhost:5432/chargepilot
-```
-
-If running inside Docker and PostgreSQL is on the host machine, use `host.docker.internal` in the connection string:
-
-```env
-CHARGEPILOT_DATABASE_URL=postgresql+psycopg://chargepilot:chargepilot@host.docker.internal:5432/chargepilot
-```
-
-The schema is created by `app.core.database.create_db_and_tables()` and `Base.metadata.create_all()`.
+The repository does not currently contain Alembic revision files. `create_all()` is not a versioned migration system and does not safely upgrade arbitrary existing schemas. Back up existing data and plan a dedicated schema migration before deploying schema-changing updates to an existing installation.
 
 ## 7. Windows laptop agent deployment
 
 The PowerShell agent is located at `agent/BatteryAgent.ps1`.
 
-Default usage:
-
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\agent\BatteryAgent.ps1 -ServerUrl "http://YOUR_SERVER:8000" -EndpointToken "YOUR_ENDPOINT_TOKEN" -AgentVersion "1.0.0"
 ```
 
-Use the scheduled-task helper at `agent/CreateAgentScheduledTask.ps1` to register the recurring Windows task.
+Use `agent/CreateAgentScheduledTask.ps1` to register the recurring Windows task. The agent sends hostname, IP address, battery percentage, charging/AC state, switch state, timestamp, and agent version.
 
-The agent sends:
+Agent tokens are generated randomly for new installations and can be viewed or rotated from the authenticated **Install Agent** page. Existing deployments initialized with the historical `test-endpoint-token` should rotate it after upgrading.
 
-- hostname
-- ip_address
-- battery_percentage
-- charging
-- ac_connected
-- switch_state
-- timestamp
-- agent_version
-
-## 8. Endpoint token setup
-
-The bearer token flow is implemented in `app/services/endpoint_service.py` and `app/core/security.py`.
-
-Current default compatibility value:
-
-```text
-test-endpoint-token
-```
-
-In production, this should be replaced with a strong secret and the auth logic should be hardened to avoid hard-coded values.
-
-## 9. Device and mapping workflow
-
-Once the laptop is reporting telemetry:
+## 8. Device and mapping workflow
 
 1. Register the Tuya device in the app or via database records.
-2. Save the `device_id`, local key, IP, protocol version, and device type.
+2. Save its device ID, local key, IP, protocol version, and device type.
 3. Create the endpoint and mapping records.
 4. Ensure the mapping points to the intended device and channel.
-5. Let the battery rule engine operate using the configured thresholds.
+5. Confirm the channel index and thresholds before enabling automation.
 
-The default threshold values in the rule engine are:
+The default thresholds are `on_threshold = 79`, `off_threshold = 99`, and `minimum_state_change_interval = 300` seconds.
 
-- `on_threshold = 79`
-- `off_threshold = 99`
-- `minimum_state_change_interval = 300`
+## 9. Operational checklist
 
-## 10. Operational checklist
+- Keep `.env` and database backups private; do not commit secrets.
+- Confirm `docker compose ps` shows both services healthy.
+- Keep PostgreSQL storage in the named volume and back it up before updates.
+- Verify the Tuya device is reachable on the LAN and accepts local commands.
+- Confirm device protocol version and channel index.
+- Inspect automation events after failed or unexpected state changes.
 
-- Keep secrets in `.env` or the environment, not in Git.
-- Ensure the PostgreSQL database is reachable from the app container or local process.
-- Verify the Tuya device is on the same LAN and accepts local commands.
-- Confirm the device `protocol_version` and `device_type` are correct.
-- Make sure the `channel_index` matches the actual switch channel.
-- Check the automation event table after any failed or unexpected state change.
-
-## 11. Validation commands
+## 10. Validation commands
 
 ```bash
 pytest tests/unit/test_rule_engine.py -q
 pytest tests/api/test_device_mapping_crud.py -q
 ```
 
-Manual app startup:
+## 11. Important cautions
 
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-## 12. Important cautions
-
-- The current auth flow is intentionally simple and should not be treated as production-grade security.
-- `TinyTuya` payloads vary by device/family and must not be assumed to be a flat boolean.
-- A no-op in the hardware layer can still appear as a successful app response if the target channel or protocol is wrong.
+- The current authentication flow is intentionally simple and should not be treated as a complete production security boundary.
+- Local device keys are not currently encrypted at rest despite the reserved encryption-key setting.
+- `TinyTuya` payloads vary by device family; do not assume a flat boolean status.
 - The app writes event rows for state transitions so failures remain diagnosable.

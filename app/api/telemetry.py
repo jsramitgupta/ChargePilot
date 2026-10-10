@@ -128,22 +128,15 @@ async def receive_telemetry(
         if isinstance(live_status, dict) and "state" in live_status and live_status.get("online", True):
             current_state = bool(live_status["state"])
 
-        if payload.switch_state is not None:
-            requested_state = bool(payload.switch_state)
-            if requested_state != current_state:
-                decision = "TURN_ON" if requested_state else "TURN_OFF"
-            else:
-                decision = "NO_ACTION"
-        else:
-            decision = evaluate_battery_action(
-                battery=payload.battery_percentage,
-                current_state=current_state,
-                on_threshold=mapping.on_threshold,
-                off_threshold=mapping.off_threshold,
-                minimum_interval_seconds=mapping.minimum_state_change_interval,
-                last_state_change_at=device.last_state_change_at,
-                now=datetime.now(UTC),
-            )
+        decision = evaluate_battery_action(
+            battery=payload.battery_percentage,
+            current_state=current_state,
+            on_threshold=mapping.on_threshold,
+            off_threshold=mapping.off_threshold,
+            minimum_interval_seconds=mapping.minimum_state_change_interval,
+            last_state_change_at=device.last_state_change_at,
+            now=datetime.now(UTC),
+        )
 
         if decision == "NO_ACTION":
             continue
@@ -160,10 +153,21 @@ async def receive_telemetry(
         device.last_state_change_at = datetime.now(UTC)
         device.updated_at = datetime.now(UTC)
 
+        if decision == "TURN_ON":
+            reason = (
+                f"Battery {payload.battery_percentage}% is at or below "
+                f"the turn-on threshold of {mapping.on_threshold}%."
+            )
+        else:
+            reason = (
+                f"Battery {payload.battery_percentage}% is at or above "
+                f"the turn-off threshold of {mapping.off_threshold}%."
+            )
+
         db.add(
             AutomationEvent(
                 event_type=decision,
-                reason=f"battery {payload.battery_percentage}% reached {mapping.on_threshold if decision == 'TURN_ON' else mapping.off_threshold}% rule",
+                reason=reason,
                 endpoint_id=endpoint.id,
                 device_id=device.id,
                 channel_id=mapping.channel_id,

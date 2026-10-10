@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}Install laptop agent | ChargePilot{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-5xl">
+  <div class="mb-7">
+    <p class="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">Endpoint setup</p>
+    <h1 class="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Install the laptop agent</h1>
+    <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Download the Windows scripts, then run the installer command on each laptop you want ChargePilot to monitor.</p>
+  </div>
+
+  {% if message %}
+  <div class="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800" role="status">{{ message }}</div>
+  {% endif %}
+  {% if error %}
+  <div class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">{{ error }}</div>
+  {% endif %}
+
+  {% if tenant or is_super_admin %}
+  {% if is_super_admin %}
+  <section class="mb-5 rounded-2xl border border-blue-200 bg-blue-50 p-5">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <p class="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">Super Admin · System-wide</p>
+        <h2 class="mt-1 text-lg font-bold text-slate-900">Global agent token</h2>
+        <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-600">This replaces the legacy <code>test-endpoint-token</code> and is accepted for agent authentication across the installation. Tenant-specific tokens remain valid independently.</p>
+      </div>
+      <form method="post" action="/agent/global-token" onsubmit="return confirm('Regenerate the global agent token? Agents configured with the current global token will stop authenticating.');">
+        <input type="hidden" name="action" value="regenerate" />
+        <button type="submit" class="shrink-0 rounded-xl border border-blue-300 bg-white px-4 py-2.5 text-sm font-bold text-blue-800 transition hover:bg-blue-100">Regenerate global token</button>
+      </form>
+    </div>
+    <form method="post" action="/agent/global-token" class="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+      <input type="hidden" name="action" value="save" />
+      <div>
+        <label for="global_agent_token" class="sr-only">Global agent token</label>
+        <input id="global_agent_token" name="token" type="text" minlength="16" maxlength="512" required value="{{ global_agent_token }}" autocomplete="off" spellcheck="false" class="w-full rounded-xl border border-blue-200 bg-white px-3 py-3 font-mono text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+      </div>
+      <button type="submit" class="rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-800">Save token</button>
+    </form>
+    {% if not tenant %}
+    <p class="mt-3 text-xs leading-5 text-blue-800">The install command below uses this global token. Updating or regenerating it requires reconfiguring agents that use the previous value.</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-soft">
+    <div class="grid gap-0 lg:grid-cols-[0.9fr_1.1fr]">
+      <div class="ui-modal-heading p-6 text-white sm:p-8">
+        <span class="inline-flex rounded-full border border-blue-300/20 bg-blue-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">Step 1 · Download</span>
+        <h2 class="mt-5 text-2xl font-bold tracking-tight">Get the Windows scripts</h2>
+        <p class="mt-2 text-sm leading-6 text-slate-300">The ZIP contains the telemetry agent and its scheduled-task installer. Your token is not embedded in the archive.</p>
+        <a href="/agent/download" data-no-ajax class="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-blue-500 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-950/30 transition hover:-translate-y-0.5 hover:bg-blue-400">
+          <span aria-hidden="true">↓</span>
+          Download agent scripts
+        </a>
+        <p class="mt-3 text-xs text-slate-400">ZIP archive · PowerShell · Windows 10/11</p>
+      </div>
+
+      <div class="p-6 sm:p-8">
+        <span class="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Step 2 · Install</span>
+        <h2 class="mt-5 text-2xl font-bold tracking-tight text-slate-900">Run the setup command</h2>
+        <p class="mt-2 text-sm leading-6 text-slate-600">Extract the ZIP, open PowerShell in that folder, and run this command. It registers the scheduled task and configures telemetry using the current {{ token_scope }}.</p>
+        <div class="agent-command-wrap mt-5">
+          <code id="agent-install-command" class="agent-install-command">{{ install_command }}</code>
+          <button type="button" class="agent-copy-button" data-copy-target="agent-install-command" aria-label="Copy install command">Copy</button>
+        </div>
+        <p id="agent-copy-status" class="mt-2 min-h-4 text-xs text-slate-500" aria-live="polite"></p>
+        <p class="mt-3 text-xs leading-5 text-slate-500">PowerShell may require an execution-policy confirmation. The installer runs the script with a process-scoped bypass; it does not change your system policy.</p>
+
+        <div class="mt-6 border-t border-slate-200 pt-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p class="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{{ token_scope|title }}</p>
+              <p class="mt-1 text-xs text-slate-500">Keep this private. Regenerating it stops agents using the previous token.</p>
+            </div>
+            {% if tenant and current_user.is_admin %}
+            <form method="post" action="/tenant/rotate-agent-token" onsubmit="return confirm('Regenerate this tenant token? All agents using the old token will stop authenticating until reconfigured.');">
+              <button type="submit" class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 transition hover:bg-amber-100">Regenerate token</button>
+            </form>
+            {% endif %}
+          </div>
+          {% if tenant_token %}
+          <code class="mt-3 block overflow-wrap-anywhere rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm text-slate-800">{{ tenant_token }}</code>
+          {% else %}
+          <p class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">The tenant token could not be generated. Please try again or contact an administrator.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="mt-5 grid gap-4 sm:grid-cols-3">
+    <article class="rounded-2xl border border-slate-200 bg-white p-4">
+      <span class="text-xs font-bold text-blue-600">01</span>
+      <h3 class="mt-2 text-sm font-bold text-slate-900">Download</h3>
+      <p class="mt-1 text-xs leading-5 text-slate-500">Save and extract the ZIP on the laptop to monitor.</p>
+    </article>
+    <article class="rounded-2xl border border-slate-200 bg-white p-4">
+      <span class="text-xs font-bold text-blue-600">02</span>
+      <h3 class="mt-2 text-sm font-bold text-slate-900">Install</h3>
+      <p class="mt-1 text-xs leading-5 text-slate-500">Run the command above from the extracted folder.</p>
+    </article>
+    <article class="rounded-2xl border border-slate-200 bg-white p-4">
+      <span class="text-xs font-bold text-blue-600">03</span>
+      <h3 class="mt-2 text-sm font-bold text-slate-900">Verify</h3>
+      <p class="mt-1 text-xs leading-5 text-slate-500">The laptop appears in Endpoints after its first report.</p>
+    </article>
+  </div>
+  {% else %}
+  <section class="rounded-2xl border border-amber-200 bg-amber-50 p-6">
+    <h2 class="font-semibold text-amber-900">No tenant is assigned to this account</h2>
+    <p class="mt-2 text-sm leading-6 text-amber-800">Agent scripts use a tenant-specific token. Sign in with an account assigned to the tenant whose laptops you want to monitor.</p>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

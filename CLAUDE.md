@@ -10,7 +10,7 @@ The system has grown beyond the original battery-only flow and now includes:
 
 - LAN scanning for local smart devices
 - SmartLife/Tuya QR login for linked device discovery
-- local key + IP matching for onboarding
+- SmartLife local-key retrieval matched to LAN scan results
 - AJAX-friendly wizard UX for device import
 - SSE updates for device state changes
 
@@ -143,7 +143,8 @@ Fields to include:
 4. Add a SmartLife/Tuya QR login route.
 5. Persist QR scheme and session state.
 6. Poll linked devices and normalize provider output.
-7. Auto-fill local key and IP when a linked device matches a discovery item.
+7. Match SmartLife local keys to LAN scan results by device ID; populate the
+   IP and other device details only from the LAN scan.
 
 ### Phase 3 — operational UX
 
@@ -166,6 +167,10 @@ The PowerShell agent sends:
 - switch_state
 - timestamp
 - agent_version
+
+The backend uses the active mapping thresholds and live switch state to make
+automation decisions. `switch_state` is retained for agent compatibility but
+must not override those rules.
 
 ### Rule engine behavior
 
@@ -193,7 +198,7 @@ Use hysteresis and a cooldown:
 
 ### Prompt A — full project build
 
-"Build ChargePilot from scratch as a local-first Python monolith with FastAPI, SQLAlchemy, TinyTuya, and a Windows PowerShell telemetry agent. Implement battery threshold automation, local device discovery, SmartLife QR login flow, and a wizard that can discover local devices and auto-fill local key / IP from linked SmartLife devices. Keep the architecture modular and self-hosted, with tests for the rule engine and API behavior."
+"Build ChargePilot from scratch as a local-first Python monolith with FastAPI, SQLAlchemy, TinyTuya, and a Windows PowerShell telemetry agent. Implement battery threshold automation, local device discovery, SmartLife QR login flow, and a wizard that gets device details including IP from LAN discovery and retrieves only the matching local key through SmartLife. Keep the architecture modular and self-hosted, with tests for the rule engine and API behavior."
 
 ### Prompt B — SmartLife bridge only
 
@@ -234,7 +239,7 @@ A recreated version should be considered correct if it can:
 - discover local devices on the LAN
 - add devices via the wizard or SmartLife flow
 - fetch linked devices from SmartLife after QR scan
-- auto-match local keys and IPs for device registration
+- match SmartLife local keys to LAN-scanned devices while taking all device details, including IP, from the scan
 - record state change events and allow debugging
 
 This is the implementation baseline to preserve.

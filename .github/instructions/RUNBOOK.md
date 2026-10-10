@@ -9,8 +9,8 @@
 python -m pip install -e .[dev]
 ```
 
-3. Create a `.env` file with the environment variables expected by `app/core/config.py`.
-4. Ensure PostgreSQL is available and the database URL is valid.
+3. For Compose, copy `.env.example` to `.env` if needed and set unique secret, admin-password, and PostgreSQL-password values. For a manual deployment, configure the `CHARGEPILOT_DATABASE_URL` setting.
+4. Ensure PostgreSQL is available and the database URL is valid. Compose waits for its PostgreSQL health check before starting the app.
 5. Start the app:
 
 ```bash
@@ -32,6 +32,9 @@ From `app/core/config.py`:
 - `CHARGEPILOT_ENCRYPTION_KEY`
 - `CHARGEPILOT_ADMIN_USERNAME`
 - `CHARGEPILOT_ADMIN_PASSWORD`
+- `CHARGEPILOT_POSTGRES_DB`
+- `CHARGEPILOT_POSTGRES_USER`
+- `CHARGEPILOT_POSTGRES_PASSWORD`
 - `CHARGEPILOT_TELEMETRY_RATE_LIMIT_PER_MINUTE`
 - `CHARGEPILOT_ENDPOINT_OFFLINE_TIMEOUT_SECONDS`
 
@@ -42,16 +45,16 @@ The app uses the prefix `CHARGEPILOT_` and ignores extra keys.
 The app exposes:
 
 - `GET /health` → `{"status": "ok"}`
-- `GET /ready` → `{"status": "ready"}`
+- `GET /ready` → `{"status": "ready"}` only when a database query succeeds; otherwise HTTP 503
 
-These endpoints help confirm the server is listening and has finished startup initialization.
+These endpoints distinguish process liveness from database readiness.
 
 ## 4. Telemetry verification flow
 
 A valid telemetry request must include:
 
 ```http
-Authorization: Bearer test-endpoint-token
+Authorization: Bearer <YOUR_AGENT_TOKEN>
 ```
 
 The app rejects stale payloads older than 10 minutes and accepts only a valid timestamp plus a bearer token.

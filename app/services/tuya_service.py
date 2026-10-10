@@ -145,19 +145,18 @@ class TuyaService:
 
     async def discover(self) -> list[dict[str, Any]]:
         async with DISCOVERY_LOCK:
-            last_exc: Exception | None = None
             for attempt in range(2):
                 try:
-                    discovered = await asyncio.to_thread(
-                        deviceScan,
-                        verbose=False,
-                        maxretry=10,
-                        color=False,
-                        poll=False,
-                        forcescan=False,
-                    )
-                except TypeError:
                     try:
+                        discovered = await asyncio.to_thread(
+                            deviceScan,
+                            verbose=False,
+                            maxretry=10,
+                            color=False,
+                            poll=False,
+                            forcescan=False,
+                        )
+                    except TypeError:
                         discovered = await asyncio.to_thread(
                             deviceScan,
                             verbose=False,
@@ -165,22 +164,13 @@ class TuyaService:
                             poll=False,
                             forcescan=False,
                         )
-                    except Exception as exc:  # pragma: no cover - defensive fallback
-                        last_exc = exc
-                        if attempt == 0 and self._is_socket_address_in_use_error(exc):
-                            logger.warning("TinyTuya discovery socket conflict detected, retrying once: %s", exc)
-                            await asyncio.sleep(0.5)
-                            continue
-                        logger.warning("TinyTuya discovery failed: %s", exc)
-                        return []
                 except Exception as exc:  # pragma: no cover - defensive fallback
-                    last_exc = exc
                     if attempt == 0 and self._is_socket_address_in_use_error(exc):
                         logger.warning("TinyTuya discovery socket conflict detected, retrying once: %s", exc)
                         await asyncio.sleep(0.5)
                         continue
-                    logger.warning("TinyTuya discovery failed: %s", exc)
-                    return []
+                    logger.exception("TinyTuya discovery failed.")
+                    raise RuntimeError("TinyTuya local network scan failed.") from exc
 
                 if isinstance(discovered, dict):
                     items: list[dict[str, Any]] = []
@@ -202,9 +192,7 @@ class TuyaService:
 
                 return []
 
-            if last_exc is not None:
-                logger.warning("TinyTuya discovery failed: %s", last_exc)
-            return []
+            raise RuntimeError("TinyTuya local network scan failed.")
 
     async def get_status(self, device_id: str, channel: int = 1) -> dict[str, Any]:
         device = self._build_device() if self.device_id == device_id else None

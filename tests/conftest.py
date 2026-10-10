@@ -5,11 +5,21 @@ os.environ.setdefault("CHARGEPILOT_ENVIRONMENT", "test")
 
 import pytest
 
-from app.core.database import Base, SessionLocal, engine, ensure_default_admin_user
+from app.core.database import Base, SessionLocal, engine, ensure_default_admin_user, ensure_default_system_settings
+from app.models.system_setting import SystemSetting
 from app.models.device import Device, DeviceChannel
 from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
 from app.models.mapping import Mapping
+
+TEST_GLOBAL_AGENT_TOKEN = "test-endpoint-token"
+
+
+def set_test_global_agent_token() -> None:
+    with SessionLocal() as db:
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "global_agent_token").one()
+        setting.value = TEST_GLOBAL_AGENT_TOKEN
+        db.commit()
 
 
 @pytest.fixture(autouse=True)
@@ -17,10 +27,14 @@ def reset_database():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     ensure_default_admin_user()
+    ensure_default_system_settings()
+    set_test_global_agent_token()
     yield
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     ensure_default_admin_user()
+    ensure_default_system_settings()
+    set_test_global_agent_token()
 
     with SessionLocal() as db:
         for model in (AutomationEvent, Mapping, DeviceChannel, Endpoint, Device):

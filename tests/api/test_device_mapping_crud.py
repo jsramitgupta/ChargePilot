@@ -252,6 +252,63 @@ def test_mappings_page_exposes_editable_threshold_controls():
     assert "on_threshold" in body
     assert "off_threshold" in body
     assert str(mapping["id"]) in body
+    assert "Current mappings" in body
+    assert "Add mapping" in body
+    assert 'id="mapping-modal"' in body
+    assert 'data-mapping-wizard-step="4"' in body
+    assert "Review before saving" in body
+    assert "300 sec" in body
+
+
+def test_mappings_page_groups_channel_choices_under_expandable_switches():
+    client = TestClient(app)
+    register = client.post(
+        "/register",
+        data={"username": "channel_picker_user", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert register.status_code in {200, 302, 303}, register.text
+    login = client.post(
+        "/login",
+        data={"username": "channel_picker_user", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert login.status_code in {200, 302, 303}, login.text
+
+    for name, device_id, channel_count in (
+        ("Desk Switch", "desk-switch", 2),
+        ("Hall Switch", "hall-switch", 1),
+    ):
+        response = client.post(
+            "/devices",
+            data={
+                "name": name,
+                "device_id": device_id,
+                "ip_address": "192.168.1.20",
+                "device_type": "switch",
+                "protocol_version": "3.5",
+                "encrypted_local_key": "local-key",
+                "channel_count": channel_count,
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303, response.text
+
+    page = client.get("/mappings")
+    assert page.status_code == 200, page.text
+    body = page.text
+    assert 'class="channel-picker-group" data-device-group=' in body
+    assert 'data-channel-group-toggle=' in body
+    assert 'data-picker-channel=' in body
+    assert 'data-device-select=' in body
+    assert "Desk Switch" in body
+    assert "Hall Switch" in body
+    assert "Channel 1" in body
+    assert "Channel 2" in body
+    assert 'id="deviceSelect" type="hidden" name="device_id"' in body
+    assert 'id="deviceSelect" name="device_id"' not in body
+    assert 'id="channel-picker-selected" class="channel-picker-selection-note"' in body
+    assert 'id="channelSelect" name="channel_id"' in body
 
 
 def test_endpoint_agent_config_returns_live_threshold_settings():
@@ -342,10 +399,16 @@ def test_agent_config_lookup_by_hostname_and_token():
         },
     ).json()
 
+    from app.core.database import SessionLocal
+    from app.models.system_setting import SystemSetting
+
+    with SessionLocal() as db:
+        token = db.query(SystemSetting.value).filter(SystemSetting.key == "global_agent_token").scalar()
+
     response = client.get(
         "/api/v1/endpoints/agent-config",
         params={"hostname": "agent-lookup-endpoint"},
-        headers={"Authorization": "Bearer test-endpoint-token"},
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 200, response.text
     payload = response.json()
@@ -392,7 +455,9 @@ def test_devices_page_has_delete_action_and_channel_expander():
     body = page.text
     assert "Expandable Device" in body
     assert "/delete" in body
-    assert "Toggle channels" in body or "channel-toggle" in body
+    assert "Master" not in body
+    assert "switch-button-master" not in body
+    assert body.count("state-toggle-form") == 2
 
 
 def test_device_toggle_actions_are_rendered_on_devices_page():
@@ -432,6 +497,8 @@ def test_device_toggle_actions_are_rendered_on_devices_page():
     body = page.text
     assert "/devices/" in body
     assert "/turn-on" in body or "/turn-off" in body
+    assert body.count("state-toggle-form") == 1
+    assert "data-channel-id=" in body
 
 
 def test_ui_delete_routes_for_device_and_mapping():
@@ -688,7 +755,7 @@ def test_dashboard_shows_live_endpoint_telemetry():
     assert "42%" in body
 
 
-def test_telemetry_follows_agent_switch_state_when_present():
+def test_telemetry_does_not_override_mapping_thresholds_with_agent_switch_state(monkeypatch):
     client = TestClient(app)
 
     device_response = client.post(
@@ -718,13 +785,26 @@ def test_telemetry_follows_agent_switch_state_when_present():
     created_device.last_state_change_at = datetime.now(timezone.utc) - timedelta(minutes=10)
     session.commit()
 
+    class FakeTuyaService:
+        @staticmethod
+        def from_device(device_obj):
+            return FakeTuyaService()
+
+        async def get_status(self, device_id, channel=1):
+            return {"device_id": device_id, "channel": channel, "online": True, "state": True}
+
+        async def set_state(self, device_id, on, channel=1):
+            raise AssertionError("Battery below off threshold must not change the switch state.")
+
+    monkeypatch.setattr("app.api.telemetry.TuyaService", FakeTuyaService)
+
     endpoint_response = client.post(
         "/api/v1/telemetry",
         headers={"Authorization": "Bearer test-endpoint-token"},
         json={
             "hostname": "AGENT-CONTROLLED-ENDPOINT",
             "ip_address": "192.168.0.94",
-            "battery_percentage": 10,
+            "battery_percentage": 64,
             "charging": False,
             "ac_connected": False,
             "switch_state": False,
@@ -741,8 +821,8 @@ def test_telemetry_follows_agent_switch_state_when_present():
             device_id=device["id"],
             channel_id=None,
             enabled=True,
-            on_threshold=79,
-            off_threshold=99,
+            on_threshold=30,
+            off_threshold=90,
             minimum_state_change_interval=30,
         )
     )
@@ -754,7 +834,7 @@ def test_telemetry_follows_agent_switch_state_when_present():
         json={
             "hostname": "AGENT-CONTROLLED-ENDPOINT",
             "ip_address": "192.168.0.94",
-            "battery_percentage": 10,
+            "battery_percentage": 64,
             "charging": False,
             "ac_connected": False,
             "switch_state": False,
@@ -765,8 +845,16 @@ def test_telemetry_follows_agent_switch_state_when_present():
     assert response.status_code == 200, response.text
 
     updated_device = session.query(DeviceModel).filter(DeviceModel.id == device["id"]).one()
-    assert updated_device.current_state is False
-    assert session.query(AutomationEvent).filter(AutomationEvent.event_type == "TURN_OFF").count() >= 1
+    assert updated_device.current_state is True
+    assert (
+        session.query(AutomationEvent)
+        .filter(
+            AutomationEvent.event_type == "TURN_OFF",
+            AutomationEvent.endpoint_id == endpoint.id,
+        )
+        .count()
+        == 0
+    )
     session.close()
 
 
@@ -878,7 +966,15 @@ def test_telemetry_turns_off_mapped_device_when_battery_exceeds_off_threshold():
 
     updated_device = session.query(Device).filter(Device.id == device["id"]).one()
     assert updated_device.current_state is False
-    assert session.query(AutomationEvent).filter(AutomationEvent.event_type == "TURN_OFF").count() >= 1
+    off_event = (
+        session.query(AutomationEvent)
+        .filter(
+            AutomationEvent.event_type == "TURN_OFF",
+            AutomationEvent.endpoint_id == endpoint.id,
+        )
+        .one()
+    )
+    assert off_event.reason == "Battery 99% is at or above the turn-off threshold of 99%."
 
     session.close()
 

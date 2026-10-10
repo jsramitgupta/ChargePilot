@@ -25,10 +25,10 @@ Telemetry ingestion requires a bearer token in the `Authorization` header.
 Example:
 
 ```http
-Authorization: Bearer test-endpoint-token
+Authorization: Bearer <YOUR_AGENT_TOKEN>
 ```
 
-The validation logic lives in `app/services/endpoint_service.py` and compares the extracted token against the literal value `test-endpoint-token` in the current implementation.
+The validation logic lives in `app/services/endpoint_service.py`. It accepts a tenant's configured agent token or the system-wide global token, which is generated randomly when the database is first initialized.
 
 ## 3. Endpoint reference
 
@@ -44,7 +44,7 @@ Response:
 
 ### 3.2 GET /ready
 
-Returns readiness.
+Returns readiness only after a database connectivity query succeeds. If PostgreSQL is unavailable, the endpoint returns HTTP 503 with a database-unavailable detail.
 
 Response:
 

@@ -1,13 +1,18 @@
+import asyncio
+import io
+import logging
 import secrets
 import string
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -16,17 +21,20 @@ from app.api.endpoints import router as endpoints_router
 from app.api.events import router as events_router
 from app.api.health import router as health_router
 from app.api.mappings import router as mappings_router
+from app.api.onboarding import router as onboarding_router
 from app.api.telemetry import router as telemetry_router
 from app.api.auth import router as auth_router
 from app.core.config import settings
-from app.core.database import SessionLocal, create_db_and_tables, ensure_default_admin_user, get_db
+from app.core.database import SessionLocal, create_db_and_tables, get_db
 from app.core.security import hash_password, verify_password
 from app.models.device import Device, DeviceChannel
 from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
 from app.models.mapping import Mapping
 from app.models.tenant import Tenant
+from app.models.system_setting import SystemSetting
 from app.models.user import User
+from app.services.event_retention import purge_expired_events
 from app.services.tuya_service import TuyaService
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -34,6 +42,7 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+logger = logging.getLogger("chargepilot.events")
 
 app = FastAPI(
     title=settings.app_name,
@@ -41,6 +50,7 @@ app = FastAPI(
     description="Self-hosted battery automation platform for local Tuya control.",
 )
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
+event_retention_task: asyncio.Task | None = None
 
 # CORS middleware removed to require same-origin requests and avoid cross-origin allowances
 
@@ -86,6 +96,28 @@ def generate_unique_agent_token(db: Session | None = None) -> str:
             return token
         if db.query(Tenant).filter(Tenant.agent_token == token).first() is None:
             return token
+
+
+def ensure_tenant_agent_token(tenant: Tenant, db: Session) -> str:
+    if not tenant.agent_token:
+        tenant.agent_token = generate_unique_agent_token(db)
+        tenant.updated_at = datetime.now(UTC)
+        db.commit()
+    return tenant.agent_token
+
+
+def get_global_agent_token(db: Session, create_if_missing: bool = False) -> str | None:
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "global_agent_token").first()
+    if setting is None and create_if_missing:
+        setting = SystemSetting(key="global_agent_token", value=secrets.token_urlsafe(32))
+        db.add(setting)
+        db.commit()
+        db.refresh(setting)
+    return setting.value if setting is not None else None
+
+
+def _quote_powershell_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 def is_super_admin_user(user: User | None) -> bool:
@@ -145,14 +177,33 @@ def is_role_admin(role: str | None) -> bool:
     return normalize_role(role) in {"tenant_admin", "manager"}
 
 
-create_db_and_tables()
-ensure_default_admin_user()
-
-
 @app.on_event("startup")
 async def startup_event() -> None:
     create_db_and_tables()
-    ensure_default_admin_user()
+    global event_retention_task
+    event_retention_task = asyncio.create_task(event_retention_loop())
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    if event_retention_task is not None:
+        event_retention_task.cancel()
+        try:
+            await event_retention_task
+        except asyncio.CancelledError:
+            pass
+
+
+async def event_retention_loop() -> None:
+    while True:
+        try:
+            with SessionLocal() as db:
+                deleted = purge_expired_events(db)
+                if deleted:
+                    logger.info("Purged %s automation events older than 30 days.", deleted)
+        except SQLAlchemyError:
+            logger.exception("Could not purge expired automation events.")
+        await asyncio.sleep(24 * 60 * 60)
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -161,6 +212,7 @@ app.include_router(telemetry_router, prefix=settings.api_v1_prefix)
 app.include_router(auth_router, prefix=settings.api_v1_prefix)
 app.include_router(endpoints_router, prefix=settings.api_v1_prefix)
 app.include_router(devices_router, prefix=settings.api_v1_prefix)
+app.include_router(onboarding_router)
 app.include_router(mappings_router, prefix=settings.api_v1_prefix)
 app.include_router(events_router, prefix=settings.api_v1_prefix)
 
@@ -185,6 +237,165 @@ def _to_user_timezone(value: datetime | None, user: User | None) -> datetime | N
     except ZoneInfoNotFoundError:
         zone = ZoneInfo("UTC")
     return normalized.astimezone(zone)
+
+
+def _current_agent_tenant(request: Request, db: Session) -> tuple[User | None, Tenant | None]:
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return None, None
+    if current_user.tenant_id is None:
+        return current_user, None
+    return current_user, db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+
+
+@app.get("/agent", response_class=HTMLResponse)
+async def agent_setup_page(request: Request, db: Session = Depends(get_db)):
+    current_user, tenant = _current_agent_tenant(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+
+    is_super_admin = is_super_admin_user(current_user)
+    global_token = get_global_agent_token(db, create_if_missing=True) if is_super_admin else None
+    token = (
+        ensure_tenant_agent_token(tenant, db)
+        if tenant is not None
+        else global_token
+    )
+    server_url = str(request.base_url).rstrip("/")
+    install_command = ""
+    if token:
+        install_command = (
+            "powershell.exe -NoProfile -ExecutionPolicy Bypass -File "
+            + _quote_powershell_literal(".\\CreateAgentScheduledTask.ps1")
+            + " -ServerUrl "
+            + _quote_powershell_literal(server_url)
+            + " -EndpointToken "
+            + _quote_powershell_literal(token)
+            + " -AgentVersion '1.0.0'"
+        )
+    return templates.TemplateResponse(
+        "agent_setup.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "tenant": tenant,
+            "tenant_token": token,
+            "global_agent_token": global_token,
+            "token_scope": "system-wide Super Admin token" if is_super_admin and tenant is None else "tenant",
+            "is_super_admin": is_super_admin,
+            "install_command": install_command,
+            "message": request.query_params.get("message"),
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+@app.get("/agent/guide", response_class=HTMLResponse)
+async def agent_setup_guide(request: Request, db: Session = Depends(get_db)):
+    current_user, tenant = _current_agent_tenant(request, db)
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    is_super_admin = is_super_admin_user(current_user)
+    global_token = get_global_agent_token(db, create_if_missing=True) if is_super_admin else None
+    token = (
+        ensure_tenant_agent_token(tenant, db)
+        if tenant is not None
+        else global_token
+    )
+    server_url = str(request.base_url).rstrip("/")
+    install_command = ""
+    if token:
+        install_command = (
+            "powershell.exe -NoProfile -ExecutionPolicy Bypass -File "
+            + _quote_powershell_literal(".\\CreateAgentScheduledTask.ps1")
+            + " -ServerUrl "
+            + _quote_powershell_literal(server_url)
+            + " -EndpointToken "
+            + _quote_powershell_literal(token)
+            + " -AgentVersion '1.0.0'"
+        )
+    return templates.TemplateResponse(
+        "agent_setup_modal_content.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "tenant": tenant,
+            "tenant_token": token,
+            "global_agent_token": global_token,
+            "token_scope": "system-wide Super Admin token" if is_super_admin and tenant is None else "tenant",
+            "is_super_admin": is_super_admin,
+            "install_command": install_command,
+        },
+    )
+
+
+@app.get("/agent/download")
+async def download_agent_scripts(request: Request, db: Session = Depends(get_db)):
+    current_user, tenant = _current_agent_tenant(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    if tenant is None and not is_super_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="An assigned tenant is required to download the agent scripts.")
+
+    if tenant is not None:
+        ensure_tenant_agent_token(tenant, db)
+    else:
+        get_global_agent_token(db, create_if_missing=True)
+    agent_dir = Path(__file__).resolve().parent.parent / "agent"
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        for script_name in ("BatteryAgent.ps1", "CreateAgentScheduledTask.ps1"):
+            script_path = agent_dir / script_name
+            if not script_path.is_file():
+                raise HTTPException(status_code=500, detail=f"Required agent script is missing: {script_name}")
+            bundle.write(script_path, arcname=script_name)
+    archive.seek(0)
+    return StreamingResponse(
+        archive,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="chargepilot-agent-scripts.zip"',
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@app.post("/agent/global-token")
+async def update_global_agent_token(
+    request: Request,
+    action: str = Form(...),
+    token: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    if not is_super_admin_user(current_user):
+        return RedirectResponse(url="/agent?error=Only+the+Super+Admin+can+change+the+system-wide+agent+token", status_code=303)
+
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "global_agent_token").first()
+    if setting is None:
+        setting = SystemSetting(key="global_agent_token", value="test-endpoint-token")
+        db.add(setting)
+        db.flush()
+
+    if action == "regenerate":
+        setting.value = generate_unique_agent_token(db)
+    elif action == "save":
+        updated_token = token.strip()
+        if len(updated_token) < 16 or len(updated_token) > 512:
+            return RedirectResponse(url="/agent?error=Agent+tokens+must+be+between+16+and+512+characters", status_code=303)
+        tenant_conflict = db.query(Tenant).filter(Tenant.agent_token == updated_token).first()
+        if tenant_conflict is not None:
+            return RedirectResponse(url="/agent?error=That+token+is+already+assigned+to+a+tenant", status_code=303)
+        setting.value = updated_token
+    else:
+        return RedirectResponse(url="/agent?error=Invalid+agent+token+action", status_code=303)
+
+    db.commit()
+    message = "System-wide+agent+token+regenerated+successfully" if action == "regenerate" else "System-wide+agent+token+updated+successfully"
+    return RedirectResponse(url=f"/agent?message={message}", status_code=303)
 
 
 def _is_ajax(request: Request) -> bool:
@@ -356,6 +567,7 @@ async def devices_view(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "devices": devices,
             "total_channels": total_channels,
+            "smartlife_user_code": current_user.smartlife_user_code or "",
         },
     )
 
@@ -450,6 +662,7 @@ async def mappings_view(request: Request, db: Session = Depends(get_db)):
                 "channel_name": channel.name if channel else "Default device state",
                 "on_threshold": mapping.on_threshold,
                 "off_threshold": mapping.off_threshold,
+                "minimum_state_change_interval": mapping.minimum_state_change_interval,
             }
         )
 
@@ -676,7 +889,14 @@ async def turn_off_device_channel_form(device_id: str, channel_id: str, db: Sess
 
 
 @app.get("/events", response_class=HTMLResponse)
-async def events_view(request: Request, db: Session = Depends(get_db)):
+async def events_view(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=50, alias="per_page"),
+    db: Session = Depends(get_db),
+):
+    if per_page not in {50, 100, 500}:
+        raise HTTPException(status_code=422, detail="Page size must be 50, 100, or 500.")
     current_user = get_current_user(request, db)
     if current_user is not None and not is_super_admin_user(current_user) and current_user.tenant_id is not None:
         endpoint_ids = [e.id for e in db.query(Endpoint).filter(Endpoint.tenant_id == current_user.tenant_id).all()]
@@ -689,10 +909,23 @@ async def events_view(request: Request, db: Session = Depends(get_db)):
         )
     else:
         events_query = db.query(AutomationEvent)
-    events = events_query.order_by(AutomationEvent.created_at.desc()).all()
+    total_events = events_query.count()
+    total_pages = max(1, (total_events + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    events = (
+        events_query.order_by(AutomationEvent.created_at.desc(), AutomationEvent.id.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+    endpoint_ids = {event.endpoint_id for event in events if event.endpoint_id}
+    endpoints_by_id = {
+        endpoint.id: endpoint
+        for endpoint in db.query(Endpoint).filter(Endpoint.id.in_(endpoint_ids)).all()
+    } if endpoint_ids else {}
     rows = []
     for event in events:
-        endpoint = db.query(Endpoint).filter(Endpoint.id == event.endpoint_id).first()
+        endpoint = endpoints_by_id.get(event.endpoint_id)
         created_at = _to_user_timezone(event.created_at, current_user)
         rows.append(
             {
@@ -705,20 +938,32 @@ async def events_view(request: Request, db: Session = Depends(get_db)):
                 "result": "Success" if event.success else "Failed",
             }
         )
-    return templates.TemplateResponse("events.html", {"request": request, "rows": rows})
+    first_row = (page - 1) * per_page + 1 if total_events else 0
+    last_row = min(page * per_page, total_events)
+    return templates.TemplateResponse(
+        "events.html",
+        {
+            "request": request,
+            "rows": rows,
+            "page": page,
+            "per_page": per_page,
+            "total_events": total_events,
+            "total_pages": total_pages,
+            "first_row": first_row,
+            "last_row": last_row,
+        },
+    )
 
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     message = request.query_params.get("message")
-    tenant_token = request.query_params.get("tenant_token")
     return templates.TemplateResponse(
         "login.html",
         {
             "request": request,
             "error": request.query_params.get("error"),
             "message": message,
-            "tenant_token": tenant_token,
         },
     )
 
@@ -747,7 +992,6 @@ async def profile_page(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse(url="/login", status_code=303)
 
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
-    tenant_token = tenant.agent_token if tenant else None
     timezone_options = get_timezone_options()
     request.session["user_timezone"] = resolve_user_timezone(current_user)
     return templates.TemplateResponse(
@@ -756,7 +1000,6 @@ async def profile_page(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "current_user": current_user,
             "tenant": tenant,
-            "tenant_token": tenant_token,
             "role_label": current_user.role.replace("_", " ").title(),
             "message": request.query_params.get("message"),
             "error": request.query_params.get("error"),
@@ -790,16 +1033,16 @@ async def rotate_tenant_agent_token(request: Request, db: Session = Depends(get_
     if current_user is None:
         return RedirectResponse(url="/login", status_code=303)
     if not current_user.is_admin:
-        return RedirectResponse(url="/profile?error=Only+tenant+admins+can+rotate+the+agent+token", status_code=303)
+        return RedirectResponse(url="/agent?error=Only+tenant+admins+can+regenerate+the+agent+token", status_code=303)
 
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     if tenant is None:
-        return RedirectResponse(url="/profile?error=Tenant+not+found", status_code=303)
+        return RedirectResponse(url="/agent?error=Tenant+not+found", status_code=303)
 
     tenant.agent_token = generate_unique_agent_token(db)
     tenant.updated_at = datetime.now(UTC)
     db.commit()
-    return RedirectResponse(url=f"/profile?message=Agent+token+rotated+successfully&tenant_token={tenant.agent_token}", status_code=303)
+    return RedirectResponse(url="/agent?message=Agent+token+regenerated+successfully", status_code=303)
 
 
 @app.get("/register", response_class=HTMLResponse)
@@ -847,7 +1090,8 @@ async def register_user(
         db.commit()
         db.refresh(user)
         request.session["user_id"] = user.id
-        return RedirectResponse(url=f"/login?message=Tenant+created+successfully&tenant_token={tenant.agent_token}", status_code=303)
+        request.session["user_timezone"] = resolve_user_timezone(user)
+        return RedirectResponse(url="/agent?message=Tenant+created+successfully", status_code=303)
 
     tenant = Tenant(
         name=f"{username}'s personal tenant",
@@ -977,7 +1221,7 @@ async def rotate_tenant_agent_token_for_admin(request: Request, tenant_id: str, 
     tenant.agent_token = generate_unique_agent_token(db)
     tenant.updated_at = datetime.now(UTC)
     db.commit()
-    return RedirectResponse(url=f"/tenants?message=Agent+token+rotated+successfully&tenant_token={tenant.agent_token}", status_code=303)
+    return RedirectResponse(url="/tenants?message=Agent+token+rotated+successfully", status_code=303)
 
 
 @app.get("/users", response_class=HTMLResponse)
