@@ -52,10 +52,10 @@ Copy-Item .env.example .env
 Edit `.env` and set strong, unique values for the required secrets and initial
 administrator credentials. Keep this file private and do not overwrite it when
 updating the app. Add the published Docker Hub image under `CHARGEPILOT_IMAGE`,
-replacing `<Docker-Hub-username>` with the publisher's account or organization:
+replacing `endusercompute` with the publisher's account or organization:
 
 ```env
-CHARGEPILOT_IMAGE=<Docker-Hub-username>/chargepilot:latest
+CHARGEPILOT_IMAGE=endusercompute/chargepilot:latest
 ```
 
 Generate candidate secret values with Python, then copy them into the matching
