@@ -23,7 +23,7 @@ def test_shared_brand_surfaces_are_used_across_pages_and_wizards():
     base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
     agent_setup = (TEMPLATES / "agent_setup.html").read_text(encoding="utf-8")
 
-    assert 'href="/static/style.css?v=18"' in base
+    assert 'href="/static/style.css?v=21"' in base
     assert ".ui-page-hero" in stylesheet
     assert ".ui-accent-surface" in stylesheet
     assert ".ui-modal-heading" in stylesheet
