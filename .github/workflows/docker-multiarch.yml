@@ -33,13 +33,18 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Generate immutable commit image tag
+      - name: Generate timestamp image tag
+        id: timestamp
+        run: echo "tag=$(date -u +'%m%d%Y.%H%M%S')" >> "$GITHUB_OUTPUT"
+
+      - name: Generate image tags
         id: meta
         uses: docker/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f # v5.8.0
         with:
           images: ${{ env.DOCKERHUB_IMAGE }}
           tags: |
-            type=sha,format=long
+            type=raw,value=${{ steps.timestamp.outputs.tag }}
+            type=raw,value=latest
 
       - name: Build and push AMD64 + ARM64 image to Docker Hub
         id: build
