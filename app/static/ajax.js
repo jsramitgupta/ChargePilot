@@ -729,14 +729,22 @@
     if (target.id === 'scan-local-network') {
       target.disabled = true;
       target.setAttribute('aria-busy', 'true');
-      setWizardStatus('Searching for Tuya devices on the server’s local network. This may take a few seconds.');
+      const scanLocation = document.getElementById('scan-location')?.value || 'server';
+      const usesConnector = scanLocation.startsWith('connector:');
+      setWizardStatus(usesConnector
+        ? 'Asking the selected site connector to scan its local network. This may take up to a minute.'
+        : 'Scanning the network where ChargePilot is running. This may take up to a minute.');
       try {
         if (!target.dataset.scanUrl) {
           throw new Error('The scan route is not available. Restart or update the ChargePilot server, then reload this page.');
         }
         const response = await fetch(target.dataset.scanUrl, {
           method: 'POST',
-          headers: { Accept: 'application/json' },
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source: usesConnector ? 'connector' : 'server',
+            connector_id: usesConnector ? scanLocation.slice('connector:'.length) : null,
+          }),
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok) {

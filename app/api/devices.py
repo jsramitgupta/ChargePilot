@@ -16,6 +16,7 @@ from app.schemas.device import (
     DeviceUpdate,
 )
 from app.services.broadcaster import publish_event
+from app.services.local_key_service import encrypt_local_key
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
@@ -65,7 +66,7 @@ async def create_device(
         tenant_id=user.tenant_id,
         name=payload.name,
         device_id=payload.device_id,
-        encrypted_local_key=payload.encrypted_local_key,
+        encrypted_local_key=encrypt_local_key(payload.encrypted_local_key),
         ip_address=payload.ip_address,
         device_type=payload.device_type,
         protocol_version=payload.protocol_version,
@@ -204,6 +205,8 @@ async def update_device(
     device = _get_device(db, str(device_id), user)
     for field, value in payload.model_dump(exclude_unset=True).items():
         if value is not None:
+            if field == "encrypted_local_key":
+                value = encrypt_local_key(value)
             setattr(device, field, value)
     db.commit()
     db.refresh(device)

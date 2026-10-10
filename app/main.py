@@ -1,10 +1,10 @@
 import asyncio
+import secrets
 import io
 import logging
-import secrets
 import string
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -24,11 +24,13 @@ from app.api.mappings import router as mappings_router
 from app.api.onboarding import router as onboarding_router
 from app.api.telemetry import router as telemetry_router
 from app.api.auth import router as auth_router
+from app.api.connectors import router as connectors_router
 from app.core.authorization import is_super_admin_user, tenant_scoped_query
 from app.core.config import settings
 from app.core.database import SessionLocal, create_db_and_tables, get_db
 from app.core.security import hash_password, verify_password
 from app.models.device import Device, DeviceChannel
+from app.models.connector import DeviceCommand, SiteConnector
 from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
 from app.models.mapping import Mapping
@@ -37,6 +39,13 @@ from app.models.system_setting import SystemSetting
 from app.models.user import User
 from app.services.event_retention import purge_expired_events
 from app.services.tuya_service import TuyaService
+from app.services.connector_service import (
+    connector_is_online,
+    expire_overdue_commands,
+    hash_connector_token,
+    queue_device_command,
+)
+from app.services.local_key_service import encrypt_local_key
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -52,6 +61,7 @@ app = FastAPI(
 )
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
 event_retention_task: asyncio.Task | None = None
+connector_maintenance_task: asyncio.Task | None = None
 
 # CORS middleware removed to require same-origin requests and avoid cross-origin allowances
 
@@ -162,8 +172,9 @@ def is_role_admin(role: str | None) -> bool:
 @app.on_event("startup")
 async def startup_event() -> None:
     create_db_and_tables()
-    global event_retention_task
+    global event_retention_task, connector_maintenance_task
     event_retention_task = asyncio.create_task(event_retention_loop())
+    connector_maintenance_task = asyncio.create_task(connector_maintenance_loop())
 
 
 @app.on_event("shutdown")
@@ -172,6 +183,12 @@ async def shutdown_event() -> None:
         event_retention_task.cancel()
         try:
             await event_retention_task
+        except asyncio.CancelledError:
+            pass
+    if connector_maintenance_task is not None:
+        connector_maintenance_task.cancel()
+        try:
+            await connector_maintenance_task
         except asyncio.CancelledError:
             pass
 
@@ -188,10 +205,23 @@ async def event_retention_loop() -> None:
         await asyncio.sleep(24 * 60 * 60)
 
 
+async def connector_maintenance_loop() -> None:
+    while True:
+        try:
+            with SessionLocal() as db:
+                expired = expire_overdue_commands(db)
+                if expired:
+                    logger.info("Expired %s uncompleted site connector commands.", expired)
+        except SQLAlchemyError:
+            logger.exception("Could not expire site connector commands.")
+        await asyncio.sleep(30)
+
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(health_router)
 app.include_router(telemetry_router, prefix=settings.api_v1_prefix)
 app.include_router(auth_router, prefix=settings.api_v1_prefix)
+app.include_router(connectors_router, prefix=settings.api_v1_prefix)
 app.include_router(endpoints_router, prefix=settings.api_v1_prefix)
 app.include_router(devices_router, prefix=settings.api_v1_prefix)
 app.include_router(onboarding_router)
@@ -541,6 +571,18 @@ async def devices_view(request: Request, db: Session = Depends(get_db)):
 
     # compute total channels for template (avoid complex Jinja attribute expression)
     total_channels = sum(len(getattr(device, "channels", []) or []) for device in devices)
+    connectors = tenant_scoped_query(db.query(SiteConnector), SiteConnector, current_user).order_by(
+        SiteConnector.name.asc()
+    ).all()
+    for connector in connectors:
+        connector.is_online = connector_is_online(connector)
+    pending_commands = {
+        command.device_id
+        for command in tenant_scoped_query(db.query(DeviceCommand), DeviceCommand, current_user)
+        .filter(DeviceCommand.status.in_(("queued", "leased")))
+        .all()
+        if command.device_id
+    }
 
     # Clear Jinja2 template cache so filesystem edits are picked up in long-running test sessions
     try:
@@ -555,6 +597,12 @@ async def devices_view(request: Request, db: Session = Depends(get_db)):
             "devices": devices,
             "total_channels": total_channels,
             "smartlife_user_code": current_user.smartlife_user_code or "",
+            "connectors": connectors,
+            "can_manage_connectors": is_super_admin_user(current_user)
+            or current_user.role in {"tenant_admin", "manager"},
+            "pending_device_commands": pending_commands,
+            "message": request.query_params.get("message"),
+            "error_message": request.query_params.get("error"),
         },
     )
 
@@ -584,7 +632,7 @@ async def create_device_form(
         tenant_id=current_user.tenant_id,
         name=name,
         device_id=device_id,
-        encrypted_local_key=encrypted_local_key,
+        encrypted_local_key=encrypt_local_key(encrypted_local_key),
         ip_address=ip_address or None,
         device_type=device_type,
         protocol_version=protocol_version,
@@ -756,6 +804,217 @@ async def delete_device_form(request: Request, device_id: str, db: Session = Dep
     return RedirectResponse(url="/devices", status_code=303)
 
 
+@app.post("/devices/{device_id}/connector")
+async def assign_device_connector(
+    request: Request,
+    device_id: str,
+    connector_id: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    if not is_super_admin_user(current_user) and current_user.role not in {"tenant_admin", "manager"}:
+        return RedirectResponse(url="/devices?error=Connector+assignment+requires+administrator+access", status_code=303)
+    device = tenant_scoped_query(db.query(Device), Device, current_user).filter(
+        Device.id == device_id
+    ).first()
+    if device is None:
+        return RedirectResponse(url="/devices?error=Switch+not+found", status_code=303)
+    if connector_id:
+        connector = tenant_scoped_query(db.query(SiteConnector), SiteConnector, current_user).filter(
+            SiteConnector.id == connector_id,
+            SiteConnector.tenant_id == device.tenant_id,
+            SiteConnector.is_active.is_(True),
+            SiteConnector.token_hash.is_not(None),
+        ).first()
+        if connector is None:
+            return RedirectResponse(url="/devices?error=Choose+an+active+connector+for+this+tenant", status_code=303)
+        device.connector_id = connector.id
+    else:
+        device.connector_id = None
+    db.commit()
+    return RedirectResponse(url="/devices?message=Switch+connector+assignment+saved", status_code=303)
+
+
+@app.get("/connectors", response_class=HTMLResponse)
+async def connectors_view(request: Request, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    if not is_super_admin_user(current_user) and current_user.role not in {"tenant_admin", "manager"}:
+        raise HTTPException(status_code=403, detail="Connector administration permission required.")
+    connectors = tenant_scoped_query(db.query(SiteConnector), SiteConnector, current_user).order_by(
+        SiteConnector.created_at.desc()
+    ).all()
+    for connector in connectors:
+        connector.is_online = connector_is_online(connector)
+    tenants = db.query(Tenant).order_by(Tenant.name.asc()).all() if is_super_admin_user(current_user) else []
+    enrollment_code = request.session.pop("connector_enrollment_code", None)
+    return templates.TemplateResponse(
+        "connectors.html",
+        {
+            "request": request,
+            "connectors": connectors,
+            "tenants": tenants,
+            "current_user": current_user,
+            "enrollment_code": enrollment_code,
+            "message": request.query_params.get("message"),
+            "error_message": request.query_params.get("error"),
+        },
+    )
+
+
+@app.get("/connectors/download")
+async def download_site_connector(request: Request, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    archive = io.BytesIO()
+    connector_dir = BASE_DIR.parent / "connector"
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as package:
+        package.write(connector_dir / "__init__.py", "connector/__init__.py")
+        package.write(connector_dir / "chargepilot_connector.py", "connector/chargepilot_connector.py")
+        package.write(connector_dir / "requirements.txt", "requirements.txt")
+        package.write(connector_dir / "Dockerfile", "connector/Dockerfile")
+        package.write(connector_dir / "docker-compose.yml", "docker-compose.yml")
+        package.write(connector_dir / ".env.example", ".env.example")
+        package.write(connector_dir / "README.md", "README.md")
+    archive.seek(0)
+    return StreamingResponse(
+        archive,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="chargepilot-site-connector.zip"',
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@app.post("/connectors")
+async def create_site_connector(
+    request: Request,
+    name: str = Form(...),
+    tenant_id: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    if not is_super_admin_user(current_user) and current_user.role not in {"tenant_admin", "manager"}:
+        raise HTTPException(status_code=403, detail="Connector administration permission required.")
+    target_tenant_id = tenant_id if is_super_admin_user(current_user) else current_user.tenant_id
+    if not target_tenant_id or db.query(Tenant.id).filter(Tenant.id == target_tenant_id).first() is None:
+        return RedirectResponse(url="/connectors?error=Select+a+valid+tenant", status_code=303)
+    connector_name = name.strip()
+    if not connector_name:
+        return RedirectResponse(url="/connectors?error=Connector+name+is+required", status_code=303)
+    enrollment_code = secrets.token_urlsafe(32)
+    connector = SiteConnector(
+        tenant_id=target_tenant_id,
+        name=connector_name,
+        enrollment_token_hash=hash_connector_token(enrollment_code),
+        enrollment_expires_at=datetime.now(UTC) + timedelta(minutes=15),
+        is_active=True,
+    )
+    db.add(connector)
+    db.commit()
+    request.session["connector_enrollment_code"] = enrollment_code
+    return RedirectResponse(url="/connectors", status_code=303)
+
+
+@app.post("/connectors/{connector_id}/revoke")
+async def revoke_site_connector(request: Request, connector_id: str, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    if not is_super_admin_user(current_user) and current_user.role not in {"tenant_admin", "manager"}:
+        raise HTTPException(status_code=403, detail="Connector administration permission required.")
+    connector = tenant_scoped_query(db.query(SiteConnector), SiteConnector, current_user).filter(
+        SiteConnector.id == connector_id
+    ).first()
+    if connector is None:
+        return RedirectResponse(url="/connectors?error=Connector+not+found", status_code=303)
+    connector.is_active = False
+    connector.token_hash = None
+    connector.enrollment_token_hash = None
+    connector.enrollment_expires_at = None
+    db.query(Device).filter(Device.connector_id == connector.id).update(
+        {Device.connector_id: None}, synchronize_session=False
+    )
+    db.commit()
+    return RedirectResponse(url="/connectors?message=Connector+revoked", status_code=303)
+
+
+async def _handle_manual_switch_control(
+    db: Session,
+    device: Device,
+    *,
+    desired_state: bool,
+    channel: DeviceChannel | None,
+) -> str:
+    channel_index = channel.channel_index if channel is not None else 1
+    previous_state = channel.current_state if channel is not None else device.current_state
+    state_label = "ON" if desired_state else "OFF"
+    reason = f"Manual override via UI for {channel.name}" if channel else "Manual override via UI"
+
+    if device.connector_id:
+        try:
+            queue_device_command(
+                db,
+                device=device,
+                operation="set_state",
+                channel_index=channel_index,
+                channel_id=channel.id if channel else None,
+                desired_state=desired_state,
+                context={
+                    "event_type": f"MANUAL_{state_label}",
+                    "reason": reason,
+                    "previous_state": str(previous_state).lower(),
+                    "new_state": str(desired_state).lower(),
+                },
+            )
+            db.commit()
+            return "queued"
+        except ValueError as exc:
+            db.rollback()
+            logger.warning("Could not queue manual command for device %s: %s", device.id, exc)
+            return "failed"
+
+    result = await TuyaService.from_device(device).set_state(
+        device.device_id,
+        on=desired_state,
+        channel=channel_index,
+    )
+    success = bool(result.get("success", False))
+    if success:
+        if channel is not None:
+            channel.current_state = desired_state
+            device.current_state = any(
+                item.current_state
+                for item in db.query(DeviceChannel).filter(DeviceChannel.device_id == device.id).all()
+            )
+        else:
+            device.current_state = desired_state
+        device.last_state_change_at = datetime.now(UTC)
+        device.updated_at = datetime.now(UTC)
+    db.add(
+        AutomationEvent(
+            tenant_id=device.tenant_id,
+            event_type=f"MANUAL_{state_label}",
+            reason=reason,
+            device_id=device.id,
+            channel_id=channel.id if channel else None,
+            previous_state=str(previous_state).lower(),
+            new_state=str(desired_state).lower(),
+            success=success,
+            error=None if success else str(result.get("error") or "Local device command failed.")[:255],
+        )
+    )
+    db.commit()
+    return "succeeded" if success else "failed"
+
+
 @app.post("/devices/{device_id}/turn-on")
 async def turn_on_device_form(request: Request, device_id: str, db: Session = Depends(get_db)):
     current_user = get_current_user(request, db)
@@ -767,37 +1026,15 @@ async def turn_on_device_form(request: Request, device_id: str, db: Session = De
     if device is None:
         return RedirectResponse(url="/devices", status_code=303)
 
-    previous_state = device.current_state
     channel = (
         db.query(DeviceChannel)
         .filter(DeviceChannel.device_id == device.id)
         .order_by(DeviceChannel.channel_index.asc())
         .first()
     )
-    channel_index = channel.channel_index if channel else 1
-    payload = await TuyaService.from_device(device).set_state(device.device_id, on=True, channel=channel_index)
-    success = bool(payload.get("success", True))
-    device.current_state = True
-    device.last_state_change_at = datetime.now(UTC)
-    device.updated_at = datetime.now(UTC)
-    if channel is not None:
-        channel.current_state = True
-    db.add(
-        AutomationEvent(
-            tenant_id=device.tenant_id,
-            event_type="MANUAL_ON",
-            reason="Manual override via UI",
-            endpoint_id=None,
-            device_id=device.id,
-            channel_id=channel.id if channel else None,
-            battery_percentage=None,
-            previous_state=str(previous_state).lower(),
-            new_state="true",
-            success=success,
-        )
-    )
-    db.commit()
-    return RedirectResponse(url="/devices", status_code=303)
+    outcome = await _handle_manual_switch_control(db, device, desired_state=True, channel=channel)
+    message = "Switch+command+queued" if outcome == "queued" else "Switch+turned+on" if outcome == "succeeded" else "Switch+command+failed"
+    return RedirectResponse(url=f"/devices?message={message}", status_code=303)
 
 
 @app.post("/devices/{device_id}/turn-off")
@@ -811,37 +1048,15 @@ async def turn_off_device_form(request: Request, device_id: str, db: Session = D
     if device is None:
         return RedirectResponse(url="/devices", status_code=303)
 
-    previous_state = device.current_state
     channel = (
         db.query(DeviceChannel)
         .filter(DeviceChannel.device_id == device.id)
         .order_by(DeviceChannel.channel_index.asc())
         .first()
     )
-    channel_index = channel.channel_index if channel else 1
-    payload = await TuyaService.from_device(device).set_state(device.device_id, on=False, channel=channel_index)
-    success = bool(payload.get("success", True))
-    device.current_state = False
-    device.last_state_change_at = datetime.now(UTC)
-    device.updated_at = datetime.now(UTC)
-    if channel is not None:
-        channel.current_state = False
-    db.add(
-        AutomationEvent(
-            tenant_id=device.tenant_id,
-            event_type="MANUAL_OFF",
-            reason="Manual override via UI",
-            endpoint_id=None,
-            device_id=device.id,
-            channel_id=channel.id if channel else None,
-            battery_percentage=None,
-            previous_state=str(previous_state).lower(),
-            new_state="false",
-            success=success,
-        )
-    )
-    db.commit()
-    return RedirectResponse(url="/devices", status_code=303)
+    outcome = await _handle_manual_switch_control(db, device, desired_state=False, channel=channel)
+    message = "Switch+command+queued" if outcome == "queued" else "Switch+turned+off" if outcome == "succeeded" else "Switch+command+failed"
+    return RedirectResponse(url=f"/devices?message={message}", status_code=303)
 
 
 @app.post("/devices/{device_id}/channels/{channel_id}/turn-on")
@@ -861,28 +1076,9 @@ async def turn_on_device_channel_form(
     if device is None or channel is None:
         return RedirectResponse(url="/devices", status_code=303)
 
-    previous_state = channel.current_state
-    payload = await TuyaService.from_device(device).set_state(device.device_id, on=True, channel=channel.channel_index)
-    channel.current_state = True
-    device.current_state = any(item.current_state for item in device.channels)
-    device.last_state_change_at = datetime.now(UTC)
-    device.updated_at = datetime.now(UTC)
-    db.add(
-        AutomationEvent(
-            tenant_id=device.tenant_id,
-            event_type="MANUAL_ON",
-            reason=f"Manual override via UI for channel {channel.name}",
-            endpoint_id=None,
-            device_id=device.id,
-            channel_id=channel.id,
-            battery_percentage=None,
-            previous_state=str(previous_state).lower(),
-            new_state="true",
-            success=bool(payload.get("success", True)),
-        )
-    )
-    db.commit()
-    return RedirectResponse(url="/devices", status_code=303)
+    outcome = await _handle_manual_switch_control(db, device, desired_state=True, channel=channel)
+    message = "Switch+command+queued" if outcome == "queued" else "Switch+turned+on" if outcome == "succeeded" else "Switch+command+failed"
+    return RedirectResponse(url=f"/devices?message={message}", status_code=303)
 
 
 @app.post("/devices/{device_id}/channels/{channel_id}/turn-off")
@@ -905,28 +1101,9 @@ async def turn_off_device_channel_form(
     if device is None or channel is None:
         return RedirectResponse(url="/devices", status_code=303)
 
-    previous_state = channel.current_state
-    payload = await TuyaService.from_device(device).set_state(device.device_id, on=False, channel=channel.channel_index)
-    channel.current_state = False
-    device.current_state = any(item.current_state for item in device.channels)
-    device.last_state_change_at = datetime.now(UTC)
-    device.updated_at = datetime.now(UTC)
-    db.add(
-        AutomationEvent(
-            tenant_id=device.tenant_id,
-            event_type="MANUAL_OFF",
-            reason=f"Manual override via UI for channel {channel.name}",
-            endpoint_id=None,
-            device_id=device.id,
-            channel_id=channel.id,
-            battery_percentage=None,
-            previous_state=str(previous_state).lower(),
-            new_state="false",
-            success=bool(payload.get("success", True)),
-        )
-    )
-    db.commit()
-    return RedirectResponse(url="/devices", status_code=303)
+    outcome = await _handle_manual_switch_control(db, device, desired_state=False, channel=channel)
+    message = "Switch+command+queued" if outcome == "queued" else "Switch+turned+off" if outcome == "succeeded" else "Switch+command+failed"
+    return RedirectResponse(url=f"/devices?message={message}", status_code=303)
 
 
 @app.get("/events", response_class=HTMLResponse)

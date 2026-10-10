@@ -1,0 +1,25 @@
+services:
+  chargepilot-connector:
+    image: ${CHARGEPILOT_CONNECTOR_IMAGE:?Set CHARGEPILOT_CONNECTOR_IMAGE in .env}
+    container_name: chargepilot-connector
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CHARGEPILOT_CONNECTOR_SERVER_URL: ${CHARGEPILOT_CONNECTOR_SERVER_URL:?Set CHARGEPILOT_CONNECTOR_SERVER_URL in .env}
+      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE: /run/secrets/enrollment_code
+      CHARGEPILOT_CONNECTOR_CONFIG: /data/connector-config.json
+    secrets:
+      - enrollment_code
+    volumes:
+      - ${CHARGEPILOT_CONNECTOR_DATA_DIR:?Set CHARGEPILOT_CONNECTOR_DATA_DIR in .env}:/data
+
+secrets:
+  enrollment_code:
+    file: ${CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE:?Set CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE in .env}

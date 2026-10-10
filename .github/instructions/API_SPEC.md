@@ -15,6 +15,7 @@ The root app is served by `app.main` and the main routes are registered as:
 - `/api/v1/telemetry`
 - `/api/v1/endpoints`
 - `/api/v1/devices`
+- `/api/v1/connectors`
 - `/api/v1/mappings`
 - `/api/v1/events`
 
@@ -96,10 +97,16 @@ Behavior:
 - rejects stale telemetry over 600 seconds old
 - updates or creates the endpoint record
 - loads all active mappings for that endpoint
-- reads live switch state via TinyTuya
+- uses the confirmed stored state for connector-assigned devices (local
+  deployments with no connector retain the direct TinyTuya control path)
 - applies explicit `switch_state` override when present
 - otherwise calls the battery rule engine
-- writes an automation event record
+- creates a durable desired-state connector command when the mapping's device
+  is assigned to a connector
+- records the automation event after connector completion or failure
+
+The existing telemetry payload, endpoint token flow, and `CHARGEPILOT_`
+settings do not change.
 
 ### 3.4 GET /api/v1/endpoints
 
@@ -187,7 +194,86 @@ Updates one channel.
 
 Deletes one channel.
 
-## 5. Mapping API
+## 5. Site connector API
+
+Connector endpoints are mounted at `/api/v1/connectors`. Except for enrollment,
+they use the connector-specific bearer credential rather than an endpoint
+agent token. Command status reads require the signed-in ChargePilot session
+and normal tenant authorization.
+
+### POST /api/v1/connectors/enroll
+
+Exchange a one-time enrollment code in the `Authorization: Bearer` header for a
+connector ID and permanent credential. Codes expire after 15 minutes, are
+single-use, and are returned only once.
+
+Request: `{"version":"0.1.0"}`
+
+Response:
+
+```json
+{"connector_id":"<uuid>","name":"Office LAN","token":"<secret-returned-once>"}
+```
+
+### POST /api/v1/connectors/heartbeat
+
+Refreshes last-seen time and connector version. The connector sends its
+credential and `{"version":"0.1.0"}`.
+
+### POST /api/v1/connectors/commands/claim
+
+Claims up to one command for that connector. Returns `{"command":null}` when no
+work is waiting. State commands include metadata for a registered device
+assigned to that connector; local keys are not returned from user-facing
+device APIs.
+
+Commands are persisted, leased, expire, and are eligible for bounded reclaim
+after connection loss. Operations are allowlisted (`set_state`, `get_status`,
+`discover`) and device commands are scoped to the authenticating connector.
+
+### POST /api/v1/connectors/commands/{command_id}/result
+
+Acknowledges a claimed operation:
+
+```json
+{"success":true,"result":{"state":true},"error":null}
+```
+
+Failures use `success: false`; discovery results contain normalized device
+metadata and must not include local keys. Result bodies are size-limited.
+
+### GET /api/v1/connectors/commands/{command_id}
+
+Returns a tenant-scoped command status (`queued`, `leased`, `succeeded`,
+`failed`, or `expired`) and sanitized result.
+
+### POST /api/v1/connectors/{connector_id}/revoke
+
+Revokes the connector credential and unassigns its devices. Available to
+tenant administrators/managers and the Super Admin.
+
+The authenticated **Connectors** page creates enrollment codes, shows
+heartbeat status, and serves the connector package. The **Switches** page
+assigns devices. Its `POST /devices/scan` discovery endpoint accepts an
+optional JSON body:
+
+```json
+{"source":"server"}
+```
+
+`source` is `server` (the default, scans from the ChargePilot app runtime's
+network) or `connector` (delegates to an online site connector). For remote
+scans, pass `connector_id` to select a specific connector:
+
+```json
+{"source":"connector","connector_id":"<connector-uuid>"}
+```
+
+Both paths return normalized switch metadata without local keys. The server
+scan requires the app host/container to have LAN access and permit TinyTuya
+discovery traffic.
+
+## 6. Mapping API
 
 ### 5.1 GET /api/v1/mappings
 

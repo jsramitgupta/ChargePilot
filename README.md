@@ -1,6 +1,6 @@
 # ChargePilot
 
-ChargePilot is a self-hosted, local-first battery automation platform for Windows laptops. The app receives telemetry from laptop agents, evaluates battery thresholds, and turns local Tuya switches or plugs on or off without relying on the Tuya cloud for day-to-day automation.
+ChargePilot is a cloud-capable, local-first battery automation platform for Windows laptops. The app receives telemetry from laptop agents, evaluates battery thresholds, and routes Tuya switch commands through a site connector on the device LAN. Day-to-day control does not rely on the Tuya cloud.
 
 ## Project summary
 
@@ -12,6 +12,7 @@ The current codebase is a modular monolith built with FastAPI and SQLAlchemy. It
 - TinyTuya wrappers for local switch discovery and control
 - Jinja-rendered dashboard pages for operational supervision
 - a PowerShell laptop agent that sends runtime battery data
+- an outbound-HTTPS site connector that scans and controls devices on private LANs
 
 ## Runtime stack
 
@@ -121,25 +122,30 @@ The Events page is paginated on the server and lets you display 50, 100, or
 500 event rows per page. Events older than 30 days are automatically purged at
 application startup and once every 24 hours while the application is running.
 
-### Local switch control
+### Switch control through site connectors
 
-`app/services/tuya_service.py` encapsulates TinyTuya interactions:
+`app/services/tuya_service.py` encapsulates TinyTuya interactions. For cloud
+deployments, TinyTuya runs from `connector/chargepilot_connector.py` on the
+switch LAN instead of the cloud app:
 
-- local discovery via `deviceScan()`
-- authenticated “Scan local network” wizard on the Switches page
+- LAN discovery via `deviceScan()` on the selected site connector
+- explicit desired-state on/off and channel operations
 - request normalization for nested `dps` payloads
-- channel-specific state checks and toggles
-- structured logging of device commands and results
+- durable PostgreSQL command records with leases, expiry, bounded retries, and acknowledgements
+- encrypted local keys at rest using the existing `CHARGEPILOT_ENCRYPTION_KEY`
 
-This service is intentionally isolated so the rest of the app avoids direct TinyTuya dependency leakage.
+See the canonical [Cloud Connector Architecture](.github/instructions/CLOUD_CONNECTOR_ARCHITECTURE.md)
+for message semantics, security boundaries, rollout, and failure behavior.
 
 ### Switch onboarding
 
-The Switches page offers separate LAN-scan and manual-add paths. A LAN scan runs
-from the ChargePilot server, so the server must be on the same reachable LAN as
-the Tuya devices and its firewall/network must allow TinyTuya discovery traffic.
-The scan returns device IDs, names, IP addresses, and protocol versions; it
-never fills or returns a local key.
+The Switches page offers LAN-scan, manual-add, and connector assignment paths.
+LAN discovery defaults to scanning the network available to the ChargePilot
+server process. This works when the app host can reach the switch LAN. To scan a
+different, remote site, choose an online site connector; it scans its own LAN.
+Both paths return device IDs, names, IP addresses, and protocol versions, never
+local keys. Assign remotely controlled switches to the connector on their
+physical LAN.
 
 The local key field stays blank until entered manually or retrieved through
 Smart Life QR pairing. Smart Life returns only the local key and device ID
@@ -156,9 +162,67 @@ account that started pairing. They are not written to a Smart Life session
 file. The Smart Life account is used only for key retrieval; device details,
 including the local IP address, come from the LAN scan (or manual entry).
 
+## Site connector
+
+Open **Connectors**, download the connector package, and create an enrollment
+code for the tenant. The ZIP includes a README, Python runtime, and Docker
+deployment files.
+
+### Docker on Linux (amd64 or arm64)
+
+On an always-on Linux host on the switch LAN, copy `.env.example` to `.env` in
+the extracted package directory. Set the image to
+`DOCKERHUB_USERNAME/chargepilot-connector@sha256:<digest-from-workflow-summary>`,
+your HTTPS ChargePilot URL, and the enrollment-code file path. Create that
+file with the one-time code shown in ChargePilot, then create and grant
+ownership of the persistent data directory to container UID 10001:
+
+```sh
+mkdir -p connector-data
+sudo chown 10001:10001 connector-data
+docker compose up -d
+docker compose logs -f chargepilot-connector
+```
+
+The published multi-platform image supports both `linux/amd64` and
+`linux/arm64`. The included Compose service uses host networking so TinyTuya
+LAN discovery works on Linux. Protect the enrollment-code file and persistent
+connector data directory.
+
+### Python runtime
+
+For Windows, Linux, or macOS, install dependencies in the extracted package:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+Then run:
+
+```powershell
+python -m connector.chargepilot_connector --server-url "https://YOUR-CHARGEPILOT-HOST"
+```
+
+The connector prompts securely for the one-time code and saves its
+connector-specific credential outside the repository. Reuse the same host
+account to run it after enrollment.
+
+Assign switches to that connector on the **Switches** page. Confirm that the
+connector reports online, then use LAN scan or switch controls. The connector
+requires outbound HTTPS to ChargePilot and TinyTuya local LAN access. No inbound
+site firewall rule is needed. The connector image is rebuilt and pushed to
+Docker Hub when files under `connector/` change on `main`; the build publishes
+both supported CPU architectures.
+
+The existing Windows laptop agent, its config JSON, telemetry contract,
+`CHARGEPILOT_` settings, and Compose variables are unchanged. The connector is
+a separate process with its own configuration.
+
 ## Environment configuration
 
-The application reads settings using `pydantic-settings` with the environment prefix `CHARGEPILOT_`. For Compose, copy `.env.example` to `.env`, then set unique secret, admin-password, and PostgreSQL-password values. Generate URL-safe values with `python -c "import secrets; print(secrets.token_urlsafe(32))"`. The `.env` file is ignored by Git. `CHARGEPILOT_ENCRYPTION_KEY` is currently reserved and is not yet used to encrypt local keys at rest.
+The application reads settings using `pydantic-settings` with the environment prefix `CHARGEPILOT_`. For Compose, copy `.env.example` to `.env`, then set unique secret, admin-password, and PostgreSQL-password values. Generate URL-safe values with `python -c "import secrets; print(secrets.token_urlsafe(32))"`. The `.env` file is ignored by Git. `CHARGEPILOT_ENCRYPTION_KEY` encrypts device
+local keys at rest. Keep it backed up and stable: losing or changing it makes
+previously stored keys unreadable.
 
 ## Quick start: fresh PostgreSQL deployment
 
@@ -173,12 +237,18 @@ To publish an image to Docker Hub or install/update ChargePilot from a published
 
 For local Python development, install with `python -m pip install -e .[dev]`, set `CHARGEPILOT_DATABASE_URL` to a reachable existing PostgreSQL database, and run `uvicorn app.main:app --reload`. The app creates tables and the initial admin account at startup on an empty database.
 
-The repository does not currently contain Alembic revision files. `create_all()` initializes a fresh database but is not a versioned migration system; back up existing databases and manage schema-changing upgrades deliberately.
+The app's startup schema compatibility path creates the connector tables and
+adds the device connector assignment column to older databases. Back up the
+database before upgrading. The repository currently has no versioned Alembic
+revisions; `create_all()` and the compatibility bootstrap are not a general
+schema migration system. Plan and apply a reviewed, versioned migration before
+future production schema changes.
 
 ## Operational observations from the codebase
 
 - The app treats endpoint telemetry as the source of truth for device state and mapping decisions.
-- Device commands are routed by `device_id` and `channel` index, not just a flat boolean.
+- Device commands target an explicit desired state and channel; they are
+  durable and routed only to the assigned site connector.
 - A device can expose its state under `dps`, `data.dps`, or `status` payloads.
 - The dashboard is server-rendered via Jinja templates, not a separate frontend application.
 - Authentication is intentionally minimal in the current implementation and should be hardened before production use.

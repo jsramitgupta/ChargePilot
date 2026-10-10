@@ -69,6 +69,7 @@
             <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Dashboard</a>
             <a href="/mappings" {% if request.url.path.startswith('/mappings') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Mappings</a>
             <a href="/devices" {% if request.url.path.startswith('/devices') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Switches</a>
+            <a href="/connectors" {% if request.url.path.startswith('/connectors') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Connectors</a>
             <a href="/endpoints" {% if request.url.path.startswith('/endpoints') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Endpoints</a>
             <a href="/events" {% if request.url.path.startswith('/events') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Events</a>
             <a href="/users" {% if request.url.path.startswith('/users') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Users</a>
@@ -178,6 +179,6 @@
 
       applyTheme();
     </script>
-    <script src="/static/ajax.js?v=17"></script>
+    <script src="/static/ajax.js?v=18"></script>
   </body>
 </html>

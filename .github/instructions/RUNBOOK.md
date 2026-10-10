@@ -77,16 +77,23 @@ curl -X POST http://localhost:8000/api/v1/telemetry \
   }'
 ```
 
-## 5. Debugging TinyTuya issues
+## 5. Debugging connector and TinyTuya issues
 
-When a switch command fails or appears to do nothing, check the following in order:
+When a switch command fails or remains pending, check the following in order:
 
-1. Confirm the device can be reached on the same LAN.
-2. Confirm the `ip_address` and `encrypted_local_key` are correct.
-3. Confirm the `protocol_version` is valid for the target device.
-4. Confirm `channel_index` is correct for multi-gang devices.
-5. Confirm the app reads state from `dps`/`data.dps` rather than assuming a flat boolean.
-6. Review the server logs for `TinyTuya` request and result payloads.
+1. Confirm the switch is assigned to the connector physically on its LAN.
+2. Check **Connectors** for an online heartbeat and expected connector version.
+3. Confirm outbound HTTPS from the connector to ChargePilot and local LAN
+   access from the connector to the Tuya switch.
+4. Confirm device IP, protocol version, and channel index.
+5. Inspect `device_commands` for status, attempts, expiry, and sanitized result.
+6. Inspect `automation_events` for the final control outcome.
+7. Review connector logs for failure details only; do not log local keys or
+   bearer credentials.
+
+The connector polls every few seconds. Commands expire after five minutes and
+are leased with bounded retries. A queued or leased command is not a successful
+device action. Enrollment codes are single-use and expire after 15 minutes.
 
 ## 6. Real payload debugging facts from the codebase
 
@@ -120,6 +127,8 @@ Check the following tables after runtime events:
 - `device_channels`
 - `mappings`
 - `automation_events`
+- `site_connectors`
+- `device_commands`
 
 The most useful operational event data is in `automation_events`, which stores:
 
@@ -145,11 +154,15 @@ uvicorn app.main:app --host 127.0.0.1 --port 8010
 
 ## 10. Known operational cautions
 
-- The current endpoint auth check is intentionally static and should not be treated as hardened production authentication.
+- The existing endpoint auth check is separate from connector credentials and
+  should not be treated as a substitute for connector-specific authorization.
 - Local keys and device secrets must stay out of source control.
 - The dashboard is server-side HTML and may not reflect modern frontend conventions.
 - Incorrect channel mapping can look like a successful API call while the wrong relay is switched.
-- The app updates device state based on a live status read before deciding whether to send a command.
+- Connector-assigned cloud devices use confirmed stored state for rule
+  evaluation; devices without a connector retain the direct local-host path.
+- `CHARGEPILOT_ENCRYPTION_KEY` must match the key used to encrypt stored local
+  keys. Restore it with database backups.
 
 ## 11. Recovery approach
 

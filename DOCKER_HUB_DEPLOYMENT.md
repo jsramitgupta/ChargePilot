@@ -25,11 +25,10 @@ The workflow in `.github/workflows/docker-multiarch.yml` runs after a push to
 `main`, or can be started manually from **Actions → Build and Push Docker Image
 to Docker Hub → Run workflow**. For a manual run, select the intended branch.
 
-Each successful run publishes two tags:
-
-- `latest` — updated to the image from the newest successful run.
-- A timestamp tag in `DDMMYYYY.HHmmss` format — a fixed version useful for
-  pinning or rollback.
+Each successful run publishes an immutable tag based on the full source commit
+SHA. The workflow summary also provides the image digest. Use the digest as
+the deployment reference; it identifies the exact multi-platform image
+manifest and cannot move when later builds are published.
 
 The workflow builds from `docker/Dockerfile` and publishes a multi-platform
 manifest. Confirm the Actions run succeeds, then check the tags and platforms
@@ -55,7 +54,7 @@ updating the app. Add the published Docker Hub image under `CHARGEPILOT_IMAGE`,
 replacing `<Docker-Hub-username>` with the publisher's account or organization:
 
 ```env
-CHARGEPILOT_IMAGE=<Docker-Hub-username>/chargepilot:latest
+CHARGEPILOT_IMAGE=<Docker-Hub-username>/chargepilot@sha256:<digest-from-workflow-summary>
 ```
 
 Generate candidate secret values with Python, then copy them into the matching
@@ -89,9 +88,9 @@ The application listens on port `8000` by default.
 1. Back up the PostgreSQL database before applying an update. Keep the same
    `.env` file and Docker Compose project so the existing `postgres-data`
    volume is reused.
-2. Leave `CHARGEPILOT_IMAGE` set to `.../chargepilot:latest` for automatic
-   latest-version updates, or set it to a specific timestamp tag to control
-   which release is installed.
+2. To upgrade, replace `CHARGEPILOT_IMAGE` with the digest reported by the
+   successful workflow run for the intended commit. The Compose deployment is
+   deliberately pinned and will not silently move to a newer image.
 3. From the directory containing the Compose file and `.env`, run:
 
    ```powershell
@@ -111,11 +110,11 @@ updates.
 
 ### Pin or roll back an image
 
-To pin a deployment, set `CHARGEPILOT_IMAGE` in `.env` to a known timestamp tag,
-then run `docker compose pull app` followed by `docker compose up -d --no-build`.
-To roll back, change the value to the prior timestamp tag and repeat those
-commands. Keep a database backup: rolling back the container image does not
-reverse database changes.
+To pin a deployment, set `CHARGEPILOT_IMAGE` in `.env` to the image digest
+reported by the workflow, then run `docker compose pull app` followed by
+`docker compose up -d --no-build`. To roll back, restore the previous digest
+and repeat those commands. Keep a database backup: rolling back the container
+image does not reverse database changes.
 
 ## Upgrade and security notes
 
@@ -127,5 +126,6 @@ reverse database changes.
   replace it with a new Compose project name or delete it when updating.
 - Keep `.env`, backups, and Docker Hub access tokens private. Do not post the
   output of `docker compose config`, which may include expanded secrets.
-- The `latest` tag moves with each successful publish. Use a timestamp tag when
-  reproducibility or controlled rollouts are required.
+- Workflow runs publish immutable commit tags and report a digest suitable for
+  reproducible deployment. Keep the digest with the release record for
+  controlled rollouts and rollback.

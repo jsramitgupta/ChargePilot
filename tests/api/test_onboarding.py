@@ -1,11 +1,17 @@
 import base64
 import sys
 from types import SimpleNamespace
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api import onboarding
+from app.core.database import SessionLocal
 from app.main import app
+from app.models.connector import SiteConnector
+from app.models.user import User
+from app.services.connector_service import finalize_command, hash_connector_token, queue_discovery_command
 from app.services.smartlife_service import SmartLifeService
 
 
@@ -26,41 +32,117 @@ def _authenticated_client(username: str, root_path: str = "") -> TestClient:
     return client
 
 
-def test_lan_scan_requires_login_and_never_returns_discovered_local_key(monkeypatch):
+def test_lan_scan_defaults_to_chargepilot_server_network_and_redacts_local_keys(monkeypatch):
     client = TestClient(app)
     assert client.post("/devices/scan").status_code == 401
+    client = _authenticated_client("lan_scan_user")
 
     class FakeTuyaService:
         async def discover(self):
             return [
                 {
-                    "name": "Kitchen Plug",
-                    "device_id": "tuya-kitchen-001",
-                    "ip_address": "192.168.1.40",
-                    "local_key": "must-not-be-returned",
-                    "protocol_version": "3.3",
+                    "name": "Server LAN plug",
+                    "device_id": "server-lan-plug",
+                    "ip_address": "192.168.1.25",
+                    "protocol_version": "3.5",
                     "device_type": "switch",
+                    "local_key": "must-not-be-returned",
                 }
             ]
 
-    monkeypatch.setattr("app.api.onboarding.TuyaService", FakeTuyaService)
-    client = _authenticated_client("lan_scan_user")
+    monkeypatch.setattr(onboarding, "TuyaService", FakeTuyaService)
+    response = client.post("/devices/scan", json={"source": "server"})
 
-    response = client.post("/devices/scan")
     assert response.status_code == 200, response.text
-    assert response.json() == {
-        "devices": [
-            {
-                "name": "Kitchen Plug",
-                "device_id": "tuya-kitchen-001",
-                "ip_address": "192.168.1.40",
-                "protocol_version": "3.3",
-                "device_type": "switch",
-                "already_added": False,
-            }
-        ]
-    }
-    assert "must-not-be-returned" not in response.text
+    assert response.json()["devices"] == [
+        {
+            "name": "Server LAN plug",
+            "device_id": "server-lan-plug",
+            "ip_address": "192.168.1.25",
+            "protocol_version": "3.5",
+            "device_type": "switch",
+            "already_added": False,
+        }
+    ]
+    connector_scan = client.post(
+        "/devices/scan",
+        json={"source": "connector", "connector_id": "missing-connector"},
+    )
+    assert connector_scan.status_code == 503
+    assert "No active site connector is online" in connector_scan.json()["detail"]
+
+
+def test_lan_scan_returns_connector_metadata_without_local_keys(monkeypatch):
+    client = TestClient(app)
+    register = client.post(
+        "/register",
+        data={
+            "username": "lan_scan_connector_user",
+            "password": "secret123",
+            "account_type": "tenant",
+            "tenant_name": "LAN scan site",
+        },
+        follow_redirects=False,
+    )
+    assert register.status_code == 303, register.text
+    login = client.post(
+        "/login",
+        data={"username": "lan_scan_connector_user", "password": "secret123"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 303, login.text
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "lan_scan_connector_user").one()
+        connector = SiteConnector(
+            tenant_id=user.tenant_id,
+            name="LAN scan connector",
+            token_hash=hash_connector_token("lan-scan-connector-token"),
+            last_seen_at=datetime.now(UTC),
+        )
+        db.add(connector)
+        db.commit()
+        connector_id = connector.id
+
+    original_queue = queue_discovery_command
+
+    def complete_discovery(db, connector):
+        command = original_queue(db, connector)
+        finalize_command(
+            db,
+            command,
+            success=True,
+            result={
+                "devices": [
+                    {
+                        "name": "LAN plug",
+                        "device_id": "lan-plug-id",
+                        "ip_address": "192.168.1.25",
+                        "protocol_version": "3.5",
+                        "device_type": "switch",
+                        "local_key": "must-not-be-returned",
+                    }
+                ]
+            },
+        )
+        return command
+
+    monkeypatch.setattr(onboarding, "queue_discovery_command", complete_discovery)
+    response = client.post(
+        "/devices/scan",
+        json={"source": "connector", "connector_id": connector_id},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["devices"] == [
+        {
+            "name": "LAN plug",
+            "device_id": "lan-plug-id",
+            "ip_address": "192.168.1.25",
+            "protocol_version": "3.5",
+            "device_type": "switch",
+            "already_added": False,
+        }
+    ]
 
 
 def test_smartlife_pairing_routes_require_login_and_keep_user_session_scoped(monkeypatch):
@@ -103,15 +185,17 @@ def test_device_wizard_keeps_local_key_blank_until_user_provides_one():
     assert page.status_code == 200, page.text
     assert 'id="wizard_local_key" type="password" name="encrypted_local_key" required placeholder="Blank until entered or retrieved"' in page.text
     assert "Scan local network" in page.text
+    assert "Scan the network where ChargePilot runs" in page.text
+    assert "ChargePilot server network" in page.text
     assert "Add switch manually" in page.text
     assert "Fetch with Smart Life" in page.text
     assert "Generate secure QR" in page.text
     assert "Remember this account ID on my ChargePilot account" in page.text
     assert "ChargePilot retrieves only local keys" in page.text
     assert 'data-scan-url="http://testserver/devices/scan"' in page.text
-    assert "ajax.js?v=17" in page.text
+    assert "ajax.js?v=18" in page.text
     assert 'id="smartlife-modal"' in page.text
-    assert page.text.index("Scan your local network") < page.text.index("Step 2 · Add")
+    assert page.text.index("Scan a switch network") < page.text.index("Step 2 · Add")
     assert page.text.index("Step 2 · Add") < page.text.index("Configured switches")
 
 

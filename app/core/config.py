@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from pydantic import Field
 from pydantic import model_validator
@@ -6,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 DEFAULT_POSTGRES_URL = "postgresql+psycopg://chargepilot:chargepilot@localhost:5432/chargepilot"
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 class Settings(BaseSettings):
@@ -26,7 +28,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE,
         env_prefix="CHARGEPILOT_",
         extra="ignore",
     )
