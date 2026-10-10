@@ -169,6 +169,8 @@ docker compose up --build -d
 
 The Compose stack starts PostgreSQL 16 with persistent storage, waits for database health before starting the app, and runs the app as a non-root user. `/health` reports process liveness; `/ready` checks database connectivity. `docker compose down` preserves database data; `docker compose down -v` deletes it.
 
+To publish an image to Docker Hub or install/update ChargePilot from a published image, see the [Docker Hub deployment guide](DOCKER_HUB_DEPLOYMENT.md).
+
 For local Python development, install with `python -m pip install -e .[dev]`, set `CHARGEPILOT_DATABASE_URL` to a reachable existing PostgreSQL database, and run `uvicorn app.main:app --reload`. The app creates tables and the initial admin account at startup on an empty database.
 
 The repository does not currently contain Alembic revision files. `create_all()` initializes a fresh database but is not a versioned migration system; back up existing databases and manage schema-changing upgrades deliberately.

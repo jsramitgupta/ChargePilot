@@ -16,6 +16,7 @@ services:
     restart: unless-stopped
 
   app:
+    image: ${CHARGEPILOT_IMAGE:-chargepilot:local}
     build:
       context: .
       dockerfile: docker/Dockerfile
