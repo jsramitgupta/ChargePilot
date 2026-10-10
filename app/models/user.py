@@ -14,7 +14,7 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     role: Mapped[str] = mapped_column(String(40), default="standard_user")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)

@@ -12,7 +12,7 @@ class Endpoint(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     hostname: Mapped[str] = mapped_column(String(160), nullable=False)
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)

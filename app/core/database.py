@@ -119,6 +119,110 @@ def _ensure_cascade_foreign_keys() -> None:
         """))
 
 
+def _backfill_tenant_ownership() -> None:
+    with engine.begin() as conn:
+        conn.execute(text("""
+            UPDATE devices
+            SET tenant_id = (
+                SELECT users.tenant_id
+                FROM users
+                WHERE users.id = devices.owner_id
+            )
+            WHERE tenant_id IS NULL
+              AND owner_id IS NOT NULL
+              AND EXISTS (
+                  SELECT 1 FROM users
+                  WHERE users.id = devices.owner_id
+                    AND users.tenant_id IS NOT NULL
+              )
+        """))
+        conn.execute(text("""
+            UPDATE endpoints
+            SET tenant_id = (
+                SELECT users.tenant_id
+                FROM users
+                WHERE users.id = endpoints.owner_id
+            )
+            WHERE tenant_id IS NULL
+              AND owner_id IS NOT NULL
+              AND EXISTS (
+                  SELECT 1 FROM users
+                  WHERE users.id = endpoints.owner_id
+                    AND users.tenant_id IS NOT NULL
+              )
+        """))
+        conn.execute(text("""
+            UPDATE mappings
+            SET tenant_id = (
+                SELECT endpoints.tenant_id
+                FROM endpoints
+                JOIN devices ON devices.id = mappings.device_id
+                WHERE endpoints.id = mappings.endpoint_id
+                  AND endpoints.tenant_id = devices.tenant_id
+                  AND endpoints.tenant_id IS NOT NULL
+            )
+            WHERE tenant_id IS NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM endpoints
+                  JOIN devices ON devices.id = mappings.device_id
+                  WHERE endpoints.id = mappings.endpoint_id
+                    AND endpoints.tenant_id = devices.tenant_id
+                    AND endpoints.tenant_id IS NOT NULL
+              )
+        """))
+        conn.execute(text("""
+            UPDATE automation_events
+            SET tenant_id = CASE
+                WHEN endpoint_id IS NOT NULL AND device_id IS NOT NULL THEN (
+                    SELECT endpoints.tenant_id
+                    FROM endpoints
+                    JOIN devices ON devices.id = automation_events.device_id
+                    WHERE endpoints.id = automation_events.endpoint_id
+                      AND endpoints.tenant_id = devices.tenant_id
+                      AND endpoints.tenant_id IS NOT NULL
+                )
+                WHEN endpoint_id IS NOT NULL THEN (
+                    SELECT endpoints.tenant_id
+                    FROM endpoints
+                    WHERE endpoints.id = automation_events.endpoint_id
+                      AND endpoints.tenant_id IS NOT NULL
+                )
+                WHEN device_id IS NOT NULL THEN (
+                    SELECT devices.tenant_id
+                    FROM devices
+                    WHERE devices.id = automation_events.device_id
+                      AND devices.tenant_id IS NOT NULL
+                )
+                ELSE NULL
+            END
+            WHERE tenant_id IS NULL
+              AND (
+                  EXISTS (
+                      SELECT 1 FROM endpoints
+                      WHERE endpoints.id = automation_events.endpoint_id
+                        AND endpoints.tenant_id IS NOT NULL
+                  )
+                  OR EXISTS (
+                      SELECT 1 FROM devices
+                      WHERE devices.id = automation_events.device_id
+                        AND devices.tenant_id IS NOT NULL
+                  )
+              )
+        """))
+
+
+def _ensure_tenant_indexes() -> None:
+    with engine.begin() as conn:
+        for table_name in ("users", "devices", "endpoints", "mappings", "automation_events"):
+            conn.execute(
+                text(
+                    f'CREATE INDEX IF NOT EXISTS "ix_{table_name}_tenant_id" '
+                    f'ON "{table_name}" ("tenant_id")'
+                )
+            )
+
+
 def ensure_default_admin_user() -> None:
     with SessionLocal() as db:
         existing = db.query(User).filter(User.username == settings.admin_username).first()
@@ -152,6 +256,8 @@ def ensure_default_system_settings() -> None:
 def create_db_and_tables() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_table_columns()
+    _backfill_tenant_ownership()
+    _ensure_tenant_indexes()
     _ensure_cascade_foreign_keys()
     ensure_default_admin_user()
     ensure_default_system_settings()

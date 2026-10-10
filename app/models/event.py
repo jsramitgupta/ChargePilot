@@ -11,7 +11,7 @@ class AutomationEvent(Base):
     __tablename__ = "automation_events"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     event_type: Mapped[str] = mapped_column(String(80), nullable=False)
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     endpoint_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

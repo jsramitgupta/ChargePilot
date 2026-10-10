@@ -35,6 +35,13 @@ def test_login_and_logout_follow_redirects_to_the_correct_pages():
     assert 'autocomplete="username"' in login_page.text
     assert 'autocomplete="current-password"' in login_page.text
 
+    register_page = client.get("/register?account_type=tenant")
+    assert register_page.text.count(
+        'w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100'
+    ) == 3
+    assert 'autocomplete="username"' in register_page.text
+    assert 'autocomplete="new-password"' in register_page.text
+
     client.post(
         "/register",
         data={"username": "redirect-user", "password": "secret123"},
@@ -99,19 +106,6 @@ def test_authenticated_header_shows_navigation_tabs():
 
 
 def test_events_include_battery_percentage():
-    with SessionLocal() as db:
-        db.add(
-            AutomationEvent(
-                event_type="TURN_ON",
-                reason="battery 82% reached 79% rule",
-                battery_percentage=82,
-                endpoint_id="ep-1",
-                device_id="dev-1",
-                success=True,
-            )
-        )
-        db.commit()
-
     register = client.post(
         "/register",
         data={"username": "bob", "password": "secret123"},
@@ -124,6 +118,21 @@ def test_events_include_battery_percentage():
         data={"username": "bob", "password": "secret123"},
         follow_redirects=False,
     )
+
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "bob").one()
+        db.add(
+            AutomationEvent(
+                tenant_id=user.tenant_id,
+                event_type="TURN_ON",
+                reason="battery 82% reached 79% rule",
+                battery_percentage=82,
+                endpoint_id="ep-1",
+                device_id="dev-1",
+                success=True,
+            )
+        )
+        db.commit()
 
     response = client.get("/events")
     assert response.status_code == 200

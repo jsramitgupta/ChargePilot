@@ -5,12 +5,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.authorization import get_authenticated_user, is_super_admin_user
 from app.models.device import Device, DeviceChannel
 from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
 from app.models.mapping import Mapping
+from app.models.user import User
 from app.schemas.telemetry import TelemetryPayload, TelemetryResponse
-from app.services.endpoint_service import validate_endpoint_auth
+from app.services.endpoint_service import authenticate_endpoint_token
 from app.services.rule_engine import evaluate_battery_action
 from app.services.tuya_service import TuyaService
 from app.services.broadcaster import publish_event
@@ -19,7 +21,10 @@ router = APIRouter(prefix="/telemetry", tags=["telemetry"])
 
 
 @router.get("/stream")
-async def stream_events(request: Request):
+async def stream_events(
+    request: Request,
+    user: User = Depends(get_authenticated_user),
+):
     """Simple Server-Sent Events stream for device updates.
 
     Clients should connect with EventSource('/api/v1/telemetry/stream').
@@ -27,7 +32,6 @@ async def stream_events(request: Request):
     from starlette.responses import StreamingResponse
     import asyncio
     from app.services.broadcaster import register_client, unregister_client
-
     client_q = register_client()
 
     async def event_generator():
@@ -41,6 +45,10 @@ async def stream_events(request: Request):
                 except asyncio.TimeoutError:
                     # heartbeat
                     yield "event: ping\ndata: {}\n\n"
+                    continue
+                if not is_super_admin_user(user) and (
+                    user.tenant_id is None or item.get("tenant_id") != user.tenant_id
+                ):
                     continue
                 data = json.dumps(item, default=str)
                 yield f"data: {data}\n\n"
@@ -60,7 +68,8 @@ async def receive_telemetry(
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
 ):
-    if not validate_endpoint_auth(authorization, db):
+    is_valid, tenant = authenticate_endpoint_token(authorization, db)
+    if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing endpoint token.",
@@ -77,11 +86,15 @@ async def receive_telemetry(
             detail="Telemetry timestamp is too old.",
         )
 
-    endpoint = db.query(Endpoint).filter(Endpoint.hostname == payload.hostname).first()
+    endpoint_query = db.query(Endpoint).filter(Endpoint.hostname == payload.hostname)
+    if tenant is not None:
+        endpoint_query = endpoint_query.filter(Endpoint.tenant_id == tenant.id)
+    endpoint = endpoint_query.first()
     if endpoint is None:
         endpoint = Endpoint(
             name=payload.hostname,
             hostname=payload.hostname,
+            tenant_id=tenant.id if tenant is not None else None,
             ip_address=payload.ip_address,
             battery_percentage=payload.battery_percentage,
             charging=payload.charging,
@@ -107,19 +120,31 @@ async def receive_telemetry(
 
     mappings = (
         db.query(Mapping)
-        .filter(Mapping.endpoint_id == endpoint.id, Mapping.enabled.is_(True))
+        .filter(
+            Mapping.endpoint_id == endpoint.id,
+            Mapping.tenant_id == endpoint.tenant_id,
+            Mapping.enabled.is_(True),
+        )
         .all()
     )
 
     for mapping in mappings:
-        device = db.query(Device).filter(Device.id == mapping.device_id).first()
+        device = (
+            db.query(Device)
+            .filter(Device.id == mapping.device_id, Device.tenant_id == endpoint.tenant_id)
+            .first()
+        )
         if device is None:
             continue
 
         channel = None
         channel_index = 1
         if mapping.channel_id:
-            channel = db.query(DeviceChannel).filter(DeviceChannel.id == mapping.channel_id).first()
+            channel = (
+                db.query(DeviceChannel)
+                .filter(DeviceChannel.id == mapping.channel_id, DeviceChannel.device_id == device.id)
+                .first()
+            )
             if channel is not None:
                 channel_index = channel.channel_index
 
@@ -166,6 +191,7 @@ async def receive_telemetry(
 
         db.add(
             AutomationEvent(
+                tenant_id=endpoint.tenant_id,
                 event_type=decision,
                 reason=reason,
                 endpoint_id=endpoint.id,
@@ -183,6 +209,7 @@ async def receive_telemetry(
         try:
             publish_event({
                 "type": "device_state_change",
+                "tenant_id": endpoint.tenant_id,
                 "device_id": device.id,
                 "channel_id": mapping.channel_id,
                 "previous_state": previous_state,

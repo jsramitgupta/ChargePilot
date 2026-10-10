@@ -5,23 +5,10 @@ from fastapi.testclient import TestClient
 from app.core.database import SessionLocal
 from app.main import app
 from app.models.event import AutomationEvent
+from app.models.user import User
 
 
 def test_events_page_supports_selectable_server_side_page_sizes():
-    with SessionLocal() as db:
-        now = datetime.now(UTC)
-        db.add_all(
-            [
-                AutomationEvent(
-                    event_type="PAGINATION_TEST",
-                    reason=f"pagination-row-{index:03}",
-                    created_at=now - timedelta(minutes=index),
-                )
-                for index in range(55)
-            ]
-        )
-        db.commit()
-
     client = TestClient(app)
     register = client.post(
         "/register",
@@ -35,6 +22,22 @@ def test_events_page_supports_selectable_server_side_page_sizes():
         follow_redirects=False,
     )
     assert login.status_code == 303
+
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "events-pagination-user").one()
+        now = datetime.now(UTC)
+        db.add_all(
+            [
+                AutomationEvent(
+                    tenant_id=user.tenant_id,
+                    event_type="PAGINATION_TEST",
+                    reason=f"pagination-row-{index:03}",
+                    created_at=now - timedelta(minutes=index),
+                )
+                for index in range(55)
+            ]
+        )
+        db.commit()
 
     first_page = client.get("/events?per_page=50")
     assert first_page.status_code == 200

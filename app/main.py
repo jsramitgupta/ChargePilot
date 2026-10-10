@@ -24,6 +24,7 @@ from app.api.mappings import router as mappings_router
 from app.api.onboarding import router as onboarding_router
 from app.api.telemetry import router as telemetry_router
 from app.api.auth import router as auth_router
+from app.core.authorization import is_super_admin_user, tenant_scoped_query
 from app.core.config import settings
 from app.core.database import SessionLocal, create_db_and_tables, get_db
 from app.core.security import hash_password, verify_password
@@ -74,17 +75,6 @@ def require_user(request: Request, db: Session) -> User:
     return user
 
 
-def filter_by_user(query, user: User | None, owner_field: str = "owner_id"):
-    if user is not None and not is_super_admin_user(user):
-        model = query.column_descriptions[0]["entity"] if query.column_descriptions else None
-        if model is not None and hasattr(model, "tenant_id"):
-            if user.tenant_id is not None:
-                return query.filter(model.tenant_id == user.tenant_id)
-        if model is not None and hasattr(model, owner_field):
-            return query.filter(getattr(model, owner_field) == user.id)
-    return query
-
-
 def generate_agent_token() -> str:
     return "".join(secrets.choice(string.ascii_letters) for _ in range(32))
 
@@ -118,14 +108,6 @@ def get_global_agent_token(db: Session, create_if_missing: bool = False) -> str 
 
 def _quote_powershell_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
-
-
-def is_super_admin_user(user: User | None) -> bool:
-    if user is None:
-        return False
-    if user.username == settings.admin_username:
-        return True
-    return user.role == "super_admin" or (user.is_admin and user.tenant_id is None)
 
 
 def normalize_role(role: str | None) -> str:
@@ -411,20 +393,16 @@ def _is_ajax(request: Request) -> bool:
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_view(request: Request, db: Session = Depends(get_db)):
     current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
 
-    endpoints_query = db.query(Endpoint)
-    if current_user is not None and not is_super_admin_user(current_user) and current_user.tenant_id is not None:
-        endpoints_query = endpoints_query.filter(Endpoint.tenant_id == current_user.tenant_id)
+    endpoints_query = tenant_scoped_query(db.query(Endpoint), Endpoint, current_user)
     endpoints = endpoints_query.order_by(Endpoint.last_seen_at.desc().nullslast()).all()
 
-    devices_query = db.query(Device)
-    if current_user is not None and not is_super_admin_user(current_user) and current_user.tenant_id is not None:
-        devices_query = devices_query.filter(Device.tenant_id == current_user.tenant_id)
+    devices_query = tenant_scoped_query(db.query(Device), Device, current_user)
     devices = devices_query.all()
 
-    mappings_query = db.query(Mapping)
-    if current_user is not None and not is_super_admin_user(current_user) and current_user.tenant_id is not None:
-        mappings_query = mappings_query.filter(Mapping.tenant_id == current_user.tenant_id)
+    mappings_query = tenant_scoped_query(db.query(Mapping), Mapping, current_user)
     mappings = mappings_query.all()
 
     total_endpoints = len(endpoints)
@@ -450,7 +428,9 @@ async def dashboard_view(request: Request, db: Session = Depends(get_db)):
         if mappings:
             for mapping in mappings:
                 if mapping.endpoint_id == endpoint.id:
-                    mapped_device = db.query(Device).filter(Device.id == mapping.device_id).first()
+                    mapped_device = tenant_scoped_query(
+                        db.query(Device), Device, current_user
+                    ).filter(Device.id == mapping.device_id).first()
                     break
         switch_name = mapped_device.name if mapped_device else "No mapped switch"
         switch_state = "ON" if mapped_device and mapped_device.current_state else "OFF"
@@ -489,10 +469,10 @@ async def dashboard_view(request: Request, db: Session = Depends(get_db)):
 @app.get("/endpoints", response_class=HTMLResponse)
 async def endpoints_view(request: Request, db: Session = Depends(get_db)):
     current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
 
-    endpoints_query = db.query(Endpoint)
-    if current_user is not None and not is_super_admin_user(current_user) and current_user.tenant_id is not None:
-        endpoints_query = endpoints_query.filter(Endpoint.tenant_id == current_user.tenant_id)
+    endpoints_query = tenant_scoped_query(db.query(Endpoint), Endpoint, current_user)
     endpoints = endpoints_query.order_by(Endpoint.last_seen_at.desc().nullslast()).all()
     rows = []
     for endpoint in endpoints:
@@ -517,15 +497,24 @@ async def endpoints_view(request: Request, db: Session = Depends(get_db)):
 @app.post("/endpoints/{endpoint_id}/delete")
 async def delete_endpoint_form(request: Request, endpoint_id: str, db: Session = Depends(get_db)):
     current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
 
-    endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).first()
-    if endpoint is not None and current_user is not None and not is_super_admin_user(current_user):
-        if endpoint.tenant_id != current_user.tenant_id:
-            return RedirectResponse(url="/endpoints?error=You+cannot+delete+that+endpoint.", status_code=303)
+    endpoint = tenant_scoped_query(db.query(Endpoint), Endpoint, current_user).filter(
+        Endpoint.id == endpoint_id
+    ).first()
+    if endpoint is None:
+        return RedirectResponse(url="/endpoints?error=Endpoint+not+found", status_code=303)
     if endpoint is not None:
-        for mapping in db.query(Mapping).filter(Mapping.endpoint_id == endpoint.id).all():
+        for mapping in db.query(Mapping).filter(
+            Mapping.endpoint_id == endpoint.id,
+            Mapping.tenant_id == endpoint.tenant_id,
+        ).all():
             db.delete(mapping)
-        for event in db.query(AutomationEvent).filter(AutomationEvent.endpoint_id == endpoint.id).all():
+        for event in db.query(AutomationEvent).filter(
+            AutomationEvent.endpoint_id == endpoint.id,
+            AutomationEvent.tenant_id == endpoint.tenant_id,
+        ).all():
             db.delete(event)
         db.delete(endpoint)
         db.commit()
@@ -540,9 +529,7 @@ async def devices_view(request: Request, db: Session = Depends(get_db)):
     if current_user is None:
         return RedirectResponse(url="/login", status_code=303)
 
-    devices_query = db.query(Device)
-    if not is_super_admin_user(current_user):
-        devices_query = devices_query.filter(Device.tenant_id == current_user.tenant_id)
+    devices_query = tenant_scoped_query(db.query(Device), Device, current_user)
     devices = devices_query.order_by(Device.created_at.desc()).all()
     for device in devices:
         device.channels = (
@@ -590,6 +577,8 @@ async def create_device_form(
     if current_user.tenant_id is None and not is_super_admin_user(current_user):
         return RedirectResponse(url="/devices?error=Your+account+is+not+assigned+to+a+tenant", status_code=303)
     channel_count = max(1, min(int(channel_count), 8))
+    if db.query(Device.id).filter(Device.device_id == device_id).first() is not None:
+        return RedirectResponse(url="/devices?error=This+switch+has+already+been+added", status_code=303)
     device = Device(
         owner_id=current_user.id,
         tenant_id=current_user.tenant_id,
@@ -628,32 +617,32 @@ async def mappings_view(request: Request, db: Session = Depends(get_db)):
     if current_user is None:
         return RedirectResponse(url="/login", status_code=303)
 
-    mappings_query = db.query(Mapping)
-    if not is_super_admin_user(current_user) and current_user.tenant_id is not None:
-        mappings_query = mappings_query.filter((Mapping.tenant_id.is_(None)) | (Mapping.tenant_id == current_user.tenant_id))
+    mappings_query = tenant_scoped_query(db.query(Mapping), Mapping, current_user)
     mappings = mappings_query.order_by(Mapping.created_at.desc()).all()
 
-    devices_query = db.query(Device)
-    if not is_super_admin_user(current_user) and current_user.tenant_id is not None:
-        devices_query = devices_query.filter((Device.tenant_id.is_(None)) | (Device.tenant_id == current_user.tenant_id))
+    devices_query = tenant_scoped_query(db.query(Device), Device, current_user)
     devices = devices_query.all()
 
-    endpoints_query = db.query(Endpoint)
-    if not is_super_admin_user(current_user) and current_user.tenant_id is not None:
-        endpoints_query = endpoints_query.filter((Endpoint.tenant_id.is_(None)) | (Endpoint.tenant_id == current_user.tenant_id))
+    endpoints_query = tenant_scoped_query(db.query(Endpoint), Endpoint, current_user)
     endpoints = endpoints_query.order_by(Endpoint.last_seen_at.desc().nullslast()).all()
-    all_channels = (
-        db.query(DeviceChannel)
-        .order_by(DeviceChannel.device_id.asc(), DeviceChannel.channel_index.asc())
-        .all()
-    )
+    device_ids = [device.id for device in devices]
+    all_channels = db.query(DeviceChannel).filter(
+        DeviceChannel.device_id.in_(device_ids)
+    ).order_by(
+        DeviceChannel.device_id.asc(), DeviceChannel.channel_index.asc()
+    ).all() if device_ids else []
     error_message = request.query_params.get("error")
 
     mapped_rows = []
     for mapping in mappings:
-        endpoint = db.query(Endpoint).filter(Endpoint.id == mapping.endpoint_id).first()
-        device = db.query(Device).filter(Device.id == mapping.device_id).first()
-        channel = db.query(DeviceChannel).filter(DeviceChannel.id == mapping.channel_id).first() if mapping.channel_id else None
+        endpoint = endpoints_query.filter(Endpoint.id == mapping.endpoint_id).first()
+        device = devices_query.filter(Device.id == mapping.device_id).first()
+        channel = (
+            db.query(DeviceChannel)
+            .filter(DeviceChannel.id == mapping.channel_id, DeviceChannel.device_id == mapping.device_id)
+            .first()
+            if mapping.channel_id else None
+        )
         mapped_rows.append(
             {
                 "id": mapping.id,
@@ -694,13 +683,21 @@ async def create_mapping_form(
     if current_user is None:
         return RedirectResponse(url="/login", status_code=303)
 
-    endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).first()
-    device = db.query(Device).filter(Device.id == device_id).first()
-    if endpoint is None or device is None:
+    endpoint = tenant_scoped_query(db.query(Endpoint), Endpoint, current_user).filter(
+        Endpoint.id == endpoint_id
+    ).first()
+    device = tenant_scoped_query(db.query(Device), Device, current_user).filter(
+        Device.id == device_id
+    ).first()
+    if endpoint is None or device is None or endpoint.tenant_id != device.tenant_id:
         return RedirectResponse(url="/mappings?error=Selected+endpoint+or+switch+was+not+found.", status_code=303)
-    if not is_super_admin_user(current_user):
-        if current_user.tenant_id is None or endpoint.tenant_id != current_user.tenant_id or device.tenant_id != current_user.tenant_id:
-            return RedirectResponse(url="/mappings?error=You+can+only+map+switches+within+your+tenant.", status_code=303)
+    if channel_id:
+        channel = db.query(DeviceChannel).filter(
+            DeviceChannel.id == channel_id,
+            DeviceChannel.device_id == device.id,
+        ).first()
+        if channel is None:
+            return RedirectResponse(url="/mappings?error=Selected+channel+does+not+belong+to+this+switch.", status_code=303)
 
     existing = db.query(Mapping).filter(Mapping.endpoint_id == endpoint_id, Mapping.device_id == device_id).first()
     if existing is not None:
@@ -708,7 +705,7 @@ async def create_mapping_form(
 
     mapping = Mapping(
         owner_id=current_user.id,
-        tenant_id=current_user.tenant_id,
+        tenant_id=endpoint.tenant_id,
         endpoint_id=endpoint_id,
         device_id=device_id,
         channel_id=channel_id or None,
@@ -725,36 +722,48 @@ async def create_mapping_form(
 @app.post("/mappings/{mapping_id}/delete")
 async def delete_mapping_form(request: Request, mapping_id: str, db: Session = Depends(get_db)):
     current_user = get_current_user(request, db)
-    mapping = db.query(Mapping).filter(Mapping.id == mapping_id).first()
-    if mapping is not None and current_user is not None and not is_super_admin_user(current_user):
-        if mapping.tenant_id != current_user.tenant_id:
-            return RedirectResponse(url="/mappings?error=You+cannot+delete+that+mapping.", status_code=303)
-    if mapping is not None:
-        db.delete(mapping)
-        db.commit()
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    mapping = tenant_scoped_query(db.query(Mapping), Mapping, current_user).filter(
+        Mapping.id == mapping_id
+    ).first()
+    if mapping is None:
+        return RedirectResponse(url="/mappings?error=Mapping+not+found", status_code=303)
+    db.delete(mapping)
+    db.commit()
     return RedirectResponse(url="/mappings", status_code=303)
 
 
 @app.post("/devices/{device_id}/delete")
 async def delete_device_form(request: Request, device_id: str, db: Session = Depends(get_db)):
     current_user = get_current_user(request, db)
-    device = db.query(Device).filter(Device.id == device_id).first()
-    if device is not None and current_user is not None and not is_super_admin_user(current_user):
-        if device.tenant_id != current_user.tenant_id:
-            return RedirectResponse(url="/devices?error=You+cannot+delete+that+device.", status_code=303)
-    if device is not None:
-        for mapping in db.query(Mapping).filter(Mapping.device_id == device.id).all():
-            db.delete(mapping)
-        for channel in db.query(DeviceChannel).filter(DeviceChannel.device_id == device.id).all():
-            db.delete(channel)
-        db.delete(device)
-        db.commit()
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    device = tenant_scoped_query(db.query(Device), Device, current_user).filter(
+        Device.id == device_id
+    ).first()
+    if device is None:
+        return RedirectResponse(url="/devices?error=Device+not+found", status_code=303)
+    for mapping in db.query(Mapping).filter(
+        Mapping.device_id == device.id,
+        Mapping.tenant_id == device.tenant_id,
+    ).all():
+        db.delete(mapping)
+    for channel in db.query(DeviceChannel).filter(DeviceChannel.device_id == device.id).all():
+        db.delete(channel)
+    db.delete(device)
+    db.commit()
     return RedirectResponse(url="/devices", status_code=303)
 
 
 @app.post("/devices/{device_id}/turn-on")
-async def turn_on_device_form(device_id: str, db: Session = Depends(get_db)):
-    device = db.query(Device).filter(Device.id == device_id).first()
+async def turn_on_device_form(request: Request, device_id: str, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    device = tenant_scoped_query(db.query(Device), Device, current_user).filter(
+        Device.id == device_id
+    ).first()
     if device is None:
         return RedirectResponse(url="/devices", status_code=303)
 
@@ -775,6 +784,7 @@ async def turn_on_device_form(device_id: str, db: Session = Depends(get_db)):
         channel.current_state = True
     db.add(
         AutomationEvent(
+            tenant_id=device.tenant_id,
             event_type="MANUAL_ON",
             reason="Manual override via UI",
             endpoint_id=None,
@@ -791,8 +801,13 @@ async def turn_on_device_form(device_id: str, db: Session = Depends(get_db)):
 
 
 @app.post("/devices/{device_id}/turn-off")
-async def turn_off_device_form(device_id: str, db: Session = Depends(get_db)):
-    device = db.query(Device).filter(Device.id == device_id).first()
+async def turn_off_device_form(request: Request, device_id: str, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    device = tenant_scoped_query(db.query(Device), Device, current_user).filter(
+        Device.id == device_id
+    ).first()
     if device is None:
         return RedirectResponse(url="/devices", status_code=303)
 
@@ -813,6 +828,7 @@ async def turn_off_device_form(device_id: str, db: Session = Depends(get_db)):
         channel.current_state = False
     db.add(
         AutomationEvent(
+            tenant_id=device.tenant_id,
             event_type="MANUAL_OFF",
             reason="Manual override via UI",
             endpoint_id=None,
@@ -829,8 +845,18 @@ async def turn_off_device_form(device_id: str, db: Session = Depends(get_db)):
 
 
 @app.post("/devices/{device_id}/channels/{channel_id}/turn-on")
-async def turn_on_device_channel_form(device_id: str, channel_id: str, db: Session = Depends(get_db)):
-    device = db.query(Device).filter(Device.id == device_id).first()
+async def turn_on_device_channel_form(
+    request: Request,
+    device_id: str,
+    channel_id: str,
+    db: Session = Depends(get_db),
+):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    device = tenant_scoped_query(db.query(Device), Device, current_user).filter(
+        Device.id == device_id
+    ).first()
     channel = db.query(DeviceChannel).filter(DeviceChannel.id == channel_id, DeviceChannel.device_id == device_id).first()
     if device is None or channel is None:
         return RedirectResponse(url="/devices", status_code=303)
@@ -843,6 +869,7 @@ async def turn_on_device_channel_form(device_id: str, channel_id: str, db: Sessi
     device.updated_at = datetime.now(UTC)
     db.add(
         AutomationEvent(
+            tenant_id=device.tenant_id,
             event_type="MANUAL_ON",
             reason=f"Manual override via UI for channel {channel.name}",
             endpoint_id=None,
@@ -859,9 +886,22 @@ async def turn_on_device_channel_form(device_id: str, channel_id: str, db: Sessi
 
 
 @app.post("/devices/{device_id}/channels/{channel_id}/turn-off")
-async def turn_off_device_channel_form(device_id: str, channel_id: str, db: Session = Depends(get_db)):
-    device = db.query(Device).filter(Device.id == device_id).first()
-    channel = db.query(DeviceChannel).filter(DeviceChannel.id == channel_id, DeviceChannel.device_id == device_id).first()
+async def turn_off_device_channel_form(
+    request: Request,
+    device_id: str,
+    channel_id: str,
+    db: Session = Depends(get_db),
+):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    device = tenant_scoped_query(db.query(Device), Device, current_user).filter(
+        Device.id == device_id
+    ).first()
+    channel = db.query(DeviceChannel).filter(
+        DeviceChannel.id == channel_id,
+        DeviceChannel.device_id == device_id,
+    ).first() if device is not None else None
     if device is None or channel is None:
         return RedirectResponse(url="/devices", status_code=303)
 
@@ -873,6 +913,7 @@ async def turn_off_device_channel_form(device_id: str, channel_id: str, db: Sess
     device.updated_at = datetime.now(UTC)
     db.add(
         AutomationEvent(
+            tenant_id=device.tenant_id,
             event_type="MANUAL_OFF",
             reason=f"Manual override via UI for channel {channel.name}",
             endpoint_id=None,
@@ -898,17 +939,9 @@ async def events_view(
     if per_page not in {50, 100, 500}:
         raise HTTPException(status_code=422, detail="Page size must be 50, 100, or 500.")
     current_user = get_current_user(request, db)
-    if current_user is not None and not is_super_admin_user(current_user) and current_user.tenant_id is not None:
-        endpoint_ids = [e.id for e in db.query(Endpoint).filter(Endpoint.tenant_id == current_user.tenant_id).all()]
-        device_ids = [d.id for d in db.query(Device).filter(Device.tenant_id == current_user.tenant_id).all()]
-        events_query = db.query(AutomationEvent).filter(
-            (AutomationEvent.tenant_id == current_user.tenant_id)
-            | (AutomationEvent.tenant_id.is_(None))
-            | (AutomationEvent.endpoint_id.in_(endpoint_ids))
-            | (AutomationEvent.device_id.in_(device_ids))
-        )
-    else:
-        events_query = db.query(AutomationEvent)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    events_query = tenant_scoped_query(db.query(AutomationEvent), AutomationEvent, current_user)
     total_events = events_query.count()
     total_pages = max(1, (total_events + per_page - 1) // per_page)
     page = min(page, total_pages)
@@ -921,7 +954,8 @@ async def events_view(
     endpoint_ids = {event.endpoint_id for event in events if event.endpoint_id}
     endpoints_by_id = {
         endpoint.id: endpoint
-        for endpoint in db.query(Endpoint).filter(Endpoint.id.in_(endpoint_ids)).all()
+        for endpoint in tenant_scoped_query(db.query(Endpoint), Endpoint, current_user)
+        .filter(Endpoint.id.in_(endpoint_ids)).all()
     } if endpoint_ids else {}
     rows = []
     for event in events:
@@ -1229,13 +1263,19 @@ async def users_page(request: Request, db: Session = Depends(get_db)):
     current_user = get_current_user(request, db)
     if current_user is None:
         return RedirectResponse(url="/login", status_code=303)
-    if not (is_super_admin_user(current_user) or current_user.is_admin):
+    if not (is_super_admin_user(current_user) or (current_user.is_admin and current_user.tenant_id is not None)):
         return RedirectResponse(url="/", status_code=303)
 
     if is_super_admin_user(current_user):
         users = db.query(User).order_by(User.created_at.desc()).all()
     else:
-        users = db.query(User).filter(User.tenant_id == current_user.tenant_id).order_by(User.created_at.desc()).all()
+        users = tenant_scoped_query(db.query(User), User, current_user).order_by(User.created_at.desc()).all()
+    visible_tenants = (
+        db.query(Tenant).order_by(Tenant.name.asc()).all()
+        if is_super_admin_user(current_user)
+        else db.query(Tenant).filter(Tenant.id == current_user.tenant_id).all()
+    )
+    tenant_names = {tenant.id: tenant.name for tenant in visible_tenants}
     return templates.TemplateResponse(
         "users.html",
         {
@@ -1243,7 +1283,11 @@ async def users_page(request: Request, db: Session = Depends(get_db)):
             "current_user": current_user,
             "users": users,
             "roles": ["tenant_admin", "manager", "standard_user", "viewer"],
+            "tenants": visible_tenants if is_super_admin_user(current_user) else [],
+            "tenant_names": tenant_names,
+            "is_super_admin": is_super_admin_user(current_user),
             "error": request.query_params.get("error"),
+            "message": request.query_params.get("message"),
         },
     )
 
@@ -1254,12 +1298,13 @@ async def create_user(
     username: str = Form(...),
     password: str = Form(...),
     role: str = Form("standard_user"),
+    tenant_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     current_user = get_current_user(request, db)
     if current_user is None:
         return RedirectResponse(url="/login", status_code=303)
-    if not (is_super_admin_user(current_user) or current_user.is_admin):
+    if not (is_super_admin_user(current_user) or (current_user.is_admin and current_user.tenant_id is not None)):
         return RedirectResponse(url="/", status_code=303)
 
     username = username.strip()
@@ -1270,7 +1315,15 @@ async def create_user(
     if db.query(User).filter(User.username == username).first() is not None:
         return RedirectResponse(url="/users?error=User+already+exists", status_code=303)
 
-    tenant_id = current_user.tenant_id if not is_super_admin_user(current_user) else None
+    if is_super_admin_user(current_user):
+        assigned_tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first() if tenant_id else None
+        if assigned_tenant is None:
+            return RedirectResponse(url="/users?error=Select+a+tenant+for+this+account", status_code=303)
+        tenant_id = assigned_tenant.id
+    else:
+        tenant_id = current_user.tenant_id
+        if tenant_id is None:
+            return RedirectResponse(url="/users?error=Your+account+is+not+assigned+to+a+tenant", status_code=303)
     user = User(
         username=username,
         password_hash=hash_password(password),
@@ -1288,27 +1341,54 @@ async def update_user_role(
     request: Request,
     user_id: str,
     role: str = Form(...),
+    tenant_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     current_user = get_current_user(request, db)
     if current_user is None:
         return RedirectResponse(url="/login", status_code=303)
-    if not (is_super_admin_user(current_user) or current_user.is_admin):
+    if not (is_super_admin_user(current_user) or (current_user.is_admin and current_user.tenant_id is not None)):
         return RedirectResponse(url="/", status_code=303)
 
     normalized_role = normalize_role(role)
     target = db.query(User).filter(User.id == user_id).first()
     if target is None:
         return RedirectResponse(url="/users?error=User+not+found", status_code=303)
+    if is_super_admin_user(target):
+        return RedirectResponse(url="/users?error=Super+admin+accounts+cannot+be+reassigned", status_code=303)
     if not is_super_admin_user(current_user) and target.tenant_id != current_user.tenant_id:
         return RedirectResponse(url="/users?error=User+not+found", status_code=303)
     if target.id == current_user.id and normalized_role != "tenant_admin":
         return RedirectResponse(url="/users?error=You+cannot+remove+your+own+admin+role", status_code=303)
 
+    old_tenant_id = target.tenant_id
+    if is_super_admin_user(current_user):
+        assigned_tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first() if tenant_id else None
+        if assigned_tenant is None:
+            return RedirectResponse(url="/users?error=Select+a+tenant+for+this+account", status_code=303)
+        new_tenant_id = assigned_tenant.id
+    else:
+        new_tenant_id = old_tenant_id
+
+    new_is_admin = is_role_admin(normalized_role)
+    if target.is_admin and old_tenant_id is not None and (
+        old_tenant_id != new_tenant_id or not new_is_admin
+    ):
+        admin_count = db.query(User).filter(
+            User.tenant_id == old_tenant_id,
+            User.is_admin.is_(True),
+        ).count()
+        if admin_count <= 1:
+            return RedirectResponse(
+                url="/users?error=At+least+one+admin+must+remain+for+this+tenant",
+                status_code=303,
+            )
+
     target.role = normalized_role
-    target.is_admin = is_role_admin(normalized_role)
+    target.is_admin = new_is_admin
+    target.tenant_id = new_tenant_id
     db.commit()
-    return RedirectResponse(url="/users", status_code=303)
+    return RedirectResponse(url="/users?message=User+updated+successfully", status_code=303)
 
 
 @app.post("/users/{user_id}/delete")
@@ -1320,12 +1400,14 @@ async def delete_user_form(
     current_user = get_current_user(request, db)
     if current_user is None:
         return RedirectResponse(url="/login", status_code=303)
-    if not (is_super_admin_user(current_user) or current_user.is_admin):
+    if not (is_super_admin_user(current_user) or (current_user.is_admin and current_user.tenant_id is not None)):
         return RedirectResponse(url="/", status_code=303)
 
     target = db.query(User).filter(User.id == user_id).first()
     if target is None:
         return RedirectResponse(url="/users?error=User+not+found", status_code=303)
+    if is_super_admin_user(target):
+        return RedirectResponse(url="/users?error=Super+admin+accounts+cannot+be+deleted", status_code=303)
     if not is_super_admin_user(current_user) and target.tenant_id != current_user.tenant_id:
         return RedirectResponse(url="/users?error=User+not+found", status_code=303)
     if target.id == current_user.id:

@@ -1,15 +1,22 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.core.authorization import get_authenticated_user, tenant_scoped_query
 from app.core.database import get_db
 from app.models.event import AutomationEvent
+from app.models.user import User
 
 router = APIRouter(prefix="/events", tags=["events"])
 
 
 @router.get("")
-async def list_events(db: Session = Depends(get_db)) -> list[dict[str, object]]:
-    events = db.query(AutomationEvent).order_by(AutomationEvent.created_at.desc()).all()
+async def list_events(
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+) -> list[dict[str, object]]:
+    events = tenant_scoped_query(db.query(AutomationEvent), AutomationEvent, user).order_by(
+        AutomationEvent.created_at.desc()
+    ).all()
     return [
         {
             "id": event.id,

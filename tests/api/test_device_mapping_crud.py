@@ -1,7 +1,5 @@
 import os
 from datetime import timedelta
-from uuid import uuid4
-
 from datetime import datetime, timezone
 
 os.environ["CHARGEPILOT_DATABASE_URL"] = "sqlite://"
@@ -14,6 +12,39 @@ from app.main import app
 
 
 Base.metadata.create_all(bind=engine)
+
+
+def _super_admin_client() -> TestClient:
+    client = TestClient(app)
+    login = client.post(
+        "/login",
+        data={"username": "admin", "password": "change-me"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 303
+    return client
+
+
+def _create_endpoint(client: TestClient, hostname: str) -> str:
+    response = client.post("/api/v1/endpoints", json={"hostname": hostname})
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+def _mock_tuya_service(monkeypatch):
+    class FakeTuyaService:
+        @staticmethod
+        def from_device(device):
+            return FakeTuyaService()
+
+        async def get_status(self, device_id, channel=1):
+            return {"device_id": device_id, "channel": channel, "online": False}
+
+        async def set_state(self, device_id, on, channel=1):
+            return {"device_id": device_id, "channel": channel, "success": True, "state": "ON" if on else "OFF"}
+
+    monkeypatch.setattr("app.main.TuyaService", FakeTuyaService)
+    monkeypatch.setattr("app.api.telemetry.TuyaService", FakeTuyaService)
 
 
 def test_ensure_table_columns_adds_missing_device_channel_state_column():
@@ -48,7 +79,7 @@ def test_ensure_table_columns_adds_missing_device_channel_state_column():
 
 
 def test_device_and_mapping_crud_flow():
-    client = TestClient(app)
+    client = _super_admin_client()
 
     device_response = client.post(
         "/api/v1/devices",
@@ -67,7 +98,7 @@ def test_device_and_mapping_crud_flow():
     device = device_response.json()
     assert device["name"] == "Desk Plug"
 
-    endpoint_id = str(uuid4())
+    endpoint_id = _create_endpoint(client, "desk-plug-endpoint")
     mapping_response = client.post(
         "/api/v1/mappings",
         json={
@@ -91,7 +122,7 @@ def test_device_and_mapping_crud_flow():
 
 
 def test_device_channel_mapping_for_multi_gang_switch():
-    client = TestClient(app)
+    client = _super_admin_client()
 
     device_response = client.post(
         "/api/v1/devices",
@@ -121,7 +152,7 @@ def test_device_channel_mapping_for_multi_gang_switch():
     channel = channel_response.json()
     assert channel["channel_index"] == 2
 
-    endpoint_id = str(uuid4())
+    endpoint_id = _create_endpoint(client, "four-gang-endpoint")
     mapping_response = client.post(
         "/api/v1/mappings",
         json={
@@ -142,7 +173,7 @@ def test_device_channel_mapping_for_multi_gang_switch():
 
 
 def test_unique_mapping_per_endpoint_and_device():
-    client = TestClient(app)
+    client = _super_admin_client()
 
     device_response = client.post(
         "/api/v1/devices",
@@ -159,7 +190,7 @@ def test_unique_mapping_per_endpoint_and_device():
     assert device_response.status_code == 201, device_response.text
     device = device_response.json()
 
-    endpoint_id = str(uuid4())
+    endpoint_id = _create_endpoint(client, "unique-mapping-endpoint")
     first_mapping = client.post(
         "/api/v1/mappings",
         json={
@@ -194,7 +225,7 @@ def test_unique_mapping_per_endpoint_and_device():
 
 
 def test_mappings_page_exposes_editable_threshold_controls():
-    client = TestClient(app)
+    client = _super_admin_client()
 
     register = client.post(
         "/register",
@@ -261,7 +292,7 @@ def test_mappings_page_exposes_editable_threshold_controls():
 
 
 def test_mappings_page_groups_channel_choices_under_expandable_switches():
-    client = TestClient(app)
+    client = _super_admin_client()
     register = client.post(
         "/register",
         data={"username": "channel_picker_user", "password": "secret123"},
@@ -312,7 +343,7 @@ def test_mappings_page_groups_channel_choices_under_expandable_switches():
 
 
 def test_endpoint_agent_config_returns_live_threshold_settings():
-    client = TestClient(app)
+    client = _super_admin_client()
 
     device = client.post(
         "/api/v1/devices",
@@ -361,7 +392,7 @@ def test_endpoint_agent_config_returns_live_threshold_settings():
 
 
 def test_agent_config_lookup_by_hostname_and_token():
-    client = TestClient(app)
+    client = _super_admin_client()
 
     device = client.post(
         "/api/v1/devices",
@@ -419,7 +450,7 @@ def test_agent_config_lookup_by_hostname_and_token():
 
 
 def test_devices_page_has_delete_action_and_channel_expander():
-    client = TestClient(app)
+    client = _super_admin_client()
 
     register = client.post(
         "/register",
@@ -461,7 +492,7 @@ def test_devices_page_has_delete_action_and_channel_expander():
 
 
 def test_device_toggle_actions_are_rendered_on_devices_page():
-    client = TestClient(app)
+    client = _super_admin_client()
 
     register = client.post(
         "/register",
@@ -502,7 +533,7 @@ def test_device_toggle_actions_are_rendered_on_devices_page():
 
 
 def test_ui_delete_routes_for_device_and_mapping():
-    client = TestClient(app)
+    client = _super_admin_client()
 
     device_response = client.post(
         "/api/v1/devices",
@@ -522,7 +553,7 @@ def test_ui_delete_routes_for_device_and_mapping():
     mapping_response = client.post(
         "/api/v1/mappings",
         json={
-            "endpoint_id": str(uuid4()),
+            "endpoint_id": _create_endpoint(client, "delete-me-endpoint"),
             "device_id": device["id"],
             "channel_id": None,
             "enabled": True,
@@ -546,8 +577,9 @@ def test_ui_delete_routes_for_device_and_mapping():
     assert all(item["id"] != mapping["id"] for item in remaining_mappings.json())
 
 
-def test_manual_device_controls_can_force_on_and_off():
-    client = TestClient(app)
+def test_manual_device_controls_can_force_on_and_off(monkeypatch):
+    _mock_tuya_service(monkeypatch)
+    client = _super_admin_client()
 
     device_response = client.post(
         "/api/v1/devices",
@@ -686,8 +718,9 @@ def test_mapping_defaults_follow_20_percent_hysteresis_gap():
     assert mapping.on_threshold == 79
 
 
-def test_individual_channel_controls_for_multi_gang_switch():
-    client = TestClient(app)
+def test_individual_channel_controls_for_multi_gang_switch(monkeypatch):
+    _mock_tuya_service(monkeypatch)
+    client = _super_admin_client()
 
     device_response = client.post(
         "/api/v1/devices",
@@ -730,7 +763,7 @@ def test_individual_channel_controls_for_multi_gang_switch():
 
 
 def test_dashboard_shows_live_endpoint_telemetry():
-    client = TestClient(app)
+    client = _super_admin_client()
 
     telemetry_response = client.post(
         "/api/v1/telemetry",
@@ -756,7 +789,7 @@ def test_dashboard_shows_live_endpoint_telemetry():
 
 
 def test_telemetry_does_not_override_mapping_thresholds_with_agent_switch_state(monkeypatch):
-    client = TestClient(app)
+    client = _super_admin_client()
 
     device_response = client.post(
         "/api/v1/devices",
@@ -859,7 +892,7 @@ def test_telemetry_does_not_override_mapping_thresholds_with_agent_switch_state(
 
 
 def test_endpoints_and_events_pages_do_not_render_scaffold_data():
-    client = TestClient(app)
+    client = _super_admin_client()
 
     telemetry_response = client.post(
         "/api/v1/telemetry",
@@ -889,8 +922,9 @@ def test_endpoints_and_events_pages_do_not_render_scaffold_data():
     assert "LAPTOP-001" not in events_body
 
 
-def test_telemetry_turns_off_mapped_device_when_battery_exceeds_off_threshold():
-    client = TestClient(app)
+def test_telemetry_turns_off_mapped_device_when_battery_exceeds_off_threshold(monkeypatch):
+    _mock_tuya_service(monkeypatch)
+    client = _super_admin_client()
 
     device_response = client.post(
         "/api/v1/devices",
@@ -980,7 +1014,7 @@ def test_telemetry_turns_off_mapped_device_when_battery_exceeds_off_threshold():
 
 
 def test_telemetry_uses_live_device_status_when_db_state_is_stale(monkeypatch):
-    client = TestClient(app)
+    client = _super_admin_client()
 
     device_response = client.post(
         "/api/v1/devices",

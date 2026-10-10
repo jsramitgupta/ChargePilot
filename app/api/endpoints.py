@@ -6,10 +6,12 @@ from sqlalchemy.orm import Session
 from fastapi import Header
 
 from app.core.database import get_db
+from app.core.authorization import get_authenticated_user, tenant_scoped_query
 from app.models.endpoint import Endpoint
 from app.models.mapping import Mapping
+from app.models.user import User
 from app.schemas.endpoint import EndpointCreate, EndpointRead
-from app.services.endpoint_service import validate_endpoint_auth
+from app.services.endpoint_service import authenticate_endpoint_token
 
 router = APIRouter(prefix="/endpoints", tags=["endpoints"])
 
@@ -23,8 +25,13 @@ def _normalize_utc(value: datetime | None) -> datetime | None:
 
 
 @router.get("")
-async def list_endpoints(db: Session = Depends(get_db)) -> list[dict[str, object]]:
-    endpoints = db.query(Endpoint).order_by(Endpoint.last_seen_at.desc().nullslast()).all()
+async def list_endpoints(
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+) -> list[dict[str, object]]:
+    endpoints = tenant_scoped_query(db.query(Endpoint), Endpoint, user).order_by(
+        Endpoint.last_seen_at.desc().nullslast()
+    ).all()
     rows: list[dict[str, object]] = []
     for endpoint in endpoints:
         last_seen = _normalize_utc(endpoint.last_seen_at)
@@ -42,8 +49,14 @@ async def list_endpoints(db: Session = Depends(get_db)) -> list[dict[str, object
 
 
 @router.post("", response_model=EndpointRead, status_code=status.HTTP_201_CREATED)
-async def create_endpoint(payload: EndpointCreate, db: Session = Depends(get_db)):
+async def create_endpoint(
+    payload: EndpointCreate,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
     endpoint = Endpoint(
+        owner_id=user.id,
+        tenant_id=user.tenant_id,
         name=payload.name or payload.hostname,
         hostname=payload.hostname,
         ip_address=payload.ip_address,
@@ -62,7 +75,7 @@ async def create_endpoint(payload: EndpointCreate, db: Session = Depends(get_db)
 def _serialize_agent_config(endpoint: Endpoint, db: Session) -> dict[str, object]:
     mappings = (
         db.query(Mapping)
-        .filter(Mapping.endpoint_id == endpoint.id)
+        .filter(Mapping.endpoint_id == endpoint.id, Mapping.tenant_id == endpoint.tenant_id)
         .order_by(Mapping.created_at.desc())
         .all()
     )
@@ -91,13 +104,17 @@ async def get_endpoint_agent_config_by_hostname(
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
 ):
-    if not validate_endpoint_auth(authorization, db):
+    is_valid, tenant = authenticate_endpoint_token(authorization, db)
+    if not is_valid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing endpoint token.")
 
     if not hostname:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="hostname query parameter is required.")
 
-    endpoint = db.query(Endpoint).filter(Endpoint.hostname == hostname).first()
+    endpoint_query = db.query(Endpoint).filter(Endpoint.hostname == hostname)
+    if tenant is not None:
+        endpoint_query = endpoint_query.filter(Endpoint.tenant_id == tenant.id)
+    endpoint = endpoint_query.first()
     if endpoint is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found.")
 
@@ -105,8 +122,14 @@ async def get_endpoint_agent_config_by_hostname(
 
 
 @router.get("/{endpoint_id}/agent-config")
-async def get_endpoint_agent_config(endpoint_id: str, db: Session = Depends(get_db)):
-    endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).first()
+async def get_endpoint_agent_config(
+    endpoint_id: str,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    endpoint = tenant_scoped_query(db.query(Endpoint), Endpoint, user).filter(
+        Endpoint.id == endpoint_id
+    ).first()
     if endpoint is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found.")
 
@@ -114,10 +137,17 @@ async def get_endpoint_agent_config(endpoint_id: str, db: Session = Depends(get_
 
 
 @router.get("/{endpoint_id}/readings")
-async def get_endpoint_readings(endpoint_id: str, limit: int = 30, db: Session = Depends(get_db)):
+async def get_endpoint_readings(
+    endpoint_id: str,
+    limit: int = 30,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
     from app.models.telemetry import BatteryReading
 
-    endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).first()
+    endpoint = tenant_scoped_query(db.query(Endpoint), Endpoint, user).filter(
+        Endpoint.id == endpoint_id
+    ).first()
     if endpoint is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found.")
 

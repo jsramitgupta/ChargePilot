@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
+from app.core.authorization import tenant_scoped_query
 from app.core.database import get_db
 from app.models.device import Device
 from app.models.user import User
@@ -56,16 +57,18 @@ async def save_smartlife_preference(
 
 @router.post("/scan")
 async def scan_local_network(request: Request, db: Session = Depends(get_db)):
-    _require_user(request, db)
+    user = _require_user(request, db)
     try:
         discovered = await TuyaService().discover()
     except RuntimeError as exc:
         logger.exception("Local device scan failed.")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
+    existing_query = db.query(Device.device_id)
+    existing_query = tenant_scoped_query(existing_query, Device, user)
     existing_ids = {
-        device.device_id
-        for device in db.query(Device.device_id).filter(
+        device_id
+        for (device_id,) in existing_query.filter(
             Device.device_id.in_([item["device_id"] for item in discovered])
         )
     } if discovered else set()

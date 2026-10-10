@@ -89,6 +89,22 @@ The request is authenticated with the tenant's agent token in the `Authorization
 
 Extract `chargepilot-agent-scripts.zip`, open PowerShell in that folder, and run the displayed command. The installer saves the token in the local agent configuration and registers the recurring scheduled task. The ZIP download requires an authenticated ChargePilot session and does not contain the tenant token.
 
+### Tenant isolation and administrator assignment
+
+Each tenant account belongs to exactly one tenant. Super Admins can create a user
+or reassign an existing account to a tenant from **Users**; assigning the
+`Tenant Admin` role grants that account tenant user-management permissions.
+Changing an account's tenant changes its access scope but does not move devices,
+endpoints, mappings, or history between tenants.
+
+Devices, endpoints, mappings, and automation events carry a `tenant_id`.
+Authenticated application pages and JSON APIs scope tenant users to rows with
+their exact tenant ID; unassigned rows are visible only to Super Admins.
+Mappings are accepted only when the endpoint, device, and optional channel all
+belong to the same tenant. Tenant agent tokens likewise create/update endpoints
+only within the token's tenant. The global agent token remains a
+Super-Admin-only legacy integration and should not be shared with tenant users.
+
 ### Automation rule
 
 Battery decisions are evaluated in `app/services/rule_engine.py` and apply hysteresis with a minimum interval:
