@@ -11,12 +11,12 @@
 </div>
 
 <div class="panel table-panel">
-  <div class="panel-header flex-wrap">
+  <div class="panel-header events-toolbar flex-wrap">
     <h3>Recent activity</h3>
-    <form method="get" action="/events" class="flex items-center gap-2 text-sm">
+    <form method="get" action="/events" class="events-page-size flex items-center gap-2 text-sm">
       <input type="hidden" name="page" value="1" />
       <label for="events-per-page" class="text-xs font-semibold text-slate-600">Show</label>
-      <select id="events-per-page" name="per_page" class="min-h-9 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800" onchange="this.form.submit()">
+      <select id="events-per-page" name="per_page" class="events-page-size-select min-h-9 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800" onchange="this.form.submit()">
         {% for size in [50, 100, 500] %}
           <option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }} lines</option>
         {% endfor %}
