@@ -111,3 +111,28 @@ async def get_endpoint_agent_config(endpoint_id: str, db: Session = Depends(get_
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found.")
 
     return _serialize_agent_config(endpoint, db)
+
+
+@router.get("/{endpoint_id}/readings")
+async def get_endpoint_readings(endpoint_id: str, limit: int = 30, db: Session = Depends(get_db)):
+    from app.models.telemetry import BatteryReading
+
+    endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).first()
+    if endpoint is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found.")
+
+    readings = (
+        db.query(BatteryReading)
+        .filter(BatteryReading.endpoint_id == endpoint_id)
+        .order_by(BatteryReading.timestamp.desc())
+        .limit(limit)
+        .all()
+    )
+
+    # return in chronological order
+    data = [
+        {"timestamp": r.timestamp.isoformat(), "battery_percentage": r.battery_percentage}
+        for r in reversed(readings)
+    ]
+
+    return {"endpoint_id": endpoint_id, "readings": data}

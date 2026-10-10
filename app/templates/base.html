@@ -16,14 +16,14 @@
         },
       };
     </script>
-    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/style.css?v=4" />
   </head>
   <body class="min-h-full bg-slate-50 text-slate-900 antialiased" data-user-timezone="{{ request.session.get('user_timezone') or 'UTC' }}">
     <div class="min-h-screen">
       {% set auth_page = request.url.path in ['/login', '/register'] %}
       {% if not auth_page %}
-      <header class="sticky top-0 z-40 border-b border-slate-200/80 bg-slate-50/90 backdrop-blur-md dark-header">
-        <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+      <header class="site-header dark-header">
+        <div class="site-header-inner">
           <div class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-soft dark-card-shell">
             <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-base font-bold text-blue-700">C</div>
             <div>
@@ -32,7 +32,10 @@
             </div>
           </div>
 
-          <div class="ml-auto flex items-center gap-2">
+          <div class="site-header-actions">
+            <div id="sseStatusContainer" class="hidden items-center gap-2 md:flex">
+              <span id="sseStatus" class="mini-badge live-pill">Connecting</span>
+            </div>
             <button id="themeToggle" type="button" class="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark-card-shell" aria-label="Toggle theme">
               <svg data-theme-sun class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                 <circle cx="12" cy="12" r="4.2"></circle>
@@ -43,7 +46,14 @@
               </svg>
             </button>
 
-            <button class="nav-toggle inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm md:hidden dark-card-shell" type="button" aria-label="Toggle navigation">
+            {% if request.session.get('user_id') %}
+              <a href="/profile" class="header-account-link">Profile</a>
+              <a href="/logout" class="header-account-link">Logout</a>
+            {% else %}
+              <a href="/login" class="header-account-link">Login</a>
+            {% endif %}
+
+            <button class="nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="mainNav">
               <span class="sr-only">Open menu</span>
               <span class="flex flex-col gap-1.5">
                 <span class="block h-0.5 w-4 rounded-full bg-slate-700"></span>
@@ -52,30 +62,21 @@
               </span>
             </button>
           </div>
-
-          <nav id="mainNav" class="hidden items-center gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-soft dark-card-shell md:flex">
-            <a href="/" class="rounded-xl px-3 py-2 text-sm font-semibold transition {% if request.url.path == '/' %}bg-blue-50 text-blue-700{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Dashboard</a>
-            <a href="/mappings" class="rounded-xl px-3 py-2 text-sm font-semibold transition {% if request.url.path.startswith('/mappings') %}bg-blue-50 text-blue-700{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Mappings</a>
-            <a href="/devices" class="rounded-xl px-3 py-2 text-sm font-semibold transition {% if request.url.path.startswith('/devices') %}bg-blue-50 text-blue-700{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Switches</a>
-            <a href="/endpoints" class="rounded-xl px-3 py-2 text-sm font-semibold transition {% if request.url.path.startswith('/endpoints') %}bg-blue-50 text-blue-700{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Endpoints</a>
-            <a href="/events" class="rounded-xl px-3 py-2 text-sm font-semibold transition {% if request.url.path.startswith('/events') %}bg-blue-50 text-blue-700{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Events</a>
-            <a href="/users" class="rounded-xl px-3 py-2 text-sm font-semibold transition {% if request.url.path.startswith('/users') %}bg-blue-50 text-blue-700{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Users</a>
-            <a href="/tenants" class="rounded-xl px-3 py-2 text-sm font-semibold transition {% if request.url.path.startswith('/tenants') %}bg-blue-50 text-blue-700{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Tenants</a>
-          </nav>
-
-          <div class="flex items-center gap-2">
-            {% if request.session.get('user_id') %}
-              <a href="/profile" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">Profile</a>
-              <a href="/logout" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">Logout</a>
-            {% else %}
-              <a href="/login" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">Login</a>
-            {% endif %}
-          </div>
         </div>
+
+        <nav id="mainNav" class="site-nav" aria-label="Main navigation">
+            <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Dashboard</a>
+            <a href="/mappings" {% if request.url.path.startswith('/mappings') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Mappings</a>
+            <a href="/devices" {% if request.url.path.startswith('/devices') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Switches</a>
+            <a href="/endpoints" {% if request.url.path.startswith('/endpoints') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Endpoints</a>
+            <a href="/events" {% if request.url.path.startswith('/events') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Events</a>
+            <a href="/users" {% if request.url.path.startswith('/users') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Users</a>
+            <a href="/tenants" {% if request.url.path.startswith('/tenants') %}aria-current="page"{% endif %} class="rounded-xl px-3 py-2 text-sm font-semibold transition">Tenants</a>
+        </nav>
       </header>
       {% endif %}
 
-      <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <main class="page-shell">
         {% block content %}{% endblock %}
       </main>
     </div>
@@ -85,11 +86,9 @@
       const nav = document.getElementById('mainNav');
       if (navToggle && nav) {
         navToggle.addEventListener('click', () => {
-          nav.classList.toggle('hidden');
-          nav.classList.toggle('flex');
-          nav.classList.toggle('flex-col');
-          nav.classList.toggle('w-full');
-          nav.classList.toggle('mt-3');
+          const isOpen = nav.classList.toggle('is-open');
+          navToggle.setAttribute('aria-expanded', String(isOpen));
+          navToggle.setAttribute('aria-label', isOpen ? 'Close navigation' : 'Open navigation');
         });
       }
 
@@ -171,6 +170,6 @@
 
       applyTheme();
     </script>
-    <script src="/static/ajax.js"></script>
+    <script src="/static/ajax.js?v=4"></script>
   </body>
 </html>
