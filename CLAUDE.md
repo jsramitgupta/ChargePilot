@@ -4,7 +4,11 @@ This document is the rebuild guide for creating ChargePilot from scratch with Cl
 
 ## 1. Product summary
 
-ChargePilot is a local-first battery automation platform for Windows laptops. It receives telemetry from a PowerShell agent, stores endpoint state, evaluates battery thresholds, and toggles local Tuya devices on the same LAN.
+ChargePilot is a local-first battery automation platform for Windows laptops.
+When hosted in the cloud, a site connector on each Tuya LAN claims durable
+desired-state commands over outbound HTTPS and performs local TinyTuya
+discovery/control. The canonical design is in
+`.github/instructions/CLOUD_CONNECTOR_ARCHITECTURE.md`.
 
 The system has grown beyond the original battery-only flow and now includes:
 
@@ -13,6 +17,7 @@ The system has grown beyond the original battery-only flow and now includes:
 - SmartLife local-key retrieval matched to LAN scan results
 - AJAX-friendly wizard UX for device import
 - SSE updates for device state changes
+- tenant-scoped site connector enrollment and PostgreSQL-backed commands
 
 ## 2. Core product goals
 
@@ -56,6 +61,7 @@ Use a modular monolith:
 - app/services/ — business logic and protocol adapters
 - app/templates/ — server-rendered UI pages
 - app/static/ — CSS and UI assets
+- connector/ — site-side TinyTuya runtime for cloud deployments
 - agent/ — Windows agent for telemetry upload
 
 ## 6. Core domain model
@@ -132,8 +138,9 @@ Fields to include:
 5. Validate bearer token and timestamp freshness.
 6. Save endpoint state and load active mappings.
 7. Implement battery rule engine with hysteresis and cooldown.
-8. Implement local device control via TinyTuya.
-9. Persist automation events.
+8. Add tenant-scoped connector enrollment and PostgreSQL-backed commands.
+9. Run TinyTuya in the site connector; retain direct local-host behavior for existing deployments.
+10. Persist automation events after connector results.
 
 ### Phase 2 — local discovery and onboarding
 
@@ -172,6 +179,9 @@ The backend uses the active mapping thresholds and live switch state to make
 automation decisions. `switch_state` is retained for agent compatibility but
 must not override those rules.
 
+Cloud-hosted control must use outbound HTTPS from a connector on the same LAN
+as the Tuya devices. Do not modify the current agent JSON or telemetry format.
+
 ### Rule engine behavior
 
 Use hysteresis and a cooldown:
@@ -182,8 +192,12 @@ Use hysteresis and a cooldown:
 
 ### Device control assumptions
 
-- local network access is required
+- local network access is required on the site connector host
+- the cloud server does not scan or route directly to private device LANs
+- each device is assigned to one active connector in its tenant
 - IP and local key are essential for reliable control
+- commands use explicit desired state, leases, expiry, and bounded retries
+- preserve existing PowerShell agent config and `CHARGEPILOT_` settings
 - device payloads may vary by device family
 - channel-aware logic is required for multi-channel devices
 

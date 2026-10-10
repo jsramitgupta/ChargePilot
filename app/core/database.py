@@ -22,6 +22,8 @@ from app.models.telemetry import BatteryReading  # noqa: F401,E402
 from app.models.tenant import Tenant  # noqa: F401,E402
 from app.models.user import User  # noqa: F401,E402
 from app.models.system_setting import SystemSetting  # noqa: F401,E402
+from app.models.connector import SiteConnector, DeviceCommand  # noqa: F401,E402
+from app.services.local_key_service import decrypt_local_key, encrypt_local_key  # noqa: E402
 
 
 engine_kwargs = {"pool_pre_ping": True}
@@ -43,6 +45,7 @@ def _ensure_table_columns() -> None:
         "devices": {
             "owner_id": "VARCHAR(36)",
             "tenant_id": "VARCHAR(36)",
+            "connector_id": "VARCHAR(36)",
             "current_state": "BOOLEAN NOT NULL DEFAULT FALSE",
             "last_state_change_at": "TIMESTAMPTZ",
             "last_seen_at": "TIMESTAMPTZ",
@@ -256,6 +259,13 @@ def ensure_default_system_settings() -> None:
 def create_db_and_tables() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_table_columns()
+    with SessionLocal() as db:
+        for device in db.query(Device).all():
+            if not device.encrypted_local_key.startswith("gAAAA"):
+                device.encrypted_local_key = encrypt_local_key(device.encrypted_local_key)
+            else:
+                decrypt_local_key(device.encrypted_local_key)
+        db.commit()
     _backfill_tenant_ownership()
     _ensure_tenant_indexes()
     _ensure_cascade_foreign_keys()

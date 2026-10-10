@@ -31,14 +31,33 @@
   <section class="ui-accent-surface rounded-[28px] p-5 sm:p-6">
     <div class="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <p class="text-[11px] font-bold uppercase tracking-[0.24em] text-blue-700">Step 1 · Discover</p>
-        <h2 class="mt-2 text-2xl font-bold tracking-tight text-slate-900">Scan your local network</h2>
-        <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Find Tuya switches on the same network as ChargePilot, then choose one to use its discovered device details.</p>
+        <p class="text-[11px] font-bold uppercase tracking-[0.24em] text-blue-700">Local device discovery</p>
+        <h2 class="mt-2 text-2xl font-bold tracking-tight text-slate-900">Scan a switch network</h2>
+        <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Scan the network where ChargePilot runs, or choose a site connector to scan a remote LAN.</p>
       </div>
-      <button id="scan-local-network" type="button" data-scan-url="{{ request.url_for('scan_local_network') }}" class="inline-flex shrink-0 items-center justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60">
+      <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-end">
+        <label for="scan-location" class="text-xs font-semibold text-slate-600">Scan location
+          <select id="scan-location" class="mt-1 block min-w-56 rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-100">
+            <option value="server">ChargePilot server network</option>
+            {% for connector in connectors if connector.is_active and connector.token_hash %}
+            <option value="connector:{{ connector.id }}" {% if not connector.is_online %}disabled{% endif %}>{{ connector.name }}{% if not connector.is_online %} (offline){% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button id="scan-local-network" type="button" data-scan-url="{{ request.url_for('scan_local_network') }}" class="inline-flex shrink-0 items-center justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60">
         Scan local network
-      </button>
+        </button>
+      </div>
     </div>
+    {% if not connectors %}
+    <p class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">You can scan the ChargePilot server network now. To scan a different site, <a href="/connectors" class="font-semibold underline">enroll a site connector</a>.</p>
+    {% endif %}
+    {% if message %}
+    <p role="status" class="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ message.replace('+', ' ') }}</p>
+    {% endif %}
+    {% if error_message %}
+    <p role="alert" class="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error_message.replace('+', ' ') }}</p>
+    {% endif %}
     <p id="device-wizard-status" class="mb-4 text-sm text-slate-600" role="status" aria-live="polite"></p>
     <section id="local-scan-results" class="hidden border-t border-blue-100 pt-5" aria-live="polite">
       <div class="mb-3 flex items-center justify-between gap-3">
@@ -198,6 +217,11 @@
               <span class="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-600">{{ device.device_type or 'default' }}</span>
               <span class="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-600">{{ device.ip_address or 'n/a' }}</span>
               <span class="rounded-full bg-blue-50 px-2 py-1 font-medium text-blue-700">{{ device.channels|length if device.channels else 0 }} channel{% if (device.channels|length if device.channels else 0) != 1 %}s{% endif %}</span>
+              {% set assigned_connector = connectors|selectattr('id', 'equalto', device.connector_id)|first if device.connector_id else none %}
+              <span class="rounded-full px-2 py-1 font-medium {% if assigned_connector and assigned_connector.is_online %}bg-emerald-50 text-emerald-700{% elif assigned_connector %}bg-amber-50 text-amber-800{% else %}bg-slate-100 text-slate-600{% endif %}">
+                {% if assigned_connector %}{{ assigned_connector.name }}{% if assigned_connector.is_online %} · online{% else %} · offline{% endif %}{% else %}No site connector{% endif %}
+              </span>
+              {% if device.id in pending_device_commands %}<span class="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900">Command pending</span>{% endif %}
             </div>
           </div>
 
@@ -228,6 +252,19 @@
           </div>
           {% endfor %}
         </div>
+        {% endif %}
+
+        {% if can_manage_connectors %}
+        <form method="post" action="/devices/{{ device.id }}/connector" class="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+          <label for="connector-{{ device.id }}" class="text-xs font-semibold text-slate-600">Control on site</label>
+          <select id="connector-{{ device.id }}" name="connector_id" class="min-w-44 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+            <option value="">ChargePilot host (local setup only)</option>
+            {% for connector in connectors if connector.is_active and connector.token_hash and connector.tenant_id == device.tenant_id %}
+            <option value="{{ connector.id }}" {% if device.connector_id == connector.id %}selected{% endif %}>{{ connector.name }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-50">Save</button>
+        </form>
         {% endif %}
 
         <div class="mt-4 flex justify-end">

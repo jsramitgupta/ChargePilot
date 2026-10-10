@@ -24,6 +24,9 @@ htmlcov/
 agent-config.json
 secrets/
 config/local.*
+enrollment-code.txt
+connector-config.json
+connector-data/
 
 # Local databases and data
 *.sqlite3

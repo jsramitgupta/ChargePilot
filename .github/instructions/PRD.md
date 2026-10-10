@@ -2,7 +2,7 @@
 
 ## 1. Product vision
 
-ChargePilot is a self-hosted local automation platform for Windows laptops. It monitors battery state, evaluates configurable thresholds, and toggles local smart switches or plugs on the same LAN. The current product is not a cloud service; it is a local-first control system that remains usable even when the device is offline from the internet.
+ChargePilot is a local-first automation platform for Windows laptops that can run on a cloud-hosted control plane. It monitors battery state and routes switch commands through a site connector on the same LAN as the Tuya devices. Device control remains local and does not require Tuya cloud control.
 
 The current product state extends the original battery automation idea with a missing but important layer: discovering and registering local Tuya devices via LAN scan, and optionally linking devices through the SmartLife/Tuya QR login flow when the user needs a local key or wants to import a device that was previously paired via the mobile app.
 
@@ -20,6 +20,8 @@ The codebase addresses this with:
 - telemetry ingestion from a Windows laptop agent
 - endpoint-to-device mapping for automation targets
 - local Tuya switch discovery and control over the LAN
+- outbound-HTTPS site connectors for cloud-to-private-LAN control
+- durable desired-state commands, acknowledgements, expiry, and connector health
 - SmartLife/Tuya QR login support for retrieving linked devices and local keys
 - hysteresis-based threshold decisions and event logging
 
@@ -38,7 +40,7 @@ A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch 
 
 ## 4. Core user goals
 
-1. Send laptop battery telemetry to a local ChargePilot server.
+1. Send laptop battery telemetry to a local or cloud-hosted ChargePilot server.
 2. Identify or import the local switch or plug for a mapped endpoint.
 3. Discover devices available on the LAN or recover them from a SmartLife linked-device session.
 4. Auto-match discovered devices with SmartLife session state to populate local keys and IP addresses.
@@ -75,12 +77,30 @@ A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch 
 - Each mapping carries `on_threshold`, `off_threshold`, and a cooldown interval.
 - The rule engine makes a state decision based on the battery and the last state-change timestamp.
 - Both direct switch actions and battery-driven automation are supported.
+- When a device has an assigned connector, rule actions are persisted as
+  commands and state is updated only after connector acknowledgement.
 
-### 5.5 Operational visibility
+### 5.5 Cloud connector
+
+- Each physical switch LAN has an always-on site connector.
+- A tenant administrator enrolls it with a short-lived, single-use code.
+- The connector makes outbound HTTPS requests; no public site listener,
+  inbound port-forward, VPN, or broker is required for the first release.
+- Devices are explicitly assigned to one connector, and connectors may access
+  only assigned devices in their tenant.
+- The connector handles local discovery and allowlisted desired-state device
+  control, then reports results to ChargePilot.
+- PostgreSQL persists commands so app restarts and reconnects do not lose work.
+- Commands use IDs, expiry, leases, bounded retries, and idempotent set-state
+  semantics; blind toggles are not accepted.
+
+### 5.6 Operational visibility
 
 - A dashboard plus Jinja pages show devices, endpoints, mappings, and events.
 - Event logs capture decision reasons and success/failure status.
 - SSE streaming is available for real-time update pushes to UI clients.
+- The Connectors page exposes enrollment and heartbeat health; switch cards
+  show connector assignment and pending command state.
 
 ## 6. Functional requirements
 
@@ -95,15 +115,29 @@ A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch 
 - Tuya state changes are performed by local-device access, not by cloud automation.
 - The app supports channel-specific operations and nested DPS extraction.
 - Device keys, IPs, and protocol metadata are required for local control to work reliably.
+- Local keys are encrypted at rest using the existing
+  `CHARGEPILOT_ENCRYPTION_KEY` setting. Do not change its name or format.
 
-### 6.3 SmartLife credentials and device import
+### 6.3 Connector requirements
+
+- Connector credentials are separate from laptop agent tokens and are
+  revocable and tenant-scoped.
+- Connector identity and command-result authorization are enforced on every
+  request.
+- Only registered-device operations are accepted; no arbitrary host/IP
+  execution interface is exposed.
+- A disconnected connector, timeout, rejected local operation, or expired
+  command is surfaced as pending/failure, never as success.
+- Preserve existing PowerShell agent configuration and telemetry contracts.
+
+### 6.4 SmartLife credentials and device import
 
 - QR generation must support PNG-first output with SVG fallback.
 - QR payloads must embed the correct app-visible scheme (for example `smartlife--qrLogin?token=` or `tuyaSmart--qrLogin?token=`).
 - The flow must persist session state long enough to match linked devices after scanning.
 - The frontend should surface success/error info without blocking the user with browser alerts.
 
-### 6.4 UX requirements
+### 6.5 UX requirements
 
 - The device wizard must support scanning, SmartLife login, device matching, and add-switch flows in one interface.
 - AJAX responses should allow the UI to render refreshed QR payloads and update state without complete page reloads.

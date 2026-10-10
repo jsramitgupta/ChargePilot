@@ -5,6 +5,8 @@ from typing import Any
 
 from tinytuya import OutletDevice, deviceScan
 
+from app.services.local_key_service import decrypt_local_key
+
 logger = logging.getLogger("chargepilot.tuya")
 DISCOVERY_LOCK = asyncio.Lock()
 
@@ -42,7 +44,7 @@ class TuyaService:
         return cls(
             device_id=device.device_id,
             ip_address=device.ip_address,
-            local_key=device.encrypted_local_key,
+            local_key=decrypt_local_key(device.encrypted_local_key),
             device_type=device.device_type or "default",
             protocol_version=device.protocol_version or "3.5",
         )
@@ -221,7 +223,13 @@ class TuyaService:
                 self.ip_address,
                 self.protocol_version,
             )
-            return {"device_id": device_id, "channel": channel, "state": "ON", "success": True}
+            return {
+                "device_id": device_id,
+                "channel": channel,
+                "state": "ON",
+                "success": False,
+                "error": "Local device connection details are incomplete.",
+            }
 
         try:
             logger.info(
@@ -260,7 +268,13 @@ class TuyaService:
                 self.ip_address,
                 self.protocol_version,
             )
-            return {"device_id": device_id, "channel": channel, "state": "OFF", "success": True}
+            return {
+                "device_id": device_id,
+                "channel": channel,
+                "state": "OFF",
+                "success": False,
+                "error": "Local device connection details are incomplete.",
+            }
 
         try:
             logger.info(

@@ -2,7 +2,7 @@
 
 ## 1. Scope
 
-This document reflects the current implementation state of the repository. It covers the app structure, runtime data flows, persistence model, SmartLife QR login bridge, local discovery workflow, and the constraints a future rebuild or Claude-driven implementation must respect.
+This document reflects the current implementation state of the repository. It covers the cloud app, site connector, runtime data flows, persistence model, SmartLife QR login bridge, local discovery workflow, and deployment constraints. The canonical cloud-to-site design is in [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md).
 
 ## 2. Technology stack
 
@@ -14,6 +14,8 @@ The project currently uses:
 - PostgreSQL via psycopg
 - Pydantic + pydantic-settings
 - TinyTuya for local control and discovery
+- httpx-based outbound HTTPS connector runtime
+- Fernet encryption for stored local keys, derived from the existing encryption setting
 - Tuya sharing SDK for SmartLife linked-device flow
 - Jinja2 templates for server-rendered dashboard pages
 - qrcode + Pillow-compatible support for QR generation
@@ -62,7 +64,9 @@ This is the battery hysteresis module. It enforces:
 
 ### 3.5 `app/services/tuya_service.py`
 
-This module is the local device-control boundary. It encapsulates:
+This module is the local device-control abstraction. The same TinyTuya operations
+run at the site through `connector/chargepilot_connector.py` for cloud deployments.
+It encapsulates:
 
 - local discovery via `tinytuya.deviceScan()`
 - device state fetch and channel-aware `set_state()` calls
@@ -88,7 +92,16 @@ This service is effectively the onboarding bridge between mobile app pairing and
 
 This is still the core automation route. It validates telemetry, updates endpoint state, resolves mappings, evaluates battery actions, sends local control commands, and writes `AutomationEvent` records.
 
-It also publishes state-change events for SSE clients, which is essential for UI updates without page reloads.
+For connector-assigned devices, it stores desired-state work in PostgreSQL
+instead of attempting to reach private device IPs. It also publishes
+state-change events after confirmed connector results.
+
+### 3.8 `app/services/connector_service.py` and `app/api/connectors.py`
+
+These modules cover one-time enrollment, connector token validation, tenant and
+device-scoped command claiming, leases, expiry, idempotency, result recording,
+and connector heartbeat APIs. The site connector is a separate process and
+receives device control details only when it claims authorized work.
 
 ## 4. Persistence model
 
@@ -122,6 +135,7 @@ Key fields:
 - enabled
 - current_state
 - last_state_change_at
+- connector_id
 
 ### `DeviceChannel`
 
@@ -163,6 +177,13 @@ Key fields:
 - success
 - error
 
+### `SiteConnector` and `DeviceCommand`
+
+Connectors are tenant-scoped and represent a single reachable site LAN.
+Commands record operation, assigned connector/device/channel, desired state,
+attempt count, timestamps, expiry, lease, status, and sanitized result. Command
+state progresses from `queued` through `leased` to a terminal outcome.
+
 ### SmartLife session state
 
 The mobile pairing flow stores state in a JSON file at `.smartlife_session.json`.
@@ -192,10 +213,11 @@ PowerShell agent
   -> validate timestamp freshness
   -> upsert Endpoint row
   -> load active mappings
-  -> read live device state
-  -> evaluate battery rule
-  -> call local switch command
-  -> record AutomationEvent
+  -> evaluate battery rule using confirmed persisted state
+  -> persist desired-state command for assigned connector
+  -> connector claims and executes locally
+  -> acknowledge success/failure
+  -> update device state and record AutomationEvent
   -> publish SSE update
 ```
 
@@ -219,9 +241,17 @@ User scans QR in SmartLife app
 
 ### C. LAN discovery and device registration
 
+The user chooses an online connector. ChargePilot queues a discovery command
+and waits for its bounded completion; the connector returns device metadata
+without local keys. A scan timeout is reported clearly and does not imply
+success.
+
 ```text
 User clicks Run scan
-  -> local device discovery
+  -> select active connector for LAN
+  -> persist discovery command
+  -> connector claims and scans locally
+  -> connector posts normalized result
   -> list discovered devices
   -> choose device
   -> either manual add or SmartLife match fill-in
@@ -240,6 +270,8 @@ User clicks Run scan
 - Telemetry routes rely on bearer-token validation and a static token model in the current implementation.
 - SmartLife session data lives in a local file and should never be committed to source control.
 - Local keys must be treated as sensitive configuration and stored safely.
+- Site connectors are tenant-scoped and their API tokens must be revocable;
+  local keys are encrypted at rest with the existing encryption setting.
 - QR generation must prefer PNG because QR readers are more reliable with PNG payloads than SVG in the wild.
 
 ## 8. Test strategy in the repo
@@ -258,4 +290,5 @@ These tests are the baseline regression suite for the core automation path and s
 - Keep `SmartLifeService` isolated from the database layer if possible.
 - Treat local key recovery and device discovery as first-class onboarding steps, not afterthoughts.
 - Keep event logging and device state updates durable and visible.
-- Build from a local-first architecture with a simple monolith, not a cloud-first stack.
+- Keep the cloud control plane modular and simple; do not add a broker or VPN
+  until measured scale or latency needs justify it.

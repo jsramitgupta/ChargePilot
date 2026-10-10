@@ -2,30 +2,26 @@
 
 ## 1. Architectural style
 
-ChargePilot is a modular monolith implemented in Python with FastAPI. The code is organized into API, core, models, schemas, services, and templates, but it remains a single deployable application. This keeps the project easy to reason about and easy to run in a home-lab or small-office environment.
+ChargePilot's cloud control plane is a modular monolith implemented in Python
+with FastAPI and PostgreSQL. One site connector runs per physical device LAN.
+The cloud remains a single app/database deployment; connectors make outbound
+HTTPS requests and execute LAN-bound TinyTuya operations locally.
 
-The system is intentionally local-first. It is designed for a LAN-connected environment, not a cloud-managed fleet.
+Device communication remains local-first even when the control plane is hosted
+in the cloud. See [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md)
+for the canonical implementation design and deployment boundaries.
 
 ## 2. Runtime topology
 
 ```text
 Windows laptop
-  ↓
-PowerShell telemetry agent
-  ↓
-POST /api/v1/telemetry
-  ↓
-FastAPI application
-  ├─ validates endpoint token
-  ├─ updates endpoint battery state
-  ├─ resolves endpoint mappings
-  ├─ evaluates battery rule engine
-  ├─ calls local Tuya control layer
-  ├─ persists automation events
-  ├─ streams state changes via SSE
-  └─ serves Jinja dashboard + wizard UI
-  ↓
-Local Tuya switch or plug
+  -> PowerShell telemetry agent
+  -> POST /api/v1/telemetry
+  -> FastAPI validates token, updates endpoint, evaluates mapping/rules
+  -> PostgreSQL persists a desired-state device command
+  -> Site connector claims command over outbound HTTPS
+  -> TinyTuya controls the assigned device on its LAN
+  -> Connector acknowledges result; cloud updates state/event/SSE
 ```
 
 A second local onboarding path also exists:
@@ -117,7 +113,9 @@ Current services include:
 
 ### Local-only control boundary
 
-The app assumes the device is reachable on the LAN and uses the IP, protocol version, and local key. Routine control is not cloud-dependent.
+The connector assumes the device is reachable on its LAN and uses the IP,
+protocol version, and local key. Routine control is not Tuya-cloud-dependent.
+The cloud stores pending work and never needs a network route to a device LAN.
 
 ### SmartLife onboarding boundary
 
@@ -125,9 +123,9 @@ The SmartLife flow is an opt-in local-key retrieval step. It does not replace
 Tuya local control or supply device metadata. Device identity, name, IP address,
 and protocol come from LAN scanning (or manual entry).
 
-The Switches page exposes distinct LAN discovery and manual-add options. LAN
-discovery uses TinyTuya from the ChargePilot host and intentionally excludes
-local keys from its response. Smart Life QR pairing is opt-in; it uses the
+The Switches page exposes LAN discovery, manual-add, and connector assignment.
+LAN discovery runs via the selected connector and intentionally excludes local
+keys from results. Smart Life QR pairing is opt-in; it uses the
 account user code and explicit QR confirmation, and keeps linked device IDs
 and local keys in process memory for up to ten minutes. The wizard matches
 keys to LAN scan results by device ID. The account ID can optionally be
@@ -139,9 +137,10 @@ must never be persisted to browser storage or source-controlled files.
 Every automation decision is persisted in `AutomationEvent` records with previous and new state, success, and reason metadata.
 
 The Events page queries the event log with server-side pagination (50, 100, or
-500 rows per page). A background retention task purges events older than 30
-days immediately at startup and then every 24 hours; retention applies across
-tenants.
+500 rows per page). Connector command outcomes become events when completed or
+expired. A background retention task purges events older than 30 days
+immediately at startup and then every 24 hours; retention applies across
+tenants. Command rows use explicit queue/lease/completion states.
 
 ## 6. Database bootstrap and schema compatibility
 

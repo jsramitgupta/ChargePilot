@@ -6,6 +6,7 @@ from app.models.telemetry import BatteryReading
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.system_setting import SystemSetting
+from app.models.connector import SiteConnector, DeviceCommand
 
 __all__ = [
     "User",
@@ -17,4 +18,6 @@ __all__ = [
     "BatteryReading",
     "AutomationEvent",
     "SystemSetting",
+    "SiteConnector",
+    "DeviceCommand",
 ]

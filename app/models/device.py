@@ -13,6 +13,9 @@ class Device(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    connector_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("site_connectors.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     device_id: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
     encrypted_local_key: Mapped[str] = mapped_column(String(512), nullable=False)
