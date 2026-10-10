@@ -1,6 +1,7 @@
+import json
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -18,12 +19,11 @@ router = APIRouter(prefix="/telemetry", tags=["telemetry"])
 
 
 @router.get("/stream")
-async def stream_events(request):
+async def stream_events(request: Request):
     """Simple Server-Sent Events stream for device updates.
 
     Clients should connect with EventSource('/api/v1/telemetry/stream').
     """
-    from fastapi import Request
     from starlette.responses import StreamingResponse
     import asyncio
     from app.services.broadcaster import register_client, unregister_client

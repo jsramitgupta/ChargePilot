@@ -29,6 +29,75 @@ def test_user_registration_and_login_flow():
     assert login.status_code in (200, 302, 303)
 
 
+def test_login_and_logout_follow_redirects_to_the_correct_pages():
+    login_page = client.get("/login")
+    assert 'bg-slate-50 px-3 py-2.5 text-slate-900' in login_page.text
+    assert 'autocomplete="username"' in login_page.text
+    assert 'autocomplete="current-password"' in login_page.text
+
+    client.post(
+        "/register",
+        data={"username": "redirect-user", "password": "secret123"},
+        follow_redirects=False,
+    )
+
+    login = client.post(
+        "/login",
+        data={"username": "redirect-user", "password": "secret123"},
+        follow_redirects=True,
+    )
+
+    assert login.status_code == 200
+    assert str(login.url).endswith("/")
+    assert "Device-to-switch control" in login.text
+    assert 'id="mainNav"' in login.text
+
+    logout = client.get("/logout", follow_redirects=True)
+
+    assert logout.status_code == 200
+    assert str(logout.url).endswith("/login")
+    assert 'action="/login"' in logout.text
+    assert 'id="mainNav"' not in logout.text
+
+    invalid_login = client.post(
+        "/login",
+        data={"username": "redirect-user", "password": "incorrect"},
+        follow_redirects=True,
+    )
+    assert str(invalid_login.url).endswith("/login?error=Invalid+username+or+password")
+    assert "Invalid username or password" in invalid_login.text
+
+
+def test_authenticated_header_shows_navigation_tabs():
+    client.post(
+        "/register",
+        data={"username": "nav-user", "password": "secret123"},
+        follow_redirects=False,
+    )
+    client.post(
+        "/login",
+        data={"username": "nav-user", "password": "secret123"},
+        follow_redirects=False,
+    )
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="mainNav" class="site-nav"' in response.text
+    assert response.text.count('aria-current="page"') == 1
+    assert '<a href="/" aria-current="page"' in response.text
+    for path in ("/", "/mappings", "/devices", "/endpoints", "/events", "/users", "/tenants"):
+        assert f'href="{path}"' in response.text
+    assert 'href="/logout"' in response.text
+
+    endpoints_response = client.get("/endpoints")
+
+    assert endpoints_response.status_code == 200
+    assert endpoints_response.text.count('aria-current="page"') == 1
+    assert '<a href="/endpoints" aria-current="page"' in endpoints_response.text
+    assert '<a href="/" aria-current="page"' not in endpoints_response.text
+
+
 def test_events_include_battery_percentage():
     with SessionLocal() as db:
         db.add(

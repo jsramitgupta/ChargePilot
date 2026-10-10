@@ -21,3 +21,9 @@ def test_telemetry_route_accepts_valid_endpoint():
 
     assert response.status_code == 200
     assert response.json()["status"] == "accepted"
+
+
+def test_telemetry_stream_injects_request_without_query_parameter():
+    operation = app.openapi()["paths"]["/api/v1/telemetry/stream"]["get"]
+
+    assert operation.get("parameters", []) == []

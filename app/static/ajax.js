@@ -4,14 +4,43 @@
   const mainEl = document.querySelector(mainSelector);
   if (!mainEl) return;
 
+  function updateActiveNavigation() {
+    const currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    document.querySelectorAll('#mainNav a[href]').forEach((link) => {
+      const linkPath = new URL(link.href, window.location.href).pathname.replace(/\/+$/, '') || '/';
+      if (linkPath === currentPath) {
+        link.setAttribute('aria-current', 'page');
+      } else {
+        link.removeAttribute('aria-current');
+      }
+    });
+  }
+
+  updateActiveNavigation();
+
+  function navigateIfRedirected(response) {
+    if (!response.redirected) return false;
+    window.location.assign(response.url);
+    return true;
+  }
+
   async function replaceMainWithHtml(htmlText, pushUrl) {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(htmlText, 'text/html');
       const newMain = doc.querySelector(mainSelector);
+      const currentNav = document.querySelector('#mainNav');
+      const nextNav = doc.querySelector('#mainNav');
+      if (Boolean(currentNav) !== Boolean(nextNav)) {
+        window.location.assign(pushUrl || window.location.href);
+        return;
+      }
       if (newMain) {
         mainEl.innerHTML = newMain.innerHTML;
-        if (pushUrl) history.pushState({ ajax: true }, '', pushUrl);
+        if (pushUrl) {
+          history.pushState({ ajax: true }, '', pushUrl);
+          updateActiveNavigation();
+        }
         // Re-run any inline initialization from base.html
         if (window.applyTheme) try { window.applyTheme(); } catch (e) {}
         if (window.applyTimezone) try { window.applyTimezone(); } catch (e) {}
@@ -42,6 +71,8 @@
         },
         body: method === 'GET' ? null : formData,
       });
+
+      if (navigateIfRedirected(resp)) return;
 
       const contentType = resp.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
@@ -96,8 +127,13 @@
 
     ev.preventDefault();
     fetch(href, { headers: { Accept: 'text/html' } })
-      .then((r) => r.text())
-      .then((text) => replaceMainWithHtml(text, href))
+      .then(async (response) => {
+        if (navigateIfRedirected(response)) return null;
+        return response.text();
+      })
+      .then((text) => {
+        if (text !== null) return replaceMainWithHtml(text, href);
+      })
       .catch((err) => {
         console.error('AJAX nav failed', err);
         window.location.href = href; // fallback
@@ -105,6 +141,7 @@
   });
 
   window.addEventListener('popstate', function (ev) {
+    updateActiveNavigation();
     fetch(window.location.href, { headers: { Accept: 'text/html' } })
       .then((r) => r.text())
       .then((text) => replaceMainWithHtml(text, window.location.href))
@@ -166,8 +203,6 @@
     }
   }
 
-  let sseEnabled = false;
-
   function applyEventToDom(item) {
     try {
       if (!item || !item.type) return;
@@ -207,10 +242,34 @@
     }
   }
 
+  const sseStatusEl = document.getElementById('sseStatus');
+  let pollingTimer = null;
+
+  function updateSseStatus(text, connected) {
+    if (!sseStatusEl) return;
+    sseStatusEl.textContent = text;
+    sseStatusEl.classList.toggle('live-pill', connected);
+    sseStatusEl.classList.toggle('mini-badge', true);
+  }
+
+  function startPolling() {
+    if (pollingTimer !== null) return;
+    pollDeviceStates();
+    pollingTimer = window.setInterval(pollDeviceStates, 5000);
+  }
+
+  function stopPolling() {
+    if (pollingTimer === null) return;
+    window.clearInterval(pollingTimer);
+    pollingTimer = null;
+  }
+
+  startPolling();
+
   if (window.EventSource) {
     try {
       const es = new EventSource('/api/v1/telemetry/stream');
-      sseEnabled = true;
+
       es.onmessage = function (ev) {
         try {
           const data = JSON.parse(ev.data);
@@ -221,19 +280,19 @@
       };
       es.onerror = function (ev) {
         console.warn('SSE error, falling back to polling', ev);
-        sseEnabled = false;
-        es.close();
+        updateSseStatus('Reconnecting', false);
+        startPolling();
+      };
+      es.onopen = function () {
+        updateSseStatus('Connected', true);
+        stopPolling();
       };
     } catch (err) {
       console.warn('Failed to open SSE connection', err);
-      sseEnabled = false;
+      updateSseStatus('Polling', false);
     }
-  }
-
-  if (!sseEnabled) {
-    setInterval(pollDeviceStates, 5000);
-    // Run once immediately
-    pollDeviceStates();
+  } else {
+    updateSseStatus('Polling', false);
   }
 
 })();

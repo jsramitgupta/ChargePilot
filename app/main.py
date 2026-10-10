@@ -17,6 +17,7 @@ from app.api.events import router as events_router
 from app.api.health import router as health_router
 from app.api.mappings import router as mappings_router
 from app.api.telemetry import router as telemetry_router
+from app.api.auth import router as auth_router
 from app.core.config import settings
 from app.core.database import SessionLocal, create_db_and_tables, ensure_default_admin_user, get_db
 from app.core.security import hash_password, verify_password
@@ -40,6 +41,8 @@ app = FastAPI(
     description="Self-hosted battery automation platform for local Tuya control.",
 )
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
+
+# CORS middleware removed to require same-origin requests and avoid cross-origin allowances
 
 
 def get_current_user(request: Request, db: Session) -> User | None:
@@ -155,6 +158,7 @@ async def startup_event() -> None:
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(health_router)
 app.include_router(telemetry_router, prefix=settings.api_v1_prefix)
+app.include_router(auth_router, prefix=settings.api_v1_prefix)
 app.include_router(endpoints_router, prefix=settings.api_v1_prefix)
 app.include_router(devices_router, prefix=settings.api_v1_prefix)
 app.include_router(mappings_router, prefix=settings.api_v1_prefix)
@@ -337,11 +341,21 @@ async def devices_view(request: Request, db: Session = Depends(get_db)):
             .all()
         )
 
+    # compute total channels for template (avoid complex Jinja attribute expression)
+    total_channels = sum(len(getattr(device, "channels", []) or []) for device in devices)
+
+    # Clear Jinja2 template cache so filesystem edits are picked up in long-running test sessions
+    try:
+        templates.env.cache.clear()
+    except Exception:
+        pass
+
     return templates.TemplateResponse(
         "devices.html",
         {
             "request": request,
             "devices": devices,
+            "total_channels": total_channels,
         },
     )
 
