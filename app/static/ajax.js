@@ -620,16 +620,17 @@
 
     if (target.matches('[data-copy-target]')) {
       const source = document.getElementById(target.dataset.copyTarget);
-      const status = document.getElementById('agent-copy-status');
+      const status = document.getElementById(target.dataset.copyStatusElement || 'agent-copy-status');
+      const originalLabel = target.textContent;
       if (!source) return;
       try {
         await navigator.clipboard.writeText(source.textContent.trim());
         target.textContent = 'Copied';
-        if (status) status.textContent = 'Install command copied to clipboard.';
-        window.setTimeout(() => { target.textContent = 'Copy'; }, 1800);
+        if (status) status.textContent = target.dataset.copyStatus || 'Install command copied to clipboard.';
+        window.setTimeout(() => { target.textContent = originalLabel; }, 1800);
       } catch (error) {
-        console.error('Could not copy the agent install command', error);
-        if (status) status.textContent = 'Copy was blocked by the browser. Select and copy the command manually.';
+        console.error('Could not copy the requested text', error);
+        if (status) status.textContent = target.dataset.copyError || 'Copy was blocked by the browser. Select and copy the text manually.';
       }
       return;
     }

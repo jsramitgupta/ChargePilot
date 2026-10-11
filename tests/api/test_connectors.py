@@ -1,3 +1,5 @@
+import re
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -5,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.core.database import SessionLocal
 from app.main import app
-from app.models.connector import DeviceCommand
+from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device
 from app.models.event import AutomationEvent
 from app.services.local_key_service import decrypt_local_key
@@ -36,8 +38,16 @@ def _enroll_connector(client: TestClient, name: str = "Office LAN") -> tuple[str
     assert created.status_code == 303, created.text
     page = client.get("/connectors")
     assert page.status_code == 200, page.text
-    code_start = page.text.index("<code")
-    code = page.text[page.text.index(">", code_start) + 1 : page.text.index("</code>", code_start)]
+    assert page.headers["cache-control"] == "private, no-store"
+    code_match = re.search(
+        r'<output id="connector-enrollment-code"[^>]*>([^<]+)</output>',
+        page.text,
+    )
+    assert code_match, "The one-time enrollment code should be visible."
+    assert 'data-copy-target="connector-enrollment-code"' in page.text
+    assert 'data-copy-status="Enrollment code copied."' in page.text
+    code = code_match.group(1)
+    assert code not in client.get("/connectors").text
     response = client.post(
         "/api/v1/connectors/enroll",
         headers={"Authorization": f"Bearer {code}"},
@@ -158,3 +168,42 @@ def test_connector_data_is_scoped_to_the_enrolling_tenant():
     )
     assert invalid_claim.status_code == 401
     assert token
+
+
+def test_revoked_connector_can_be_deleted_with_its_commands():
+    client = _tenant_admin_client("connector_delete_owner")
+    created = client.post(
+        "/connectors",
+        data={"name": "Retired LAN"},
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+
+    with SessionLocal() as db:
+        connector = db.query(SiteConnector).filter(SiteConnector.name == "Retired LAN").one()
+        connector_id = connector.id
+        db.add(
+            DeviceCommand(
+                tenant_id=connector.tenant_id,
+                connector_id=connector.id,
+                operation="turn_on",
+                expires_at=datetime.now(UTC) + timedelta(minutes=5),
+            )
+        )
+        db.commit()
+
+    active_delete = client.post(f"/connectors/{connector_id}/delete", follow_redirects=False)
+    assert active_delete.status_code == 303
+    assert "Revoke+the+connector+before+deleting+it" in active_delete.headers["location"]
+
+    revoked = client.post(f"/connectors/{connector_id}/revoke", follow_redirects=False)
+    assert revoked.status_code == 303
+    page = client.get("/connectors")
+    assert f'/connectors/{connector_id}/delete' in page.text
+
+    deleted = client.post(f"/connectors/{connector_id}/delete", follow_redirects=False)
+    assert deleted.status_code == 303
+    assert "Connector+deleted" in deleted.headers["location"]
+    with SessionLocal() as db:
+        assert db.query(SiteConnector).filter(SiteConnector.id == connector_id).first() is None
+        assert db.query(DeviceCommand).filter(DeviceCommand.connector_id == connector_id).count() == 0
