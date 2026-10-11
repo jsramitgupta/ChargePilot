@@ -192,7 +192,7 @@ def test_device_wizard_keeps_local_key_blank_until_user_provides_one():
     assert "Generate secure QR" in page.text
     assert "Remember this account ID on my ChargePilot account" in page.text
     assert "ChargePilot retrieves only local keys" in page.text
-    assert 'data-scan-url="http://testserver/devices/scan"' in page.text
+    assert 'data-scan-url="/devices/scan"' in page.text
     assert "ajax.js?v=18" in page.text
     assert 'id="smartlife-modal"' in page.text
     assert page.text.index("Scan a switch network") < page.text.index("Step 2 · Add")
@@ -267,7 +267,7 @@ def test_device_scan_url_respects_reverse_proxy_root_path():
     page = client.get("/devices")
 
     assert page.status_code == 200, page.text
-    assert 'data-scan-url="http://testserver/chargepilot/devices/scan"' in page.text
+    assert 'data-scan-url="/chargepilot/devices/scan"' in page.text
 
 
 @pytest.mark.asyncio
