@@ -9,6 +9,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -59,11 +60,28 @@ app = FastAPI(
     version="0.1.0",
     description="Self-hosted battery automation platform for local Tuya control.",
 )
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.secret_key,
+    same_site=settings.session_cookie_samesite,
+    https_only=settings.session_cookie_secure,
+)
 event_retention_task: asyncio.Task | None = None
 connector_maintenance_task: asyncio.Task | None = None
 
-# CORS middleware removed to require same-origin requests and avoid cross-origin allowances
+if settings.frontend_url:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[settings.frontend_url.rstrip("/")],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    )
+
+
+def frontend_redirect(path: str, status_code: int = 303) -> RedirectResponse:
+    target = f"{settings.frontend_url.rstrip('/')}{path}" if settings.frontend_url else path
+    return RedirectResponse(url=target, status_code=status_code)
 
 
 def get_current_user(request: Request, db: Session) -> User | None:
@@ -1204,17 +1222,17 @@ async def login_page(request: Request):
 async def login_user(request: Request, username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == username).first()
     if user is None or not verify_password(password, user.password_hash):
-        return RedirectResponse(url="/login?error=Invalid+username+or+password", status_code=303)
+        return frontend_redirect("/login?error=Invalid+username+or+password")
 
     request.session["user_id"] = user.id
     request.session["user_timezone"] = resolve_user_timezone(user)
-    return RedirectResponse(url="/", status_code=303)
+    return frontend_redirect("/")
 
 
 @app.get("/logout")
 async def logout_user(request: Request):
     request.session.clear()
-    return RedirectResponse(url="/login", status_code=303)
+    return frontend_redirect("/login")
 
 
 @app.get("/profile", response_class=HTMLResponse)
@@ -1293,11 +1311,11 @@ async def register_user(
 ):
     username = username.strip()
     if not username or not password:
-        return RedirectResponse(url="/register?error=Username+and+password+are+required", status_code=303)
+        return frontend_redirect("/register?error=Username+and+password+are+required")
 
     existing = db.query(User).filter(User.username == username).first()
     if existing is not None:
-        return RedirectResponse(url="/register?error=User+already+exists", status_code=303)
+        return frontend_redirect("/register?error=User+already+exists")
 
     if account_type == "tenant":
         tenant_name = (tenant_name or f"{username}'s tenant").strip()
@@ -1348,7 +1366,7 @@ async def register_user(
 
     request.session["user_id"] = user.id
     request.session["user_timezone"] = resolve_user_timezone(user)
-    return RedirectResponse(url="/", status_code=303)
+    return frontend_redirect("/")
 
 
 @app.get("/tenants", response_class=HTMLResponse)

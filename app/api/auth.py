@@ -16,4 +16,12 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return {"id": user.id, "username": user.username, "role": user.role, "tenant_id": user.tenant_id, "is_admin": bool(user.is_admin)}
+    return {
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "tenant_id": user.tenant_id,
+        "is_admin": bool(user.is_admin),
+        "smartlife_user_code": user.smartlife_user_code,
+        "timezone": user.timezone,
+    }

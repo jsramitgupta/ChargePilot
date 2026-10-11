@@ -65,3 +65,17 @@ def test_events_page_supports_selectable_server_side_page_sizes():
     assert five_hundred_rows.text.count("pagination-row-") == 55
 
     assert client.get("/events?per_page=25").status_code == 422
+
+    api_first_page = client.get("/api/v1/events/page?per_page=50")
+    assert api_first_page.status_code == 200
+    assert api_first_page.json()["total_events"] == 55
+    assert api_first_page.json()["page"] == 1
+    assert len(api_first_page.json()["items"]) == 50
+    assert api_first_page.json()["items"][0]["reason"] == "pagination-row-000"
+
+    api_second_page = client.get("/api/v1/events/page?page=2&per_page=50")
+    assert api_second_page.status_code == 200
+    assert api_second_page.json()["first_row"] == 51
+    assert api_second_page.json()["last_row"] == 55
+    assert len(api_second_page.json()["items"]) == 5
+    assert client.get("/api/v1/events/page?per_page=25").status_code == 422

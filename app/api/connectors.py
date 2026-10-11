@@ -37,6 +37,28 @@ class CommandResultRequest(BaseModel):
     error: str | None = Field(default=None, max_length=255)
 
 
+@router.get("")
+async def list_connectors(
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    connectors = tenant_scoped_query(db.query(SiteConnector), SiteConnector, user).order_by(
+        SiteConnector.name.asc()
+    ).all()
+    return [
+        {
+            "id": connector.id,
+            "name": connector.name,
+            "tenant_id": connector.tenant_id,
+            "is_active": connector.is_active,
+            "is_enrolled": connector.token_hash is not None,
+            "is_online": connector_is_online(connector),
+            "last_seen_at": connector.last_seen_at,
+        }
+        for connector in connectors
+    ]
+
+
 def _connector_from_auth(
     authorization: str | None,
     db: Session,

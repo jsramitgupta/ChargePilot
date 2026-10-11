@@ -180,6 +180,9 @@ def test_tenant_admin_cannot_read_or_mutate_another_tenants_resources():
     listed_events = client_a.get("/api/v1/events")
     assert listed_events.status_code == 200
     assert [event["event_type"] for event in listed_events.json()] == ["TENANT_A_EVENT"]
+    paged_events = client_a.get("/api/v1/events/page")
+    assert paged_events.status_code == 200
+    assert [event["event_type"] for event in paged_events.json()["items"]] == ["TENANT_A_EVENT"]
     event_page = client_a.get("/events")
     assert "Alpha private event" in event_page.text
     assert "Bravo private event" not in event_page.text

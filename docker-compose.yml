@@ -27,8 +27,13 @@ services:
       CHARGEPILOT_ENCRYPTION_KEY: ${CHARGEPILOT_ENCRYPTION_KEY:?Set CHARGEPILOT_ENCRYPTION_KEY in .env}
       CHARGEPILOT_ADMIN_USERNAME: ${CHARGEPILOT_ADMIN_USERNAME:?Set CHARGEPILOT_ADMIN_USERNAME in .env}
       CHARGEPILOT_ADMIN_PASSWORD: ${CHARGEPILOT_ADMIN_PASSWORD:?Set CHARGEPILOT_ADMIN_PASSWORD in .env}
+      CHARGEPILOT_API_URL: ${CHARGEPILOT_API_URL:-http://localhost:8000}
+      CHARGEPILOT_FRONTEND_URL: ${CHARGEPILOT_FRONTEND_URL:-http://localhost:5173}
+      CHARGEPILOT_SESSION_COOKIE_SECURE: ${CHARGEPILOT_SESSION_COOKIE_SECURE:-true}
+      CHARGEPILOT_SESSION_COOKIE_SAMESITE: ${CHARGEPILOT_SESSION_COOKIE_SAMESITE:-lax}
     ports:
       - "8000:8000"
+      - "5173:5173"
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -45,7 +50,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2); urllib.request.urlopen('http://127.0.0.1:5173/', timeout=2)"
       interval: 30s
       timeout: 5s
       retries: 3

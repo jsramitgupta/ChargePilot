@@ -11,6 +11,8 @@ The current codebase is a modular monolith built with FastAPI and SQLAlchemy. It
 - a hysteresis-based battery rule engine
 - TinyTuya wrappers for local switch discovery and control
 - Jinja-rendered dashboard pages for operational supervision
+- React, TypeScript, and Tailwind frontend in `frontend/`, reusing the
+  server-rendered application's shared stylesheet and connecting to its APIs
 - a PowerShell laptop agent that sends runtime battery data
 - an outbound-HTTPS site connector that scans and controls devices on private LANs
 
@@ -237,6 +239,42 @@ To publish an image to Docker Hub or install/update ChargePilot from a published
 
 For local Python development, install with `python -m pip install -e .[dev]`, set `CHARGEPILOT_DATABASE_URL` to a reachable existing PostgreSQL database, and run `uvicorn app.main:app --reload`. The app creates tables and the initial admin account at startup on an empty database.
 
+For the React development frontend, start the backend on `http://localhost:8000`,
+then run `npm --prefix frontend install` and `npm --prefix frontend run dev`.
+Vite serves the frontend on `http://localhost:5173` and proxies application
+requests to FastAPI. Set `CHARGEPILOT_BACKEND_URL` to change the development
+proxy target.
+
+The Docker image builds the React bundle and serves both applications from the
+same container: FastAPI listens on port `8000`, and the React application listens
+on port `5173`. Docker Compose publishes both ports. `CHARGEPILOT_API_URL` and
+`CHARGEPILOT_FRONTEND_URL` are read when the container starts and injected into
+the frontend at runtime; changing them does not require rebuilding the image.
+Use browser-accessible public URLs, not Docker service names. For example:
+
+```dotenv
+CHARGEPILOT_API_URL=https://api.chargepilot.example.com
+CHARGEPILOT_FRONTEND_URL=https://chargepilot.example.com
+CHARGEPILOT_SESSION_COOKIE_SECURE=true
+CHARGEPILOT_SESSION_COOKIE_SAMESITE=lax
+```
+
+Configure the reverse proxy to send the frontend hostname to container port
+`5173` and the API hostname to port `8000`. The API hostname must proxy the
+application routes used by the UI, including `/api/v1`, `/login`, `/register`,
+`/logout`, and server-rendered admin pages. The backend permits credentialed
+browser requests only from the configured frontend origin. For frontend and API
+hostnames on different registrable domains, set
+`CHARGEPILOT_SESSION_COOKIE_SAMESITE=none`; secure cookies are required for
+that mode. TLS should terminate at the reverse proxy, with
+`CHARGEPILOT_SESSION_COOKIE_SECURE=true`.
+
+For local development over plain HTTP, set
+`CHARGEPILOT_SESSION_COOKIE_SECURE=false` in `.env`. Do not use that setting for
+a public HTTPS deployment. Run `npm --prefix frontend run build` to type-check
+and build the frontend independently. No server secrets belong in frontend
+configuration.
+
 The app's startup schema compatibility path creates the connector tables and
 adds the device connector assignment column to older databases. Back up the
 database before upgrading. The repository currently has no versioned Alembic
@@ -250,7 +288,9 @@ future production schema changes.
 - Device commands target an explicit desired state and channel; they are
   durable and routed only to the assigned site connector.
 - A device can expose its state under `dps`, `data.dps`, or `status` payloads.
-- The dashboard is server-rendered via Jinja templates, not a separate frontend application.
+- The FastAPI application retains its Jinja-rendered pages for workflows not yet
+  represented in the React frontend; the React app provides the dashboard,
+  switches, mappings, endpoints, events, and sign-in experience.
 - Authentication is intentionally minimal in the current implementation and should be hardened before production use.
 
 ## Documentation pack

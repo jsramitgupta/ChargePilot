@@ -40,13 +40,24 @@ Other supported settings include:
 ```env
 CHARGEPILOT_TELEMETRY_RATE_LIMIT_PER_MINUTE=60
 CHARGEPILOT_ENDPOINT_OFFLINE_TIMEOUT_SECONDS=600
+CHARGEPILOT_API_URL=https://api.example.com
+CHARGEPILOT_FRONTEND_URL=https://app.example.com
+CHARGEPILOT_SESSION_COOKIE_SECURE=true
+CHARGEPILOT_SESSION_COOKIE_SAMESITE=lax
 ```
 
 Generate random values rather than using placeholders. Python's `secrets.token_urlsafe(32)` is suitable for the secret key and PostgreSQL password; keep the PostgreSQL password URL-safe because Compose embeds it in the SQLAlchemy URL. The `.env` file is ignored by Git and must remain private. `CHARGEPILOT_ENCRYPTION_KEY` encrypts device local keys at rest. Preserve and
 back up its value; changing it prevents the app from decrypting stored keys.
 The name and format of this existing setting are unchanged.
-
 Compose sets `CHARGEPILOT_ENVIRONMENT=production`; startup rejects a non-PostgreSQL URL, default/short secret keys, and short admin passwords.
+
+`CHARGEPILOT_API_URL` and `CHARGEPILOT_FRONTEND_URL` are public browser-facing
+HTTP(S) origins, not internal Docker service names. The API URL may be empty
+when the reverse proxy serves API paths on the frontend origin. Both values
+must be origins without a path, query, or fragment. The frontend origin is
+also the sole credentialed CORS origin and the target for authentication
+redirects. Session cookies use `Secure` in production; use `SameSite=None`
+when the frontend and API are on different registrable domains.
 
 ## 4. Fresh Docker Compose deployment
 
@@ -69,6 +80,27 @@ docker compose up --build -d
 The Compose configuration defines PostgreSQL 16, a persistent volume, PostgreSQL health checking, and an app `/ready` health check. The app container runs as an unprivileged user. Check logs with `docker compose logs -f app`; stop services with `docker compose down`. This preserves the database volume. To permanently delete the database and all stored ChargePilot data, use `docker compose down -v`.
 
 `/health` reports process liveness. `/ready` executes a database query and returns HTTP 503 while PostgreSQL is unavailable.
+
+The single app image runs the FastAPI backend on container port `8000` and
+serves the built React frontend on container port `5173`. Compose publishes
+both ports. Configure the reverse proxy to route the frontend hostname to
+`5173` and the API hostname to `8000`; the API hostname must also route the
+authentication paths (`/login`, `/register`, `/logout`) and any server-rendered
+pages still used by the application. Set the public origins in `.env`; the
+frontend configuration is injected when the container starts, so changing
+these values does not require rebuilding the image:
+
+```env
+CHARGEPILOT_API_URL=https://api.example.com
+CHARGEPILOT_FRONTEND_URL=https://app.example.com
+CHARGEPILOT_SESSION_COOKIE_SECURE=true
+CHARGEPILOT_SESSION_COOKIE_SAMESITE=lax
+```
+
+TLS should terminate at the reverse proxy. For separate registrable domains,
+set `CHARGEPILOT_SESSION_COOKIE_SAMESITE=none`; Secure cookies are required.
+For local plain-HTTP development only, set
+`CHARGEPILOT_SESSION_COOKIE_SECURE=false`.
 
 ## 5. Local Python deployment
 

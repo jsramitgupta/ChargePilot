@@ -7,6 +7,7 @@ from fastapi import Header
 
 from app.core.database import get_db
 from app.core.authorization import get_authenticated_user, tenant_scoped_query
+from app.models.device import Device
 from app.models.endpoint import Endpoint
 from app.models.mapping import Mapping
 from app.models.user import User
@@ -33,6 +34,20 @@ async def list_endpoints(
         Endpoint.last_seen_at.desc().nullslast()
     ).all()
     rows: list[dict[str, object]] = []
+    mapped_names: dict[str, str] = {}
+    mapped_states: dict[str, bool] = {}
+    endpoint_ids = [endpoint.id for endpoint in endpoints]
+    if endpoint_ids:
+        mapped_rows = (
+            db.query(Mapping.endpoint_id, Device.name, Device.current_state)
+            .join(Device, Device.id == Mapping.device_id)
+            .filter(Mapping.endpoint_id.in_(endpoint_ids), Mapping.enabled.is_(True))
+            .order_by(Mapping.created_at.desc())
+            .all()
+        )
+        for endpoint_id, device_name, current_state in mapped_rows:
+            mapped_names.setdefault(endpoint_id, device_name)
+            mapped_states.setdefault(endpoint_id, current_state)
     for endpoint in endpoints:
         last_seen = _normalize_utc(endpoint.last_seen_at)
         rows.append(
@@ -41,8 +56,12 @@ async def list_endpoints(
                 "hostname": endpoint.hostname,
                 "ip_address": endpoint.ip_address,
                 "battery": endpoint.battery_percentage,
+                "charging": endpoint.charging,
+                "ac_connected": endpoint.ac_connected,
+                "last_seen_at": last_seen.isoformat() if last_seen else None,
                 "status": "online" if last_seen and (datetime.now(UTC) - last_seen).total_seconds() <= 600 else "offline",
-                "mapped_device": "No mapped switch",
+                "mapped_device": mapped_names.get(endpoint.id, "No mapped switch"),
+                "switch_state": mapped_states.get(endpoint.id),
             }
         )
     return rows
