@@ -862,6 +862,7 @@ async def connectors_view(request: Request, db: Session = Depends(get_db)):
             "message": request.query_params.get("message"),
             "error_message": request.query_params.get("error"),
         },
+        headers={"Cache-Control": "private, no-store"} if enrollment_code else None,
     )
 
 
@@ -944,6 +945,26 @@ async def revoke_site_connector(request: Request, connector_id: str, db: Session
     )
     db.commit()
     return RedirectResponse(url="/connectors?message=Connector+revoked", status_code=303)
+
+
+@app.post("/connectors/{connector_id}/delete")
+async def delete_site_connector(request: Request, connector_id: str, db: Session = Depends(get_db)):
+    current_user = get_current_user(request, db)
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=303)
+    if not is_super_admin_user(current_user) and current_user.role not in {"tenant_admin", "manager"}:
+        raise HTTPException(status_code=403, detail="Connector administration permission required.")
+    connector = tenant_scoped_query(db.query(SiteConnector), SiteConnector, current_user).filter(
+        SiteConnector.id == connector_id
+    ).first()
+    if connector is None:
+        return RedirectResponse(url="/connectors?error=Connector+not+found", status_code=303)
+    if connector.is_active:
+        return RedirectResponse(url="/connectors?error=Revoke+the+connector+before+deleting+it", status_code=303)
+    db.query(DeviceCommand).filter(DeviceCommand.connector_id == connector.id).delete(synchronize_session=False)
+    db.delete(connector)
+    db.commit()
+    return RedirectResponse(url="/connectors?message=Connector+deleted", status_code=303)
 
 
 async def _handle_manual_switch_control(

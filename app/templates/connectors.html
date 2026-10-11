@@ -4,50 +4,48 @@
 
 {% block content %}
 <div class="space-y-6">
-  <header class="ui-page-hero rounded-[30px] p-6 sm:p-7">
-    <p class="text-sm font-semibold text-blue-100">Private LAN bridge</p>
-    <h1 class="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Site connectors</h1>
-    <p class="mt-3 max-w-2xl text-sm leading-6 text-blue-50/90">
-      A connector stays on the same network as your switches and reaches ChargePilot over outbound HTTPS.
-      No site firewall port-forwarding is needed.
+  <header>
+    <h1 class="text-3xl font-bold tracking-tight text-slate-900">Site connectors</h1>
+    <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+      Run a connector on the same network as your switches. It connects to ChargePilot over HTTPS.
     </p>
   </header>
 
   {% if message %}
-  <p role="status" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ message.replace('+', ' ') }}</p>
+  <p role="status" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ message.replace('+', ' ') }}</p>
   {% endif %}
   {% if error_message %}
-  <p role="alert" class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error_message.replace('+', ' ') }}</p>
+  <p role="alert" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ error_message.replace('+', ' ') }}</p>
   {% endif %}
 
   {% if enrollment_code %}
-  <section class="rounded-[24px] border border-amber-300 bg-amber-50 p-5 sm:p-6">
-    <h2 class="text-lg font-bold text-amber-950">One-time enrollment code</h2>
-    <p class="mt-2 text-sm leading-6 text-amber-900">Use this code once on the connector host. It expires in 15 minutes and will not be shown again.</p>
-    <code class="mt-4 block break-all rounded-xl bg-white px-4 py-3 font-mono text-sm text-slate-900">{{ enrollment_code }}</code>
-    <p class="mt-3 text-xs leading-5 text-amber-900">On the connector host, run <code>python -m connector.chargepilot_connector --server-url https://YOUR-CHARGEPILOT-HOST</code>. It will securely prompt for this code.</p>
+  <section class="rounded-2xl border border-amber-300 bg-amber-50 p-5" aria-labelledby="enrollment-code-title">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 id="enrollment-code-title" class="text-lg font-bold text-amber-950">Your one-time code</h2>
+        <p class="mt-1 text-sm text-amber-900">Enter this on the connector computer within 15 minutes.</p>
+      </div>
+      <button type="button" class="rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100 focus:outline-none focus:ring-4 focus:ring-amber-200" data-copy-target="connector-enrollment-code" data-copy-status-element="connector-copy-status" data-copy-status="Enrollment code copied." data-copy-error="Copy was blocked. Select the code and copy it manually.">Copy code</button>
+    </div>
+    <output id="connector-enrollment-code" class="mt-4 block select-all break-all rounded-lg border border-amber-200 bg-white px-4 py-4 font-mono text-lg font-semibold tracking-wider text-slate-950">{{ enrollment_code }}</output>
+    <p id="connector-copy-status" class="mt-2 min-h-4 text-xs text-amber-900" aria-live="polite"></p>
   </section>
   {% endif %}
 
-  <div class="grid gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-    <section class="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <h2 class="text-xl font-bold tracking-tight text-slate-900">Enroll a site</h2>
-      <p class="mt-2 text-sm leading-6 text-slate-600">Create a one-time code, then run the connector on an always-on computer at the switch site.</p>
-      <a href="/connectors/download" class="mt-4 inline-flex rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-800 hover:bg-blue-100">Download connector package</a>
-      <p class="mt-3 text-sm leading-6 text-slate-600">
-        Extract the ZIP on the connector host. In that folder, install the included requirements with
-        <code>python -m pip install -r requirements.txt</code>, then run the command shown with the enrollment code.
-        Keep the connector configuration file private and run the connector under the same host account after enrollment.
-      </p>
-      <form method="post" action="/connectors" class="mt-5 space-y-4">
+  <div class="grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-bold text-slate-900">Add a connector</h2>
+      <p class="mt-1 text-sm text-slate-600">Download the package, then create a code to enroll it.</p>
+      <a href="/connectors/download" class="mt-4 inline-flex rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100">Download package</a>
+      <form method="post" action="/connectors" class="mt-4 space-y-3">
         <label class="block text-sm font-medium text-slate-700">
-          Connector name
-          <input name="name" required maxlength="160" placeholder="Main office LAN" class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-100" />
+          Name
+          <input name="name" required maxlength="160" placeholder="Main office LAN" class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-100" />
         </label>
         {% if tenants %}
         <label class="block text-sm font-medium text-slate-700">
           Tenant
-          <select name="tenant_id" required class="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-100">
+          <select name="tenant_id" required class="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-100">
             <option value="">Select a tenant</option>
             {% for tenant in tenants %}
             <option value="{{ tenant.id }}">{{ tenant.name }}</option>
@@ -55,37 +53,39 @@
           </select>
         </label>
         {% endif %}
-        <button type="submit" class="rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-200">Create enrollment code</button>
+        <button type="submit" class="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-200">Create one-time code</button>
       </form>
     </section>
 
-    <section class="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div class="flex items-baseline justify-between gap-3">
-        <h2 class="text-xl font-bold tracking-tight text-slate-900">Registered connectors</h2>
-        <span class="text-sm text-slate-500">{{ connectors|length }} total</span>
+        <h2 class="text-lg font-bold text-slate-900">Connectors</h2>
+        <span class="text-sm text-slate-500">{{ connectors|length }}</span>
       </div>
       <div class="mt-4 divide-y divide-slate-100">
         {% for connector in connectors %}
-        <article class="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <article class="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 class="font-semibold text-slate-900">{{ connector.name }}</h3>
-            <p class="mt-1 text-sm text-slate-500">
+            <p class="mt-1 text-sm">
               <span class="{% if connector.is_online %}text-emerald-700{% elif connector.is_active %}text-amber-700{% else %}text-red-700{% endif %}">
                 {% if not connector.is_active %}Revoked{% elif connector.token_hash is none %}Awaiting enrollment{% elif connector.is_online %}Online{% else %}Offline{% endif %}
               </span>
-              <span aria-hidden="true"> · </span>
-              Last contact: {{ connector.last_seen_at or 'never' }}
-              {% if connector.version %}<span aria-hidden="true"> · </span>Version {{ connector.version }}{% endif %}
+              <span class="text-slate-500"> · Last contact {{ connector.last_seen_at or 'never' }}</span>
             </p>
           </div>
           {% if connector.is_active %}
           <form method="post" action="/connectors/{{ connector.id }}/revoke" onsubmit="return confirm('Revoke this connector and unassign its switches?');">
-            <button type="submit" class="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50">Revoke</button>
+            <button type="submit" class="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50">Revoke</button>
+          </form>
+          {% else %}
+          <form method="post" action="/connectors/{{ connector.id }}/delete" onsubmit="return confirm('Permanently delete this revoked connector and its command history?');">
+            <button type="submit" class="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50">Delete</button>
           </form>
           {% endif %}
         </article>
         {% else %}
-        <p class="py-8 text-center text-sm text-slate-500">No connectors yet. Enroll the first one for a switch LAN.</p>
+        <p class="py-6 text-sm text-slate-500">No connectors yet.</p>
         {% endfor %}
       </div>
     </section>
