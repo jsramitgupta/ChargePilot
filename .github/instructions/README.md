@@ -61,7 +61,10 @@ app/static/*.css           # styling
 agent/BatteryAgent.ps1     # telemetry sender
 agentv2/                  # alternate agent flow or future version
 docker-compose.yml         # runtime config
-docker/kubernetes.yaml     # API and worker workload starting point
+.github/workflows/ci.yml   # Python and frontend CI gates
+.github/workflows/publish-deploy.yml # Docker Hub publish and ArgoCD tag update
+deploy/k3s/                # k3s, PostgreSQL, Kafka, and Istio resources
+deploy/argocd/              # ArgoCD Application bootstrap resource
 scripts/scale_test.py      # temporary PostgreSQL dataset above 10M rows
 tests/scale_telemetry.js   # configurable k6 live-load generator
 tests/                    # validation cases

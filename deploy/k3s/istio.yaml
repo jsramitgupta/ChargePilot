@@ -1,0 +1,59 @@
+apiVersion: networking.istio.io/v1
+kind: Gateway
+metadata:
+  name: chargepilot-gateway
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - hosts:
+        - app.endusercompute.in
+        - api.endusercompute.in
+      port:
+        name: http
+        number: 80
+        protocol: HTTP
+      tls:
+        httpsRedirect: true
+    - hosts:
+        - app.endusercompute.in
+        - api.endusercompute.in
+      port:
+        name: https
+        number: 443
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        credentialName: chargepilot-ingress-tls
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: chargepilot-frontend
+spec:
+  hosts:
+    - app.endusercompute.in
+  gateways:
+    - chargepilot-gateway
+  http:
+    - route:
+        - destination:
+            host: chargepilot.chargepilot.svc.cluster.local
+            port:
+              number: 5173
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: chargepilot-api
+spec:
+  hosts:
+    - api.endusercompute.in
+  gateways:
+    - chargepilot-gateway
+  http:
+    - route:
+        - destination:
+            host: chargepilot.chargepilot.svc.cluster.local
+            port:
+              number: 8000
