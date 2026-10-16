@@ -1,0 +1,137 @@
+name: Publish ChargePilot image and update k3s
+
+on:
+  workflow_run:
+    workflows:
+      - ChargePilot CI
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chargepilot-main-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build multi-arch image and publish GitOps update
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out tested source commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Skip if a newer main commit is available
+        id: current
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          latest_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$latest_main" != "$SOURCE_SHA" ]; then
+            echo "A newer main commit exists; its successful CI run will publish the image."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up QEMU for multi-platform builds
+        if: steps.current.outputs.publish == 'true'
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
+
+      - name: Set up Docker Buildx
+        if: steps.current.outputs.publish == 'true'
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Log in to Docker Hub
+        if: steps.current.outputs.publish == 'true'
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          username: endusercompute
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Generate immutable commit image tag
+        if: steps.current.outputs.publish == 'true'
+        id: meta
+        uses: docker/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f # v5.8.0
+        with:
+          images: endusercompute/chargepilot
+          tags: |
+            type=raw,value=sha-${{ github.event.workflow_run.head_sha }}
+
+      - name: Build and push AMD64 + ARM64 image to Docker Hub
+        if: steps.current.outputs.publish == 'true'
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Update Argo CD image tag
+        if: steps.current.outputs.publish == 'true'
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          latest_main="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$latest_main" != "$SOURCE_SHA" ]; then
+            echo "A newer main commit appeared during image publication; its run will update Argo CD."
+            exit 0
+          fi
+
+          image_tag="sha-${SOURCE_SHA}"
+          python - "$image_tag" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path("deploy/k3s/kustomization.yaml")
+          content = path.read_text()
+          updated, count = re.subn(
+              r"(?m)^(\s*newTag:\s*).+$",
+              lambda match: match.group(1) + sys.argv[1],
+              content,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f"Expected one image newTag in {path}, found {count}.")
+          path.write_text(updated)
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/k3s/kustomization.yaml
+          if git diff --cached --quiet; then
+            echo "Argo CD already references ${image_tag}."
+            exit 0
+          fi
+          git commit -m "chore(deploy): use ${image_tag}"
+          git push origin HEAD:refs/heads/main
+
+      - name: Report immutable image reference
+        if: steps.current.outputs.publish == 'true'
+        env:
+          IMAGE: endusercompute/chargepilot
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "Published image: \`${IMAGE}\`"
+            echo "Tags: \`${TAGS}\`"
+            echo "Digest: \`${IMAGE}@${DIGEST}\`"
+            echo "Argo CD will sync the k3s application from the updated main branch."
+          } >> "$GITHUB_STEP_SUMMARY"

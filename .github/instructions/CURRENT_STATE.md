@@ -61,6 +61,16 @@ PostgreSQL schema; domain-database ownership and horizontal database sharding
 are not yet implemented. Redis is not enabled because token/rule caching has
 not been shown to be a measured bottleneck.
 
+The delivery pipeline is split between `.github/workflows/ci.yml` (Python
+tests/lint and frontend lint/build) and
+`.github/workflows/publish-deploy.yml` (multi-platform Docker Hub publish and
+ArgoCD image-tag update after successful main CI). App images use the immutable
+`endusercompute/chargepilot:sha-<full-commit-sha>` format. The k3s manifests
+under `deploy/k3s/` configure Istio routes for `app.endusercompute.in` and
+`api.endusercompute.in`; ArgoCD bootstrapping is under `deploy/argocd/`.
+The checked-in k3s PostgreSQL and Kafka services are single-replica,
+single-node starting components and are not highly available.
+
 The capacity goal is 10 million registered endpoints and 1 million active
 telemetry sources. The repository includes a guarded, temporary PostgreSQL
 dataset test above 10 million rows and a configurable k6 live-ingestion

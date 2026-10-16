@@ -51,8 +51,14 @@ def test_compose_services_apply_container_hardening():
 
 def test_image_workflows_pin_actions_and_publish_digest_references():
     workflow_paths = (
-        ROOT / ".github" / "workflows" / "docker-multiarch.yml",
-        ROOT / ".github" / "workflows" / "connector-multiarch.yml",
+        (
+            ROOT / ".github" / "workflows" / "publish-deploy.yml",
+            "type=raw,value=sha-",
+        ),
+        (
+            ROOT / ".github" / "workflows" / "connector-multiarch.yml",
+            "type=sha,format=long",
+        ),
     )
     expected_actions = (
         "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
@@ -63,13 +69,17 @@ def test_image_workflows_pin_actions_and_publish_digest_references():
         "docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83",
     )
 
-    for workflow_path in workflow_paths:
+    for workflow_path, tag_format in workflow_paths:
         workflow = workflow_path.read_text()
-        assert "type=sha,format=long" in workflow
+        assert tag_format in workflow
         assert "provenance: mode=max" in workflow
         assert "sbom: true" in workflow
         assert "steps.build.outputs.digest" in workflow
         assert "type=raw,value=latest" not in workflow
         assert "DDMMYYYY" not in workflow
+        assert (
+            "endusercompute/chargepilot" in workflow
+            or "endusercompute/chargepilot-connector" in workflow
+        )
         for action in expected_actions:
             assert action in workflow

@@ -127,38 +127,132 @@ committed; rule evaluation and switch commands happen asynchronously. Monitor
 outbox age, Kafka consumer lag, dead-letter volume, and connector command
 completion before considering telemetry fully processed.
 
-### Kubernetes production deployment
+### k3s, Istio, and ArgoCD deployment
 
-`docker/kubernetes.yaml` contains stateless API, outbox-relay, and automation
-workloads plus the API Service and a CPU-based API HPA. It assumes an external
-PostgreSQL database, a production Kafka cluster, an ingress/TLS configuration,
-and the `chargepilot-runtime` Kubernetes Secret. It intentionally does not
-install a database or broker operator. Choose a horizontally scalable
-PostgreSQL distribution/partition strategy and Kafka operator/provider based
-on a staging benchmark before applying the manifest. The sample replica counts
-and resource requests are starting points, not capacity guarantees.
+The GitOps manifests live in `deploy/k3s/`; `deploy/argocd/chargepilot.yaml`
+defines the ArgoCD Application. The deployment exposes the UI at
+`https://app.endusercompute.in` and the API, agent endpoint, and server-rendered
+pages at `https://api.endusercompute.in`. Istio redirects HTTP to HTTPS and
+terminates TLS on the existing ingress gateway using the
+`chargepilot-ingress-tls` Secret in `istio-system`.
 
-Build and publish an immutable image digest, replace the image placeholder in
-the manifest, and create the runtime secret from a protected environment file
-that includes `CHARGEPILOT_DATABASE_URL`, strong application secrets, public
-browser origins, and authenticated Kafka settings. Then apply:
+The checked-in k3s topology is sized for a single-node installation: one API,
+relay, automation consumer, PostgreSQL StatefulSet, and single-node Kafka
+StatefulSet. PostgreSQL and Kafka use private cluster services and
+`local-path` persistent volumes. Back up the data and keep the node available;
+this is not an HA or 10M-device topology. A node or disk failure can take down
+the stateful services. Do not expose PostgreSQL or Kafka through a
+LoadBalancer, NodePort, Istio route, or public DNS. For production-scale
+availability, replace the single-node stateful services with reviewed
+multi-node PostgreSQL and Kafka services before increasing traffic.
 
-```bash
-kubectl create namespace chargepilot
-kubectl -n chargepilot create secret generic chargepilot-runtime --from-env-file=.env
-kubectl -n chargepilot apply -f docker/kubernetes.yaml
-kubectl -n chargepilot rollout status deployment/chargepilot-api
-kubectl -n chargepilot rollout status deployment/chargepilot-outbox-relay
-kubectl -n chargepilot rollout status deployment/chargepilot-automation
+This creates a fresh in-cluster database and does not import or connect to the
+existing Docker-host PostgreSQL installation. Keep that deployment and its
+data untouched until the k3s instance has been independently validated.
+
+#### One-time GitHub setup
+
+1. Create the Docker Hub repository `endusercompute/chargepilot` and a
+   Docker Hub access token with permission to push images.
+2. In GitHub **Settings → Secrets and variables → Actions**, add repository
+   secret `DOCKERHUB_TOKEN`. The workflows use Docker Hub username
+   `endusercompute`; never put the token in a workflow or repository file.
+3. Ensure Actions is allowed to use the repository `GITHUB_TOKEN` with
+   **Read and write permissions**. `publish-deploy.yml` needs `contents: write`
+   to update the deployed image tag in `deploy/k3s/kustomization.yaml`.
+4. Keep `main` writable by the workflow bot for that deployment-tag commit.
+   The CI workflow ignores commits that only change the generated image tag,
+   preventing a publish loop.
+
+#### First deployment
+
+First merge the CI/CD and manifest changes to `main`. Each main commit runs
+`ci.yml` (Python lint/tests and frontend lint/build). After successful CI,
+`publish-deploy.yml` builds and pushes the multi-platform app image to Docker
+Hub as `endusercompute/chargepilot:sha-<full-commit-sha>`, then commits that
+tag into the kustomization. The `sha-<full-commit-sha>` format intentionally
+matches the existing Docker Hub workflow. ArgoCD tracks `main` and automatically
+deploys the updated tag; CI-only commits do not publish an image.
+
+Before syncing the ArgoCD Application, create the namespace secrets out of
+band. Use a private environment file `.env.k3s` (do not commit it) with these
+entries:
+
+```env
+CHARGEPILOT_DATABASE_URL=postgresql+psycopg://chargepilot:<URL_SAFE_DB_PASSWORD>@chargepilot-postgres:5432/chargepilot
+CHARGEPILOT_POSTGRES_PASSWORD=<same_URL_SAFE_DB_PASSWORD>
+CHARGEPILOT_SECRET_KEY=<unique_random_secret_at_least_32_characters>
+CHARGEPILOT_ENCRYPTION_KEY=<unique_random_value_at_least_32_characters>
+CHARGEPILOT_ADMIN_USERNAME=admin
+CHARGEPILOT_ADMIN_PASSWORD=<unique_strong_password>
+CHARGEPILOT_API_URL=https://api.endusercompute.in
+CHARGEPILOT_FRONTEND_URL=https://app.endusercompute.in
+CHARGEPILOT_SESSION_COOKIE_SECURE=true
+CHARGEPILOT_SESSION_COOKIE_SAMESITE=lax
+CHARGEPILOT_KAFKA_BOOTSTRAP_SERVERS=chargepilot-kafka.chargepilot.svc.cluster.local:9092
+CHARGEPILOT_KAFKA_SECURITY_PROTOCOL=PLAINTEXT
+CHARGEPILOT_KAFKA_SASL_MECHANISM=
+CHARGEPILOT_KAFKA_SASL_USERNAME=
+CHARGEPILOT_KAFKA_SASL_PASSWORD=
+CHARGEPILOT_KAFKA_SSL_CA_FILE=
+CHARGEPILOT_TELEMETRY_KAFKA_TOPIC=chargepilot.telemetry.v1
+CHARGEPILOT_TELEMETRY_DEAD_LETTER_TOPIC=chargepilot.telemetry.dlq.v1
+CHARGEPILOT_TELEMETRY_CONSUMER_GROUP=chargepilot-automation-v1
 ```
 
-Do not expose Kafka or PostgreSQL publicly. Use Kafka partitions at least as
-large as the expected useful automation consumer concurrency, then scale
-consumers against observed lag; consumers beyond the partition count add no
-parallelism. The manifest's API HPA requires Kubernetes Metrics Server. For
-production worker scaling, use an operator such as KEDA or an equivalent lag
-metric adapter only after testing rebalances, duplicate delivery, and
-dead-letter recovery.
+Generate unique values locally; use URL-safe characters for the PostgreSQL
+password because it appears in the SQLAlchemy URL. Keep `.env.k3s` mode `0600`.
+Create the runtime secret without printing its values:
+
+```bash
+chmod 600 .env.k3s
+sudo kubectl create namespace chargepilot \
+  --dry-run=client -o yaml | sudo kubectl apply -f -
+sudo kubectl -n chargepilot create secret generic chargepilot-runtime \
+  --from-env-file=.env.k3s --dry-run=client -o yaml | sudo kubectl apply -f -
+```
+
+Create a Cloudflare Origin Certificate for both hostnames (or use another
+certificate trusted by your clients) and keep its private key out of the repo.
+With the certificate and key available as local files, create the secret used
+by the Istio gateway:
+
+```bash
+sudo kubectl -n istio-system create secret tls chargepilot-ingress-tls \
+  --cert=origin-cert.pem --key=origin-key.pem \
+  --dry-run=client -o yaml | sudo kubectl apply -f -
+```
+
+Only after the first successful Docker publish has updated the image tag, add
+the ArgoCD Application:
+
+```bash
+sudo kubectl apply -f deploy/argocd/chargepilot.yaml
+sudo kubectl -n argocd get applications.argoproj.io chargepilot -w
+sudo kubectl -n chargepilot get pods,pvc,services
+sudo kubectl -n chargepilot rollout status statefulset/chargepilot-postgres
+sudo kubectl -n chargepilot rollout status statefulset/chargepilot-kafka
+sudo kubectl -n chargepilot rollout status deployment/chargepilot-api
+sudo kubectl -n chargepilot rollout status deployment/chargepilot-outbox-relay
+sudo kubectl -n chargepilot rollout status deployment/chargepilot-automation
+```
+
+In Cloudflare, create proxied DNS records for both hostnames to the public
+address that forwards TCP 443 to the k3s Istio ingress gateway. Set SSL/TLS
+encryption to **Full (strict)** for a Cloudflare Origin Certificate. Do not
+publish internal service addresses or the PostgreSQL/Kafka ports.
+
+For subsequent `main` commits, the successful image publish updates the
+kustomization, which ArgoCD syncs automatically. Watch the GitHub Actions
+summary for the immutable tag and digest, and ArgoCD for sync/health status.
+If `main` branch protections prevent GitHub Actions from pushing the
+deployment-tag commit, configure an approved bot bypass or change the workflow
+to open a deployment PR; do not disable branch protections blindly.
+
+Kafka is plaintext only on the private in-cluster network in this starter
+topology. The Kafka StatefulSet has one replica and 24 partitions; it is not a
+production broker cluster. Configure TLS/SASL and replicated brokers before
+using a remote or production Kafka service.
 
 The current services share PostgreSQL and are not yet database-sharded.
 `scripts/scale_test.py` can verify a temporary synthetic dataset above 10

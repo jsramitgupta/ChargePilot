@@ -1,39 +1,71 @@
 # Docker Hub publishing and deployment
 
-This guide covers publishing ChargePilot images from GitHub Actions and using
-those images for a fresh microservice Compose deployment.
-The workflow builds `linux/amd64` and `linux/arm64` images and publishes them to
-`<Docker-Hub-username>/chargepilot`.
+This guide covers publishing ChargePilot images from GitHub Actions, deploying
+to k3s with ArgoCD, and using the image in a microservice Compose deployment.
+The app and connector images are published to the `endusercompute` Docker Hub
+namespace for `linux/amd64` and `linux/arm64`.
 
-## Publish an image (maintainers)
+## Continuous integration, publishing, and deployment
 
 ### One-time setup
 
-1. Create the `chargepilot` repository under the Docker Hub account or
-   organization that will own the image.
-2. Create a Docker Hub access token with permission to push to that repository.
-3. In the GitHub repository, open **Settings → Secrets and variables → Actions**
-   and add these repository secrets:
-   - `DOCKERHUB_USERNAME`: the Docker Hub username or organization name.
-   - `DOCKERHUB_TOKEN`: the access token created above (not the Docker Hub
-     account password).
-4. Confirm the GitHub Actions workflow is enabled.
+1. Create the `chargepilot` and `chargepilot-connector` repositories under the
+   `endusercompute` Docker Hub account.
+2. Create a Docker Hub access token with permission to push those images.
+3. In GitHub **Settings → Secrets and variables → Actions**, add the
+   repository secret `DOCKERHUB_TOKEN`. The workflows use username
+   `endusercompute`; do not commit the access token.
+4. Allow GitHub Actions `GITHUB_TOKEN` **Read and write permissions** so the
+   image publisher can commit the ArgoCD tag update to `main`.
+5. Confirm GitHub Actions and the ArgoCD controller are enabled.
 
-### Publish a release
+### Main-branch pipeline
 
-The workflow in `.github/workflows/docker-multiarch.yml` runs after a push to
-`main`, or can be started manually from **Actions → Build and Push Docker Image
-to Docker Hub → Run workflow**. For a manual run, select the intended branch.
+`.github/workflows/ci.yml` runs Python lint/tests and frontend lint/build for
+pull requests into `main` and pushes to `main`. A successful main-branch CI run
+triggers `.github/workflows/publish-deploy.yml`, which builds the tested source
+commit, pushes the multi-platform image, and updates `deploy/k3s/kustomization.yaml`.
+ArgoCD tracks the `main` branch and syncs this new immutable tag to k3s. CI
+skips commits that only change the generated image tag, preventing a publish
+loop.
 
-Each successful run publishes an immutable tag based on the full source commit
-SHA. The workflow summary also provides the image digest. Use the digest as
-the deployment reference; it identifies the exact multi-platform image
-manifest and cannot move when later builds are published.
+The app tag format remains `sha-<full-commit-sha>`, as produced by the
+previous `type=sha,format=long` configuration. Workflow summaries include the
+image digest. The connector workflow separately publishes
+`endusercompute/chargepilot-connector:sha-<full-commit-sha>` when connector
+files change on `main`.
 
-The workflow builds from `docker/Dockerfile` and publishes a multi-platform
-manifest. Confirm the Actions run succeeds, then check the tags and platforms
-on the Docker Hub repository page. Do not put Docker Hub credentials in the
-workflow file or commit them to the repository.
+### First k3s rollout
+
+The k3s manifests are in `deploy/k3s/`; the ArgoCD Application is
+`deploy/argocd/chargepilot.yaml`. The deployment uses
+`app.endusercompute.in` for the frontend and `api.endusercompute.in` for the
+API, Windows agent, and server-rendered pages. Before applying the ArgoCD
+Application:
+
+1. Merge the CI/CD and deployment changes to `main`, then wait for CI, image
+   publish, and the GitOps tag update to succeed.
+2. Create the `chargepilot-runtime` Kubernetes Secret from a local, untracked
+   `.env.k3s` file. Include the database URL and password, application and
+   admin secrets, public browser origins, and Kafka settings. Use the same
+   URL-safe PostgreSQL password in both the URL and
+   `CHARGEPILOT_POSTGRES_PASSWORD`.
+3. Create the `chargepilot-ingress-tls` Secret in `istio-system` with a
+   Cloudflare Origin Certificate covering both hostnames. Never commit the
+   private key.
+4. Apply `deploy/argocd/chargepilot.yaml`; ArgoCD will sync the app and future
+   successful main-branch image updates automatically.
+5. In Cloudflare, create proxied DNS records for both hostnames to the public
+   address that forwards TCP 443 to the Istio ingress gateway, and set
+   encryption to **Full (strict)**.
+
+See `.github/instructions/DEPLOYMENT.md` for exact Secret keys, commands,
+health checks, and recovery guidance.
+
+The included k3s PostgreSQL and Kafka StatefulSets use local-path PVCs and one
+replica each. They are a single-node starting deployment, not HA services or
+a demonstrated 10M-device platform. Back up their data and keep PostgreSQL
+and Kafka private inside the cluster.
 
 ## Install or update from Docker Hub (end users)
 
@@ -50,11 +82,10 @@ Copy-Item .env.example .env
 
 Edit `.env` and set strong, unique values for the required secrets and initial
 administrator credentials. Keep this file private and do not overwrite it when
-updating the app. Add the published Docker Hub image under `CHARGEPILOT_IMAGE`,
-replacing `endusercompute` with the publisher's account or organization:
+updating the app. Pin the published Docker Hub image under `CHARGEPILOT_IMAGE`:
 
 ```env
-CHARGEPILOT_IMAGE=<Docker-Hub-username>/chargepilot@sha256:<digest-from-workflow-summary>
+CHARGEPILOT_IMAGE=endusercompute/chargepilot@sha256:<digest-from-workflow-summary>
 ```
 
 Generate candidate secret values with Python, then copy them into the matching

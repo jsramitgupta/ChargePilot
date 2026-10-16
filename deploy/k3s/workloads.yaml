@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/name: chargepilot
     app.kubernetes.io/component: api
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: chargepilot
@@ -23,9 +23,17 @@ spec:
         runAsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        - name: wait-for-postgres
+          image: endusercompute/chargepilot:bootstrap-required
+          command:
+            - python
+            - -c
+            - "import socket,time; exec(\"while True:\\n try:\\n  socket.create_connection(('chargepilot-postgres',5432),timeout=3).close(); break\\n except OSError:\\n  time.sleep(2)\")"
       containers:
         - name: api
-          image: DOCKERHUB_USERNAME/chargepilot@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+          image: endusercompute/chargepilot:bootstrap-required
+          imagePullPolicy: IfNotPresent
           ports:
             - name: api
               containerPort: 8000
@@ -36,16 +44,16 @@ spec:
                 name: chargepilot-runtime
           env:
             - name: CHARGEPILOT_ENVIRONMENT
-              value: "production"
+              value: production
             - name: CHARGEPILOT_SESSION_COOKIE_SECURE
               value: "true"
           resources:
             requests:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 250m
+              memory: 384Mi
             limits:
-              cpu: "2"
-              memory: 2Gi
+              cpu: "1"
+              memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -99,7 +107,7 @@ metadata:
     app.kubernetes.io/name: chargepilot
     app.kubernetes.io/component: outbox-relay
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: chargepilot
@@ -117,34 +125,32 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-        - name: wait-for-api-schema
-          image: DOCKERHUB_USERNAME/chargepilot@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+        - name: wait-for-postgres-and-kafka
+          image: endusercompute/chargepilot:bootstrap-required
           command:
             - python
             - -c
-            - "import time,urllib.request; url='http://chargepilot:8000/ready'; exec(\"while True:\\n try:\\n  urllib.request.urlopen(url, timeout=3); break\\n except Exception:\\n  time.sleep(3)\")"
-          envFrom:
-            - secretRef:
-                name: chargepilot-runtime
+            - "import socket,time; targets=[('chargepilot-postgres',5432),('chargepilot-kafka',9092)]; exec(\"for host,port in targets:\\n while True:\\n  try:\\n   socket.create_connection((host,port),timeout=3).close(); break\\n  except OSError:\\n   time.sleep(2)\")"
       containers:
         - name: relay
-          image: DOCKERHUB_USERNAME/chargepilot@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+          image: endusercompute/chargepilot:bootstrap-required
+          imagePullPolicy: IfNotPresent
           command: ["python", "-m", "app.workers", "outbox-relay"]
           envFrom:
             - secretRef:
                 name: chargepilot-runtime
           env:
             - name: CHARGEPILOT_ENVIRONMENT
-              value: "production"
+              value: production
             - name: CHARGEPILOT_SESSION_COOKIE_SECURE
               value: "true"
           resources:
             requests:
-              cpu: 250m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi
             limits:
-              cpu: "2"
-              memory: 1Gi
+              cpu: 500m
+              memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -153,17 +159,10 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            - name: kafka-ca
-              mountPath: /etc/chargepilot/kafka-ca
-              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
-        - name: kafka-ca
-          secret:
-            secretName: chargepilot-kafka-ca
-            optional: true
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -173,7 +172,7 @@ metadata:
     app.kubernetes.io/name: chargepilot
     app.kubernetes.io/component: automation
 spec:
-  replicas: 4
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: chargepilot
@@ -191,34 +190,32 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-        - name: wait-for-api-schema
-          image: DOCKERHUB_USERNAME/chargepilot@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+        - name: wait-for-postgres-and-kafka
+          image: endusercompute/chargepilot:bootstrap-required
           command:
             - python
             - -c
-            - "import time,urllib.request; url='http://chargepilot:8000/ready'; exec(\"while True:\\n try:\\n  urllib.request.urlopen(url, timeout=3); break\\n except Exception:\\n  time.sleep(3)\")"
-          envFrom:
-            - secretRef:
-                name: chargepilot-runtime
+            - "import socket,time; targets=[('chargepilot-postgres',5432),('chargepilot-kafka',9092)]; exec(\"for host,port in targets:\\n while True:\\n  try:\\n   socket.create_connection((host,port),timeout=3).close(); break\\n  except OSError:\\n   time.sleep(2)\")"
       containers:
         - name: consumer
-          image: DOCKERHUB_USERNAME/chargepilot@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+          image: endusercompute/chargepilot:bootstrap-required
+          imagePullPolicy: IfNotPresent
           command: ["python", "-m", "app.workers", "automation-consumer"]
           envFrom:
             - secretRef:
                 name: chargepilot-runtime
           env:
             - name: CHARGEPILOT_ENVIRONMENT
-              value: "production"
+              value: production
             - name: CHARGEPILOT_SESSION_COOKIE_SECURE
               value: "true"
           resources:
             requests:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 250m
+              memory: 256Mi
             limits:
-              cpu: "4"
-              memory: 2Gi
+              cpu: "1"
+              memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -227,33 +224,7 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            - name: kafka-ca
-              mountPath: /etc/chargepilot/kafka-ca
-              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
-        - name: kafka-ca
-          secret:
-            secretName: chargepilot-kafka-ca
-            optional: true
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: chargepilot-api
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: chargepilot-api
-  minReplicas: 3
-  maxReplicas: 30
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70

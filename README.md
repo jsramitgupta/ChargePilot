@@ -251,6 +251,15 @@ preserves data; `docker compose down -v` deletes database and broker volumes.
 This single-host Compose topology is for development/smoke tests, not the
 10M-device production deployment.
 
+The `ChargePilot CI` workflow runs backend tests/lint and frontend lint/build on
+pull requests and main commits. Successful main CI builds a multi-platform
+`endusercompute/chargepilot:sha-<full-commit-sha>` image and updates the
+ArgoCD-deployed k3s manifests. The UI hostname is
+`app.endusercompute.in`; API and telemetry use `api.endusercompute.in`. See the
+[Docker Hub and k3s deployment guide](DOCKER_HUB_DEPLOYMENT.md) for required
+GitHub/Docker Hub setup, Cloudflare TLS, ArgoCD bootstrap, and single-node
+storage limitations.
+
 To publish an image to Docker Hub or install/update ChargePilot from a published image, see the [Docker Hub deployment guide](DOCKER_HUB_DEPLOYMENT.md).
 
 For local Python development, install with `python -m pip install -e .[dev]`, set `CHARGEPILOT_DATABASE_URL` to a reachable existing PostgreSQL database, and run `uvicorn app.main:app --reload`. The app creates tables and the initial admin account at startup on an empty database.
@@ -304,7 +313,7 @@ with k6. These are test tools, not evidence of target-scale performance. The
 current app/worker schema is not horizontally sharded, and no 1M-active
 staging benchmark has been run. See the [deployment guide](.github/instructions/DEPLOYMENT.md)
 and [architecture](.github/instructions/ARCHITECTURE.md) for the scale gate
-and Kubernetes starting manifest.
+and k3s GitOps manifests.
 
 ## Operational observations from the codebase
 
