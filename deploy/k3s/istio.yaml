@@ -13,18 +13,6 @@ spec:
         name: http
         number: 80
         protocol: HTTP
-      tls:
-        httpsRedirect: true
-    - hosts:
-        - app.endusercompute.in
-        - api.endusercompute.in
-      port:
-        name: https
-        number: 443
-        protocol: HTTPS
-      tls:
-        mode: SIMPLE
-        credentialName: chargepilot-ingress-tls
 ---
 apiVersion: networking.istio.io/v1
 kind: VirtualService
