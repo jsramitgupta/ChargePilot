@@ -1,9 +1,11 @@
 import asyncio
-import secrets
 import io
 import logging
+import secrets
 import string
 import zipfile
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -55,10 +57,31 @@ STATIC_DIR = BASE_DIR / "static"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 logger = logging.getLogger("chargepilot.events")
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    create_db_and_tables()
+    tasks = (
+        asyncio.create_task(event_retention_loop()),
+        asyncio.create_task(connector_maintenance_loop()),
+    )
+    try:
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
     description="Self-hosted battery automation platform for local Tuya control.",
+    lifespan=lifespan,
 )
 app.add_middleware(
     SessionMiddleware,
@@ -66,9 +89,6 @@ app.add_middleware(
     same_site=settings.session_cookie_samesite,
     https_only=settings.session_cookie_secure,
 )
-event_retention_task: asyncio.Task | None = None
-connector_maintenance_task: asyncio.Task | None = None
-
 if settings.frontend_url:
     app.add_middleware(
         CORSMiddleware,
@@ -185,30 +205,6 @@ def get_timezone_options() -> list[str]:
 
 def is_role_admin(role: str | None) -> bool:
     return normalize_role(role) in {"tenant_admin", "manager"}
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    create_db_and_tables()
-    global event_retention_task, connector_maintenance_task
-    event_retention_task = asyncio.create_task(event_retention_loop())
-    connector_maintenance_task = asyncio.create_task(connector_maintenance_loop())
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    if event_retention_task is not None:
-        event_retention_task.cancel()
-        try:
-            await event_retention_task
-        except asyncio.CancelledError:
-            pass
-    if connector_maintenance_task is not None:
-        connector_maintenance_task.cancel()
-        try:
-            await connector_maintenance_task
-        except asyncio.CancelledError:
-            pass
 
 
 async def event_retention_loop() -> None:

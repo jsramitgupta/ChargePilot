@@ -57,6 +57,20 @@ def _enroll_connector(client: TestClient, name: str = "Office LAN") -> tuple[str
     return response.json()["connector_id"], response.json()["token"]
 
 
+def test_connector_api_lists_status_for_authenticated_tenant():
+    client = _tenant_admin_client("connector_list_owner")
+    client.post("/connectors", data={"name": "Office LAN"}, follow_redirects=False)
+
+    response = client.get("/api/v1/connectors")
+
+    assert response.status_code == 200, response.text
+    connectors = response.json()
+    assert len(connectors) == 1
+    assert connectors[0]["name"] == "Office LAN"
+    assert connectors[0]["is_enrolled"] is False
+    assert connectors[0]["is_online"] is False
+
+
 def test_connector_download_contains_runtime_and_pinned_requirements():
     client = _tenant_admin_client("connector_package_owner")
     response = client.get("/connectors/download")

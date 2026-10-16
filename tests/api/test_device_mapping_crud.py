@@ -1,8 +1,5 @@
-import os
 from datetime import timedelta
 from datetime import datetime, timezone
-
-os.environ["CHARGEPILOT_DATABASE_URL"] = "sqlite://"
 
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect, text
@@ -11,7 +8,8 @@ from app.core.database import Base, _ensure_table_columns, engine
 from app.main import app
 
 
-Base.metadata.create_all(bind=engine)
+def _recent_timestamp(seconds_ago: int = 0) -> str:
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).isoformat()
 
 
 def _super_admin_client() -> TestClient:
@@ -774,7 +772,7 @@ def test_dashboard_shows_live_endpoint_telemetry():
             "battery_percentage": 42,
             "charging": True,
             "ac_connected": True,
-            "timestamp": "2026-10-05T18:00:00Z",
+            "timestamp": _recent_timestamp(),
             "agent_version": "1.0.0",
         },
     )
@@ -841,7 +839,7 @@ def test_telemetry_does_not_override_mapping_thresholds_with_agent_switch_state(
             "charging": False,
             "ac_connected": False,
             "switch_state": False,
-            "timestamp": "2026-10-05T18:40:00Z",
+            "timestamp": _recent_timestamp(60),
             "agent_version": "1.0.0",
         },
     )
@@ -871,7 +869,7 @@ def test_telemetry_does_not_override_mapping_thresholds_with_agent_switch_state(
             "charging": False,
             "ac_connected": False,
             "switch_state": False,
-            "timestamp": "2026-10-05T18:41:00Z",
+            "timestamp": _recent_timestamp(),
             "agent_version": "1.0.0",
         },
     )
@@ -903,7 +901,7 @@ def test_endpoints_and_events_pages_do_not_render_scaffold_data():
             "battery_percentage": 77,
             "charging": False,
             "ac_connected": True,
-            "timestamp": "2026-10-05T18:10:00Z",
+            "timestamp": _recent_timestamp(),
             "agent_version": "1.0.0",
         },
     )
@@ -941,7 +939,6 @@ def test_telemetry_turns_off_mapped_device_when_battery_exceeds_off_threshold(mo
     assert device_response.status_code == 201, device_response.text
     device = device_response.json()
 
-    db = next(iter(__import__('app.core.database', fromlist=['SessionLocal']).SessionLocal().session_factory.values())) if False else None
     from app.core.database import SessionLocal
     from app.models.device import Device
     from app.models.endpoint import Endpoint
@@ -963,7 +960,7 @@ def test_telemetry_turns_off_mapped_device_when_battery_exceeds_off_threshold(mo
             "battery_percentage": 99,
             "charging": True,
             "ac_connected": True,
-            "timestamp": "2026-10-05T18:20:00Z",
+            "timestamp": _recent_timestamp(60),
             "agent_version": "1.0.0",
         },
     )
@@ -992,7 +989,7 @@ def test_telemetry_turns_off_mapped_device_when_battery_exceeds_off_threshold(mo
             "battery_percentage": 99,
             "charging": True,
             "ac_connected": True,
-            "timestamp": "2026-10-05T18:21:00Z",
+            "timestamp": _recent_timestamp(),
             "agent_version": "1.0.0",
         },
     )
@@ -1065,7 +1062,7 @@ def test_telemetry_uses_live_device_status_when_db_state_is_stale(monkeypatch):
             "battery_percentage": 99,
             "charging": True,
             "ac_connected": True,
-            "timestamp": "2026-10-05T18:30:00Z",
+            "timestamp": _recent_timestamp(60),
             "agent_version": "1.0.0",
         },
     )
@@ -1094,7 +1091,7 @@ def test_telemetry_uses_live_device_status_when_db_state_is_stale(monkeypatch):
             "battery_percentage": 99,
             "charging": True,
             "ac_connected": True,
-            "timestamp": "2026-10-05T18:31:00Z",
+            "timestamp": _recent_timestamp(),
             "agent_version": "1.0.0",
         },
     )

@@ -4,6 +4,7 @@ This directory captures the current implementation state of the ChargePilot repo
 
 ## Included reference documents
 
+- [CURRENT_STATE.md](CURRENT_STATE.md) — current implementation and persistent project guidance.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — architecture, runtime boundaries, and current module layout.
 - [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md) — canonical cloud-to-site control architecture and rollout design.
 - [PRD.md](PRD.md) — product intent, user goals, functional requirements, and current scope.

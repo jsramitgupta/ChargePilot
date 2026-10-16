@@ -206,7 +206,6 @@ def test_tenant_agent_token_cannot_fetch_another_tenants_agent_config():
         db.add(endpoint_b)
         db.commit()
         token_a = tenant_a.agent_token
-        endpoint_b_id = endpoint_b.id
 
     response = TestClient(app).get(
         "/api/v1/endpoints/agent-config",

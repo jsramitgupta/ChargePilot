@@ -15,6 +15,7 @@ from app.models.device import Device
 from app.models.user import User
 from app.services.connector_service import (
     claim_next_command,
+    connector_is_online,
     finalize_command,
     hash_connector_token,
 )

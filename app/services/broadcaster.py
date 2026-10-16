@@ -1,6 +1,5 @@
 import asyncio
-import json
-from typing import Dict, Any
+from typing import Any
 
 # Simple in-process broadcaster for Server-Sent Events (SSE).
 # Each client registers and receives a personal asyncio.Queue that the
@@ -23,7 +22,7 @@ def unregister_client(q: asyncio.Queue) -> None:
         pass
 
 
-def publish_event(event: Dict[str, Any]) -> None:
+def publish_event(event: dict[str, Any]) -> None:
     # fire-and-forget push to all queues (non-blocking)
     data = event.copy()
     for q in list(_clients):

@@ -21,7 +21,7 @@ import {
   Users,
 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
@@ -845,7 +845,7 @@ function MappingsPage() {
       enabled: true,
     },
   })
-  const selectedDeviceId = form.watch('device_id')
+  const selectedDeviceId = useWatch({ control: form.control, name: 'device_id' })
   const availableChannels = devices?.find((device) => device.id === selectedDeviceId)?.channels ?? []
 
   const mutation = useMutation({

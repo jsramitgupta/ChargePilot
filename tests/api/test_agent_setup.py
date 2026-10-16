@@ -1,24 +1,17 @@
 import html
 import io
-import os
 import zipfile
 from pathlib import Path
 from uuid import uuid4
 
-os.environ["CHARGEPILOT_DATABASE_URL"] = "sqlite://"
-
 from fastapi.testclient import TestClient
 
-from app.core.database import SessionLocal, create_db_and_tables
+from app.core.database import SessionLocal
 from app.main import app
 from app.models.system_setting import SystemSetting
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.endpoint_service import validate_endpoint_auth
-
-
-create_db_and_tables()
-
 
 def test_docker_image_includes_scripts_required_by_agent_download():
     dockerfile = Path(__file__).resolve().parents[2] / "docker" / "Dockerfile"

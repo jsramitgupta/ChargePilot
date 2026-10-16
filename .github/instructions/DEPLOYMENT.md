@@ -102,6 +102,52 @@ set `CHARGEPILOT_SESSION_COOKIE_SAMESITE=none`; Secure cookies are required.
 For local plain-HTTP development only, set
 `CHARGEPILOT_SESSION_COOKIE_SECURE=false`.
 
+### Portainer deployments split across stacks
+
+The Compose file's implicit default network is shared only by services in that
+same Compose project. If Portainer deploys the app and PostgreSQL as separate
+stacks, create one private user-defined bridge network once:
+
+```sh
+docker network create chargepilot-private
+```
+
+Declare that network as external in both stack files. Attach the database with
+the stable `db` alias:
+
+```yaml
+services:
+  db:
+    networks:
+      chargepilot-private:
+        aliases:
+          - db
+
+networks:
+  chargepilot-private:
+    external: true
+    name: chargepilot-private
+```
+
+Attach the app stack to the same network:
+
+```yaml
+services:
+  app:
+    networks:
+      - chargepilot-private
+
+networks:
+  chargepilot-private:
+    external: true
+    name: chargepilot-private
+```
+
+Keep `CHARGEPILOT_DATABASE_URL` on host `db`, port `5432`, and do not add a
+PostgreSQL `ports:` mapping. Start PostgreSQL first and verify it is healthy
+before deploying the app; `depends_on` does not coordinate services across
+separate Compose projects.
+
 ## 5. Local Python deployment
 
 Install dependencies:

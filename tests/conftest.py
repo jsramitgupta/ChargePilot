@@ -1,7 +1,7 @@
 import os
 
-os.environ.setdefault("CHARGEPILOT_DATABASE_URL", "sqlite://")
-os.environ.setdefault("CHARGEPILOT_ENVIRONMENT", "test")
+os.environ["CHARGEPILOT_DATABASE_URL"] = "sqlite://"
+os.environ["CHARGEPILOT_ENVIRONMENT"] = "test"
 
 import pytest
 

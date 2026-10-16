@@ -46,14 +46,19 @@ Populate only the local key; device details and IP come from LAN scan
 
 The main router modules are in `app/api/`:
 
-- `health.py` — health checks
-- `telemetry.py` — telemetry intake and rule execution
-- `devices.py` — device CRUD and discovery flows
-- `events.py` — event retrieval
-- `mappings.py` — mapping logic
-- `endpoints.py` — endpoint listing and management
+- `health.py` — liveness and database readiness
+- `auth.py` — authenticated-user profile API
+- `telemetry.py` — telemetry intake, rule execution, and SSE stream
+- `devices.py` — device/channel CRUD and device control
+- `onboarding.py` — LAN discovery and SmartLife pairing
+- `connectors.py` — connector enrollment, heartbeat, command leases, and results
+- `events.py` — tenant-scoped event retrieval and pagination
+- `mappings.py` — mapping CRUD
+- `endpoints.py` — endpoint management, agent config, and readings
 
-The product is no longer limited to API calls; the wizard pages in `app/main.py` also drive the onboarding and SmartLife flow.
+`app/main.py` retains server-rendered operational and administrative routes not
+yet represented in React, along with form-based sign-in and onboarding
+workflows.
 
 ### 3.2 Core layer
 
@@ -93,11 +98,13 @@ Current services include:
 2. `receive_telemetry()` validates the bearer token and timestamp freshness.
 3. The endpoint is upserted or updated by hostname.
 4. The app loads active mappings for that endpoint.
-5. The app reads the current live state from the device via `TuyaService`.
-6. The rule engine decides whether to turn the device on or off.
-7. The action is sent through the local control layer.
-8. The device state and automation event are persisted.
-9. The UI updates via SSE if connected.
+5. For connector-assigned switches, the app evaluates confirmed state and
+   queues a durable desired-state command for the assigned connector; the
+   connector performs TinyTuya control on its LAN and acknowledges the result.
+6. For devices without a connector, the retained direct-local control path uses
+   `TuyaService`.
+7. The resulting device state and automation event are persisted.
+8. The UI updates through the API and SSE where subscribed.
 
 ### Device wizard flow
 
@@ -193,7 +200,11 @@ The SmartLife bridge handles:
 - keep Tuya-specific logic behind service abstractions
 - preserve battery thresholds and event logging as core product behavior
 - keep the SmartLife flow isolated from core automation logic
-- keep the UI simple, local, and server-rendered when possible
+- keep the product local-first and the backend authoritative for business rules
+- extend the existing React/TypeScript/Tailwind frontend for its supported
+  pages, while preserving the Jinja workflows that are not yet migrated
+- reuse `app/static/style.css` semantic tokens and retain coherent light/dark
+  themes and the left-aligned authenticated top navigation
 
 ### Shared UI theme and regression coverage
 

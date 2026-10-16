@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -13,7 +15,7 @@ def test_telemetry_route_accepts_valid_endpoint():
             "battery_percentage": 18,
             "charging": False,
             "ac_connected": False,
-            "timestamp": "2026-10-05T18:00:00Z",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "agent_version": "1.0.0",
         },
         headers={"Authorization": "Bearer test-endpoint-token"},
