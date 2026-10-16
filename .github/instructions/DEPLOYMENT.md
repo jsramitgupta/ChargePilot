@@ -104,9 +104,12 @@ stores and all local data.
 
 The API image serves FastAPI on container port `8000` and the built React
 frontend on `5173`. Compose publishes both ports. Configure the reverse proxy to route the frontend hostname to
-`5173` and the API hostname to `8000`; the API hostname must also route the
-authentication paths (`/login`, `/register`, `/logout`) and any server-rendered
-pages still used by the application. Set the public origins in `.env`; the
+`5173` and the API hostname to `8000`; API-host login and registration
+submissions (`POST /login` and `POST /register`), logout, API calls, and any
+server-rendered operational pages still used by the application must reach
+FastAPI. Login and registration pages are served only by the frontend; API
+`GET /login` and `GET /register` redirect to the configured frontend origin.
+Set the public origins in `.env`; the
 frontend configuration is injected when the container starts, so changing
 these values does not require rebuilding the image:
 

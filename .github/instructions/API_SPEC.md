@@ -31,6 +31,28 @@ Authorization: Bearer <YOUR_AGENT_TOKEN>
 
 The validation logic lives in `app/services/endpoint_service.py`. It accepts a tenant's configured agent token or the system-wide global token, which is generated randomly when the database is first initialized.
 
+Browser sign-in uses the session cookie set by `POST /login`. The API-host
+`GET /login` and `GET /register` routes redirect to the configured frontend;
+the login and registration screens are served by the React frontend.
+
+### 2.1 PUT /api/v1/auth/password
+
+Changes the authenticated super admin's password. The current password must
+match, and the new password must be at least 12 characters and no more than
+72 UTF-8 bytes. Other roles receive HTTP 403.
+
+Request:
+
+```json
+{
+  "current_password": "current-password",
+  "new_password": "a-new-password-with-12-characters"
+}
+```
+
+The endpoint returns `{"message": "Password changed."}`. The signed-in
+session remains active.
+
 ## 3. Endpoint reference
 
 ### 3.1 GET /health

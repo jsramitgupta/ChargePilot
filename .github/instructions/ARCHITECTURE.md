@@ -53,7 +53,7 @@ Populate only the local key; device details and IP come from LAN scan
 The HTTP API modules are in `app/api/`:
 
 - `health.py` — liveness and database readiness
-- `auth.py` — authenticated-user profile API
+- `auth.py` — authenticated-user profile and super-admin password API
 - `telemetry.py` — telemetry intake, rule execution, and SSE stream
 - `devices.py` — device/channel CRUD and device control
 - `onboarding.py` — LAN discovery and SmartLife pairing
@@ -64,7 +64,8 @@ The HTTP API modules are in `app/api/`:
 
 `app/main.py` retains server-rendered operational and administrative routes not
 yet represented in React, along with form-based sign-in and onboarding
-workflows.
+workflows. Login and registration pages are frontend-only; their API-host GET
+routes redirect to the configured frontend origin.
 
 ### 3.2 Core layer
 
