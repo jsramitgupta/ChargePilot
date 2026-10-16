@@ -20,12 +20,13 @@ ChargePilot is a cloud-capable, local-first battery automation platform for Wind
 
 ## Frontend and rendering
 The frontend is a Vite-built React application in `frontend/`. It currently
-provides sign-in/registration, dashboard, switches, mappings, endpoints, and
-events pages. It shares the original `app/static/style.css` design tokens and
-theme behavior; the authenticated top navigation is left aligned. FastAPI
-continues to serve Jinja pages for the remaining operational/admin workflows.
-Keep the React and Jinja experiences consistent and avoid replacing real API
-behavior with fabricated frontend state.
+provides sign-in/registration, dashboard, switches, mappings, endpoints,
+events, and super-admin account pages. It shares the original
+`app/static/style.css` design tokens and theme behavior; the authenticated top
+navigation is left aligned. FastAPI continues to serve Jinja pages for the
+remaining operational/admin workflows. Keep the React and Jinja experiences
+consistent and avoid replacing real API behavior with fabricated frontend
+state.
 
 ## Current primary workflows
 1. PowerShell agent posts telemetry to `/api/v1/telemetry`.
@@ -40,7 +41,10 @@ behavior with fabricated frontend state.
 7. SmartLife linked devices can be matched to connector discovery results to fill IP and local key fields.
 8. The React frontend consumes the API and keeps session cookies; browser-facing
    API/frontend origins are provided by runtime `CHARGEPILOT_API_URL` and
-   `CHARGEPILOT_FRONTEND_URL` configuration.
+   `CHARGEPILOT_FRONTEND_URL` configuration. Login and registration screens are
+   served by the frontend; API-host `/login` and `/register` GET requests redirect
+   to the frontend. Super admins can change their own password from the React
+   account page using the authenticated auth API.
 
 ## Current important service modules
 - app/services/rule_engine.py — threshold logic and hysteresis

@@ -30,17 +30,15 @@ def test_user_registration_and_login_flow():
 
 
 def test_login_and_logout_follow_redirects_to_the_correct_pages():
-    login_page = client.get("/login")
-    assert 'bg-slate-50 px-3 py-2.5 text-slate-900' in login_page.text
-    assert 'autocomplete="username"' in login_page.text
-    assert 'autocomplete="current-password"' in login_page.text
+    login_page = client.get("/login", follow_redirects=False)
+    assert login_page.status_code == 303
+    assert login_page.headers["location"].endswith("/login")
+    assert "<form" not in login_page.text
 
-    register_page = client.get("/register?account_type=tenant")
-    assert register_page.text.count(
-        'w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100'
-    ) == 3
-    assert 'autocomplete="username"' in register_page.text
-    assert 'autocomplete="new-password"' in register_page.text
+    register_page = client.get("/register?account_type=tenant", follow_redirects=False)
+    assert register_page.status_code == 303
+    assert register_page.headers["location"].endswith("/register?account_type=tenant")
+    assert "<form" not in register_page.text
 
     client.post(
         "/register",
@@ -59,20 +57,18 @@ def test_login_and_logout_follow_redirects_to_the_correct_pages():
     assert "Device-to-switch control" in login.text
     assert 'id="mainNav"' in login.text
 
-    logout = client.get("/logout", follow_redirects=True)
+    logout = client.get("/logout", follow_redirects=False)
 
-    assert logout.status_code == 200
-    assert str(logout.url).endswith("/login")
-    assert 'action="/login"' in logout.text
-    assert 'id="mainNav"' not in logout.text
+    assert logout.status_code == 303
+    assert logout.headers["location"].endswith("/login")
 
     invalid_login = client.post(
         "/login",
         data={"username": "redirect-user", "password": "incorrect"},
-        follow_redirects=True,
+        follow_redirects=False,
     )
-    assert str(invalid_login.url).endswith("/login?error=Invalid+username+or+password")
-    assert "Invalid username or password" in invalid_login.text
+    assert invalid_login.status_code == 303
+    assert invalid_login.headers["location"].endswith("/login?error=Invalid+username+or+password")
 
 
 def test_authenticated_header_shows_navigation_tabs():

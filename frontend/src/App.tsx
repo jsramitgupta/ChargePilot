@@ -7,6 +7,7 @@ import {
   Cable,
   CheckCircle2,
   CircleDashed,
+  KeyRound,
   LayoutGrid,
   LogIn,
   LogOut,
@@ -20,7 +21,7 @@ import {
   Sun,
   Users,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
@@ -262,6 +263,7 @@ function App() {
             <Route path="/mappings" element={<MappingsPage />} />
             <Route path="/endpoints" element={<EndpointsPage />} />
             <Route path="/events" element={<EventsPage />} />
+            <Route path="/account" element={<SuperAdminAccountPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
@@ -347,6 +349,7 @@ function AppShell({ user }: { user: User }) {
             <div className="hidden items-center gap-2 md:flex"><span className="mini-badge live-pill">Live telemetry</span></div>
             <ThemeToggleButton isDark={isDark} onToggle={() => setIsDark((value) => !value)} />
             <a href={backendUrl('/agent')} className="agent-header-button">Download Agent</a>
+            {user.role === 'super_admin' && <NavLink to="/account" className="header-account-link"><KeyRound size={14} className="mr-1 inline" />Account</NavLink>}
             <a href={backendUrl('/profile')} className="header-account-link">Profile</a>
             <a href={backendUrl('/logout')} className="header-account-link"><LogOut size={14} className="mr-1 inline" />Logout</a>
             <button className="nav-toggle" type="button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="mainNav" onClick={() => setMobileOpen((value) => !value)}>
@@ -448,6 +451,121 @@ function RegisterPage() {
           <button type="submit" className="primary-btn large-btn w-full">{accountType === 'tenant' ? 'Create tenant' : 'Create standard user'}</button>
         </form>
         <p className="auth-signin">Already have an account? <a href={frontendUrl('/login')}>Sign in</a></p>
+      </section>
+    </div>
+  )
+}
+
+function SuperAdminAccountPage() {
+  const { data: user, isLoading, error } = useSession()
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [formError, setFormError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
+
+  const mutation = useMutation({
+    mutationFn: (values: { current_password: string; new_password: string }) =>
+      apiFetch<{ message: string }>('/api/v1/auth/password', {
+        method: 'PUT',
+        body: JSON.stringify(values),
+      }),
+    onSuccess: ({ message }) => {
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setFormError('')
+      setSuccessMessage(message)
+    },
+  })
+
+  function submitPasswordChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setSuccessMessage('')
+    setFormError('')
+    if (newPassword !== confirmPassword) {
+      setFormError('The new passwords do not match.')
+      return
+    }
+    if (new TextEncoder().encode(newPassword).length > 72) {
+      setFormError('The new password must be 72 UTF-8 bytes or fewer.')
+      return
+    }
+    mutation.mutate({ current_password: currentPassword, new_password: newPassword })
+  }
+
+  if (isLoading) return <LoadingCard />
+  if (error || !user) return <ErrorCard message="Your session could not be verified. Sign in again to continue." />
+  if (user.role !== 'super_admin') return <Navigate to="/" replace />
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Account security"
+        title="Change password"
+        description="Update the password used to sign in to the super admin account."
+      />
+      <section className="panel max-w-2xl p-5 sm:p-6" aria-labelledby="password-form-title">
+        <div className="mb-5 flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+            <KeyRound size={18} aria-hidden="true" />
+          </span>
+          <div>
+            <h2 id="password-form-title" className="text-lg font-semibold text-slate-900">Super admin password</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">Use at least 12 characters. Your current session stays active after the change.</p>
+          </div>
+        </div>
+        {successMessage && <p className="alert success mb-4" role="status">{successMessage}</p>}
+        {(formError || mutation.error) && (
+          <p className="alert error mb-4" role="alert">{formError || mutation.error?.message}</p>
+        )}
+        <form className="space-y-4" onSubmit={submitPasswordChange}>
+          <div className="field-group">
+            <label htmlFor="current-password">Current password</label>
+            <input
+              id="current-password"
+              type="password"
+              autoComplete="current-password"
+              required
+              className="field"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+            />
+          </div>
+          <div className="field-group">
+            <label htmlFor="new-password">New password</label>
+            <input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              maxLength={72}
+              required
+              className="field"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+            />
+          </div>
+          <div className="field-group">
+            <label htmlFor="confirm-password">Confirm new password</label>
+            <input
+              id="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              maxLength={72}
+              required
+              className="field"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+            />
+          </div>
+          <div className="flex justify-end border-t border-slate-200 pt-4">
+            <button type="submit" className="btn-primary" disabled={mutation.isPending}>
+              {mutation.isPending ? 'Changing password…' : 'Change password'}
+            </button>
+          </div>
+        </form>
       </section>
     </div>
   )

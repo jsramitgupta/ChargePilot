@@ -1201,17 +1201,9 @@ async def events_view(
     )
 
 
-@app.get("/login", response_class=HTMLResponse)
+@app.get("/login")
 async def login_page(request: Request):
-    message = request.query_params.get("message")
-    return templates.TemplateResponse(
-        "login.html",
-        {
-            "request": request,
-            "error": request.query_params.get("error"),
-            "message": message,
-        },
-    )
+    return frontend_redirect(f"/login{'?' + request.url.query if request.url.query else ''}")
 
 
 @app.post("/login")
@@ -1291,9 +1283,9 @@ async def rotate_tenant_agent_token(request: Request, db: Session = Depends(get_
     return RedirectResponse(url="/agent?message=Agent+token+regenerated+successfully", status_code=303)
 
 
-@app.get("/register", response_class=HTMLResponse)
+@app.get("/register")
 async def register_page(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request, "error": request.query_params.get("error")})
+    return frontend_redirect(f"/register{'?' + request.url.query if request.url.query else ''}")
 
 
 @app.post("/register")
