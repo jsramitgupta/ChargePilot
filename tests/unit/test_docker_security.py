@@ -1,7 +1,9 @@
+import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+PINNED_ACTION = re.compile(r"(?m)^\s*uses:\s*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@([^\s#]+)")
 
 
 def test_docker_build_context_excludes_secrets_and_runtime_data():
@@ -60,17 +62,26 @@ def test_image_workflows_pin_actions_and_publish_digest_references():
             "type=sha,format=long",
         ),
     )
-    expected_actions = (
-        "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
-        "docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf",
-        "docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435",
-        "docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772",
-        "docker/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f",
-        "docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83",
-    )
+    expected_actions = {
+        "actions/checkout",
+        "docker/setup-qemu-action",
+        "docker/setup-buildx-action",
+        "docker/login-action",
+        "docker/metadata-action",
+        "docker/build-push-action",
+    }
+    found_actions = set()
 
     for workflow_path, tag_format in workflow_paths:
         workflow = workflow_path.read_text()
+        actions = PINNED_ACTION.findall(workflow)
+        assert actions
+        for action, ref in actions:
+            assert re.fullmatch(r"[0-9a-f]{40}", ref), (
+                f"{action} in {workflow_path.name} must use a full commit SHA"
+            )
+            found_actions.add(action)
+
         assert tag_format in workflow
         assert "provenance: mode=max" in workflow
         assert "sbom: true" in workflow
@@ -81,5 +92,5 @@ def test_image_workflows_pin_actions_and_publish_digest_references():
             "endusercompute/chargepilot" in workflow
             or "endusercompute/chargepilot-connector" in workflow
         )
-        for action in expected_actions:
-            assert action in workflow
+
+    assert expected_actions <= found_actions
