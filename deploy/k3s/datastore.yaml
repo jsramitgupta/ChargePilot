@@ -81,7 +81,6 @@ metadata:
 spec:
   clusterIP: None
   publishNotReadyAddresses: true
-  publishNotReadyAddresses: true
   selector:
     app.kubernetes.io/name: chargepilot-kafka
   ports:
