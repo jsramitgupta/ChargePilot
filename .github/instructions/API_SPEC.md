@@ -55,7 +55,9 @@ Response:
 
 ### 3.3 POST /api/v1/telemetry
 
-Receives battery telemetry from the Windows agent and may trigger a switch action based on the mapping rule.
+Receives battery telemetry from the Windows agent. The API commits the latest
+endpoint snapshot and a durable outbox event in one PostgreSQL transaction;
+rule evaluation and switch commands happen asynchronously in Kafka consumers.
 
 Request schema (`app/schemas/telemetry.py`):
 
@@ -77,7 +79,7 @@ Validation rules:
 - `hostname`: 1-160 chars
 - `ip_address`: 7-64 chars
 - `battery_percentage`: integer in range 0-100
-- `timestamp`: valid datetime, must be less than 10 minutes old
+- `timestamp`: valid datetime; telemetry older than seven days is rejected
 - `agent_version`: 1-50 chars
 
 Success response:
@@ -87,26 +89,34 @@ Success response:
   "status": "accepted",
   "hostname": "LAPTOP-01",
   "battery_percentage": 82,
-  "message": "Telemetry accepted and endpoint updated."
+  "message": "Telemetry accepted for asynchronous automation processing."
 }
 ```
 
 Behavior:
 
 - validates bearer token
-- rejects stale telemetry over 600 seconds old
-- updates or creates the endpoint record
-- loads all active mappings for that endpoint
-- uses the confirmed stored state for connector-assigned devices (local
-  deployments with no connector retain the direct TinyTuya control path)
-- applies explicit `switch_state` override when present
-- otherwise calls the battery rule engine
-- creates a durable desired-state connector command when the mapping's device
-  is assigned to a connector
-- records the automation event after connector completion or failure
+- rejects telemetry older than seven days
+- atomically updates or creates the endpoint snapshot and `TelemetryOutbox`
+  record; a successful response means this transaction committed
+- relays the event to the `chargepilot.telemetry.v1` Kafka topic using a
+  tenant/endpoint ordering key
+- automation workers evaluate active mappings with the existing threshold,
+  hysteresis, and cooldown rules
+- `switch_state` remains in the wire schema for agent compatibility and does
+  not override backend rules
+- creates a durable desired-state connector command for connector-assigned
+  devices; local direct control remains available for unassigned local devices
+- records processing outcomes and sends invalid/exhausted events to the
+  `chargepilot.telemetry.dlq.v1` dead-letter topic
 
-The existing telemetry payload, endpoint token flow, and `CHARGEPILOT_`
-settings do not change.
+Processing is at-least-once. Consumers deduplicate by event ID; clients should
+not infer that rule evaluation or device control completed from the HTTP
+acceptance response. Monitor outbox age, Kafka consumer lag, dead-letter volume,
+and command completion.
+
+The PowerShell telemetry payload and endpoint token flow are unchanged.
+Kafka-specific service settings use the `CHARGEPILOT_` prefix.
 
 ### 3.4 GET /api/v1/endpoints
 

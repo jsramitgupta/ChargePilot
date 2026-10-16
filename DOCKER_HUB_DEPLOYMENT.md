@@ -1,7 +1,7 @@
 # Docker Hub publishing and deployment
 
 This guide covers publishing ChargePilot images from GitHub Actions and using
-those images for a fresh Docker Compose deployment or an existing installation.
+those images for a fresh microservice Compose deployment.
 The workflow builds `linux/amd64` and `linux/arm64` images and publishes them to
 `<Docker-Hub-username>/chargepilot`.
 
@@ -68,39 +68,42 @@ Set `CHARGEPILOT_ADMIN_USERNAME` to the desired initial administrator name.
 Retain the secret and database values for subsequent restarts and upgrades.
 
 For a private Docker Hub repository, sign in first with `docker login` using an
-account that can pull the image. Validate the Compose configuration and start
-the stack:
+account that can pull the image. This architecture change is a breaking
+redesign: start with a fresh Compose project/database and do not reuse an
+earlier ChargePilot PostgreSQL volume. Retain the old deployment until the
+new stack has been validated and explicitly decide how to retire its data.
+Validate the Compose configuration and start the new project:
 
 ```powershell
 docker compose config
-docker compose pull app
-docker compose up -d --no-build
-docker compose ps
+docker compose -p chargepilot-v2 pull app outbox-relay automation-worker
+docker compose -p chargepilot-v2 up -d --no-build
+docker compose -p chargepilot-v2 ps
 ```
 
-The Compose file uses the published image when `CHARGEPILOT_IMAGE` is set; if
-it is omitted, it retains the local source-build behavior and uses
-`chargepilot:local`. The published images support 64-bit x86 and ARM Linux.
-The application listens on port `8000` by default.
+The API, outbox-relay, and automation-worker use the published ChargePilot
+image when `CHARGEPILOT_IMAGE` is set; Kafka and PostgreSQL are separate
+services. If the image setting is omitted, the stack builds `chargepilot:local`.
+Only API ports `8000` and `5173` are published. The Compose Kafka broker is
+single-node development infrastructure, not a production cluster.
 
-### Update an existing installation
+### Update a v2 installation
 
-1. Back up the PostgreSQL database before applying an update. Keep the same
-   `.env` file and Docker Compose project so the existing `postgres-data`
-   volume is reused.
+1. Back up the v2 PostgreSQL database before applying an update. Keep the
+   `chargepilot-v2` project and its `.env`.
 2. To upgrade, replace `CHARGEPILOT_IMAGE` with the digest reported by the
    successful workflow run for the intended commit. The Compose deployment is
    deliberately pinned and will not silently move to a newer image.
 3. From the directory containing the Compose file and `.env`, run:
 
    ```powershell
-   docker compose pull app
-   docker compose up -d --no-build
-   docker compose ps
-   docker compose logs --tail 100 app
+   docker compose -p chargepilot-v2 pull app outbox-relay automation-worker
+   docker compose -p chargepilot-v2 up -d --no-build
+   docker compose -p chargepilot-v2 ps
+   docker compose -p chargepilot-v2 logs --tail 100 app outbox-relay automation-worker
    ```
 
-4. Confirm both services are running and the readiness check succeeds at
+4. Confirm API and workers are running and the readiness check succeeds at
    `http://localhost:8000/ready`.
 
 Do not use `docker compose down -v` when updating: `-v` removes the database
@@ -110,9 +113,9 @@ updates.
 
 ### Pin or roll back an image
 
-To pin a deployment, set `CHARGEPILOT_IMAGE` in `.env` to the image digest
-reported by the workflow, then run `docker compose pull app` followed by
-`docker compose up -d --no-build`. To roll back, restore the previous digest
+To pin a v2 deployment, set `CHARGEPILOT_IMAGE` in `.env` to the image digest
+reported by the workflow, then pull and recreate the API and worker services
+with the same project name. To roll back, restore the previous digest
 and repeat those commands. Keep a database backup: rolling back the container
 image does not reverse database changes.
 
@@ -122,8 +125,8 @@ image does not reverse database changes.
   `create_all()` and startup compatibility adjustments are not a general schema
   migration system. Review release notes for database changes before updating
   an existing installation; back up first and plan any required migration.
-- The PostgreSQL data is stored in the named `postgres-data` volume. Do not
-  replace it with a new Compose project name or delete it when updating.
+- PostgreSQL and Kafka data are stored in named volumes. Do not reuse an older
+  ChargePilot deployment's PostgreSQL volume for this breaking redesign.
 - Keep `.env`, backups, and Docker Hub access tokens private. Do not post the
   output of `docker compose config`, which may include expanded secrets.
 - Workflow runs publish immutable commit tags and report a digest suitable for

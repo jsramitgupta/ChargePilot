@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy import Boolean, DateTime, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -9,6 +9,7 @@ from app.core.database import Base
 
 class Endpoint(Base):
     __tablename__ = "endpoints"
+    __table_args__ = (Index("ix_endpoints_tenant_hostname", "tenant_id", "hostname"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

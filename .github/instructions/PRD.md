@@ -163,10 +163,20 @@ A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch 
 - SmartLife-specific code should stay isolated in a service layer.
 - Dashboard behavior should remain simple enough to reason about without a separate frontend framework.
 
-### Performance
+### Performance and scale
 
-- Battery telemetry processing is lightweight and synchronous enough for a local app.
-- Discovery and QR polling are simple polling loops that operate within bounded timeout windows.
+- Capacity goal: 10 million registered endpoints and 1 million active agents.
+- The API must acknowledge only after atomically persisting the endpoint
+  snapshot and telemetry outbox record; rules and switch work execute
+  asynchronously through Kafka consumers.
+- Telemetry order is partitioned by endpoint identity; consumers must be
+  idempotent under at-least-once delivery.
+- Discovery and QR polling are bounded and must not block telemetry workers.
+- Capacity is not established until tested on provisioned staging hardware;
+  the single-node Compose deployment is for development only.
+- Scale validation includes a temporary PostgreSQL dataset above 10 million
+  rows and configurable k6 telemetry load; report actual results rather than
+  assuming the target has been met.
 
 ## 8. Constraints and assumptions
 
@@ -174,7 +184,9 @@ A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch 
 - LAN access is required for device discovery and state changes.
 - Local Tuya control depends on correct device IP, protocol version, and local key metadata.
 - SmartLife QR login relies on the mobile app flow and provider TTL values, which can vary by response.
-- The app currently favors a modular monolith instead of a microservice architecture.
+- The API, transactional-outbox relay, and Kafka automation consumer are
+  independent deployment roles. They currently share a PostgreSQL schema;
+  service-owned databases, sharding, and 10M performance remain future work.
 
 ## 9. Success criteria
 
@@ -186,6 +198,10 @@ The product is considered successful when:
 - a user can discover a device locally and add it from the wizard
 - a user can log in via SmartLife QR, fetch linked devices, and auto-fill local key and IP values
 - future rebuilds can recreate the same architecture without reverse-engineering the app
+- telemetry processing is durably decoupled from HTTP acceptance and idempotent
+  across worker retries
+- the scale harness can construct/query more than 10 million synthetic records
+  and a provisioned staging run records reproducible 1M-active throughput
 
 ## 10. Key findings captured from the implementation
 

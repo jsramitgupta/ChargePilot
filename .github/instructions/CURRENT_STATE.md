@@ -8,10 +8,11 @@ ChargePilot is a cloud-capable, local-first battery automation platform for Wind
 ## Core runtime stack
 - FastAPI
 - SQLAlchemy
-- PostgreSQL
+- PostgreSQL for transactional state and outbox
+- Apache Kafka for durable telemetry event transport
 - React, TypeScript, Tailwind CSS, and Vite for the interactive frontend
 - TinyTuya
-- HTTPS-polling site connector with PostgreSQL-backed commands
+- HTTPS-polling site connector with PostgreSQL-backed durable commands
 - tuya-device-sharing-sdk
 - Jinja2 templates remain in use for workflows that have not moved to React
 - qrcode
@@ -27,11 +28,14 @@ Keep the React and Jinja experiences consistent and avoid replacing real API
 behavior with fabricated frontend state.
 
 ## Current primary workflows
-1. PowerShell agent posts telemetry to /api/v1/telemetry.
-2. Server validates endpoint token and timestamp.
-3. Active mappings are evaluated using battery thresholds and cooldown logic.
-4. A durable desired-state command is routed to the switch's assigned connector.
-5. The connector controls the device locally and acknowledges; resulting events/state are exposed in the UI.
+1. PowerShell agent posts telemetry to `/api/v1/telemetry`.
+2. API validates endpoint token and timestamp, then atomically stores the
+   endpoint snapshot and a transactional outbox event in PostgreSQL.
+3. The outbox relay publishes events to Kafka in endpoint-key order.
+4. Automation consumers evaluate active mappings using battery hysteresis and
+   cooldown rules; connector commands remain durable in PostgreSQL.
+5. The assigned site connector controls the switch locally and acknowledges;
+   resulting events/state are exposed in the UI.
 6. Users can discover LAN devices through a connector and pair them through SmartLife/Tuya QR login.
 7. SmartLife linked devices can be matched to connector discovery results to fill IP and local key fields.
 8. The React frontend consumes the API and keeps session cookies; browser-facing
@@ -44,7 +48,26 @@ behavior with fabricated frontend state.
 - app/services/smartlife_service.py — QR generation and linked-device polling
 - app/services/broadcaster.py — SSE updates
 - app/services/connector_service.py — connector identity, command queue, lease, and result handling
+- app/services/automation_processor.py — asynchronous rule evaluation and command creation
+- app/workers.py — transactional-outbox relay and Kafka automation consumer processes
 - connector/chargepilot_connector.py — site-side TinyTuya runtime
+
+## Service topology and scale status
+
+The deployment now has separate API, outbox-relay, and automation-consumer
+processes, a Kafka event log, PostgreSQL transactional state, and independently
+deployed site connectors. The API and workers currently share the existing
+PostgreSQL schema; domain-database ownership and horizontal database sharding
+are not yet implemented. Redis is not enabled because token/rule caching has
+not been shown to be a measured bottleneck.
+
+The capacity goal is 10 million registered endpoints and 1 million active
+telemetry sources. The repository includes a guarded, temporary PostgreSQL
+dataset test above 10 million rows and a configurable k6 live-ingestion
+scenario. These are validation tools, not evidence that this checkout has
+passed a 10-million-device production load test. Production capacity requires
+measurement on representative, provisioned multi-node Kafka and horizontally
+sharded PostgreSQL infrastructure before setting throughput or SLO claims.
 
 ## Current known implementation risks
 - bearer-token validation remains intentionally minimal
@@ -55,6 +78,11 @@ behavior with fabricated frontend state.
 - local keys and session data are sensitive and should never be committed to source control
 - keep `CHARGEPILOT_ENCRYPTION_KEY` stable and backed up; it protects stored device local keys
 - the cloud server does not scan or route to private device LANs; use a healthy connector and explicit device assignment
+- Kafka delivery is at-least-once. Event processing has a processed-event
+  guard; validate retries, dead-letter handling, and physical command
+  idempotency in staging before increasing worker concurrency.
+- endpoint and automation data still use one PostgreSQL database. The current
+  schema/index set is not a demonstrated 10-million-device deployment.
 - PostgreSQL should stay private with no published host port. In a single
   Compose project the database hostname is the service name `db`; if Portainer
   deploys app and database as separate stacks, attach both to the same

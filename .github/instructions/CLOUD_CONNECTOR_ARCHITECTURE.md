@@ -1,38 +1,42 @@
 # ChargePilot Cloud Connector Architecture
 
-This is the canonical implementation and deployment design for controlling
-Tuya devices on a private site LAN when ChargePilot itself runs in the cloud.
+This is the canonical site-LAN control design for the ChargePilot distributed
+control plane.
 
 ## Decision
 
 Run one ChargePilot site connector on an always-on host on each physical LAN
 that contains Tuya devices. The connector makes outbound HTTPS requests to the
-existing ChargePilot server, receives only persisted and authorized work, and
+ChargePilot control plane, receives only persisted and authorized work, and
 performs TinyTuya operations on its local network.
 
-The initial delivery mechanism is HTTPS polling backed by PostgreSQL. Do not
-add a broker, Redis, an inbound site port, or a VPN requirement for the first
-release. A later move to brokered messaging or persistent push must preserve the
-command contract and tenant/device authorization.
+Telemetry uses a PostgreSQL transactional outbox and Kafka; automation
+consumers create desired-state commands in PostgreSQL. Connectors continue to
+claim those commands over outbound HTTPS polling. Kafka is not exposed to site
+connectors and does not replace durable command records, tenant checks, leases,
+or result acknowledgement.
 
 ## Runtime topology
 
 ```text
-Windows laptop agent --existing telemetry API--> ChargePilot cloud
-                                                     |
-                                            rule engine + PostgreSQL
-                                                     |
-                                          outbound HTTPS polling
-                                                     |
-                                           Site connector host
-                                                     |
-                                          TinyTuya over site LAN
-                                                     |
-                                                Tuya switch
+Windows laptop agent --> API --> PostgreSQL outbox --> Kafka
+                                                    |
+                                             automation workers
+                                                    |
+                                         PostgreSQL command records
+                                                    |
+                                       outbound HTTPS polling
+                                                    |
+                                         Site connector host
+                                                    |
+                                         TinyTuya over site LAN
+                                                    |
+                                               Tuya switch
 ```
 
-Cloud components remain the existing FastAPI app and PostgreSQL service. The
-connector is an additional deployment at each site, not a new cloud server.
+The API, outbox relay, and automation workers are independently deployable
+services. They currently share the ChargePilot PostgreSQL schema. The
+connector is an additional deployment at each site, not a cloud-to-LAN tunnel.
 It needs outbound HTTPS access to ChargePilot and local network access to its
 assigned switches. The site does not expose an inbound Internet listener.
 TinyTuya documents UDP discovery traffic on ports 6666, 6667, 7000 and TCP
@@ -109,12 +113,14 @@ say what is missing.
 
 Cloud deployment:
 
-- Keep the current ChargePilot app and PostgreSQL services.
-- Serve the connector API over HTTPS.
-- Configure the reverse proxy/load balancer to allow normal HTTPS polling and
-  request/response sizes expected for discovery.
-- Persist connector state and command results in the existing PostgreSQL
-  database. Do not rely on in-memory connection state.
+- Run multiple API instances behind a TLS-terminating ingress as required.
+- Run the outbox relay and Kafka automation consumer as separate workloads.
+- Use a production Kafka cluster with TLS/SASL, replication, topic retention,
+  monitoring, and a dead-letter topic. Local Compose Kafka is single-node only.
+- Keep connector APIs reachable over HTTPS and allow request/response sizes
+  needed for discovery.
+- Persist connector state and command results in PostgreSQL; Kafka is the
+  telemetry event log, not the command-of-record store.
 
 Site deployment:
 
@@ -166,9 +172,23 @@ Deploy in this order:
 - Existing telemetry clients and configuration continue to work without edits.
 - Multiple app processes do not double-claim a PostgreSQL command.
 
-## Scaling decision
+## Capacity target and scale gate
 
-PostgreSQL remains the initial durable queue. Add MQTT/NATS/Redis only after
-measured load or multi-instance operation demonstrates a need. If moving to
-WebSockets or a broker, preserve durable command storage, idempotency, tenant
-scoping, explicit desired state, expiry, leases, and terminal audit events.
+The target is 10 million registered endpoints and 1 million active telemetry
+sources. This is a target, not a measured guarantee. Kafka partitions and
+consumer-group workers provide a scale-out path for automation; the current
+API/workers still share one PostgreSQL schema and need an independently
+reviewed partitioning/sharding strategy before a 10-million-endpoint launch.
+
+Use `scripts/scale_test.py` for an isolated PostgreSQL temporary dataset above
+10 million rows and `tests/scale_telemetry.js` for a configurable k6 live-load
+test against a non-production tenant. Neither is a substitute for a benchmark
+on sized staging infrastructure. Record active devices, telemetry cadence,
+ingress rate, p50/p95/p99 latency, error rate, outbox age, Kafka consumer lag,
+database CPU/IO/connections, and connector-command completion. Set capacity
+claims only from reproducible results.
+
+Redis is intentionally not required by this flow. Do not add it as a second
+source of truth for telemetry or commands. Consider a cache only when staging
+profiles identify a read-path bottleneck and invalidation/tenant isolation
+have been designed.

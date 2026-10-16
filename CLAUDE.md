@@ -18,6 +18,10 @@ The system has grown beyond the original battery-only flow and now includes:
 - AJAX-friendly wizard UX for device import
 - SSE updates for device state changes
 - tenant-scoped site connector enrollment and PostgreSQL-backed commands
+- PostgreSQL transactional outbox, Kafka telemetry events, and independent
+  automation workers
+- a target of 10M registered endpoints and 1M active agents; this is not a
+  measured production capacity claim
 
 ## 2. Core product goals
 
@@ -41,6 +45,7 @@ The system has grown beyond the original battery-only flow and now includes:
 - FastAPI
 - SQLAlchemy 2.x
 - PostgreSQL
+- Apache Kafka with `aiokafka`
 - Pydantic + pydantic-settings
 - TinyTuya
 - tuya-device-sharing-sdk
@@ -51,18 +56,21 @@ The system has grown beyond the original battery-only flow and now includes:
 
 ## 5. Recommended architecture
 
-Use a modular monolith:
+Use independently deployable runtime roles:
 
-- app/main.py — entrypoint, HTML rendering, wizard routes
-- app/api/ — API routers
-- app/core/ — config and start-up bootstrapping
-- app/models/ — ORM models
-- app/schemas/ — request/response validation
-- app/services/ — business logic and protocol adapters
-- app/templates/ — server-rendered UI pages
-- app/static/ — CSS and UI assets
+- app/main.py — management/API and HTML entrypoint
+- app/api/ — management, telemetry-ingress, and connector HTTP routers
+- app/workers.py — transactional-outbox relay and Kafka automation consumer
+- app/services/automation_processor.py — asynchronous rules and command creation
+- app/models/ — shared schema, including outbox/idempotency records
 - connector/ — site-side TinyTuya runtime for cloud deployments
 - agent/ — Windows agent for telemetry upload
+
+The API, relay, and consumer still share one PostgreSQL schema. Do not call
+the current database topology sharded or proven for 10M endpoints. Local
+Compose Kafka is single-node development infrastructure; production needs
+secured, replicated Kafka and a benchmarked database partitioning/sharding
+strategy.
 
 ## 6. Core domain model
 
@@ -141,6 +149,8 @@ Fields to include:
 8. Add tenant-scoped connector enrollment and PostgreSQL-backed commands.
 9. Run TinyTuya in the site connector; retain direct local-host behavior for existing deployments.
 10. Persist automation events after connector results.
+11. Commit endpoint snapshots and telemetry outbox records atomically; relay
+    endpoint-keyed events to Kafka and process them idempotently.
 
 ### Phase 2 — local discovery and onboarding
 
@@ -212,7 +222,7 @@ Use hysteresis and a cooldown:
 
 ### Prompt A — full project build
 
-"Build ChargePilot from scratch as a local-first Python monolith with FastAPI, SQLAlchemy, TinyTuya, and a Windows PowerShell telemetry agent. Implement battery threshold automation, local device discovery, SmartLife QR login flow, and a wizard that gets device details including IP from LAN discovery and retrieves only the matching local key through SmartLife. Keep the architecture modular and self-hosted, with tests for the rule engine and API behavior."
+"Build ChargePilot as a local-first Python service system with FastAPI, SQLAlchemy, Kafka, TinyTuya, and a Windows PowerShell telemetry agent. Implement a transactional telemetry outbox, keyed Kafka events, idempotent automation consumers, durable multi-connector commands, LAN discovery, SmartLife QR login, and tests for event delivery, tenant isolation, rules, and measured scale. Treat 10M registered / 1M active as an unproven target until staging benchmarks verify it."
 
 ### Prompt B — SmartLife bridge only
 
@@ -224,15 +234,14 @@ Use hysteresis and a cooldown:
 
 ## 10. Suggested build order for Claude
 
-1. Scaffold app structure and config.
-2. Add database models.
-3. Implement telemetry endpoint and mappings.
-4. Add local Tuya abstraction and state controls.
-5. Add rule engine and event persistence.
-6. Add device wizard and local discovery pages.
-7. Add SmartLife QR service and linked-device fetch.
-8. Add AJAX and toast-based UX polish.
-9. Add tests and catch edge cases around QR expiry, device metadata, and channel logic.
+1. Define bounded contexts, event contracts, and data ownership.
+2. Implement telemetry ingestion and its transactional outbox.
+3. Relay ordered events to Kafka and consume them idempotently.
+4. Preserve battery rules and durable per-connector command delivery.
+5. Package Compose development and secured Kubernetes production workloads.
+6. Validate 10M synthetic rows and benchmark live load on staging hardware.
+7. Keep discovery, SmartLife pairing, and connector LAN control isolated.
+8. Update API, operations, deployment, and architecture documentation.
 
 ## 11. Critical pitfalls to avoid
 
@@ -255,5 +264,8 @@ A recreated version should be considered correct if it can:
 - fetch linked devices from SmartLife after QR scan
 - match SmartLife local keys to LAN-scanned devices while taking all device details, including IP, from the scan
 - record state change events and allow debugging
+- durably acknowledge telemetry while rules run asynchronously
+- build/query a temporary dataset above 10 million synthetic records
+- publish measured, reproducible 1M-active staging results and limitations
 
 This is the implementation baseline to preserve.

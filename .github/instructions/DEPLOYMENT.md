@@ -2,10 +2,13 @@
 
 ## 1. Deployment model
 
-The cloud control plane runs ChargePilot and PostgreSQL as Compose services.
-PostgreSQL data is persisted in a named volume; the app waits for the database
-health check before starting. Deploy one ChargePilot site connector on an
-always-on host at each physical LAN containing Tuya devices.
+The cloud control plane runs a FastAPI management/API service, a PostgreSQL
+transactional store, a Kafka broker, a transactional-outbox relay, and
+independent automation consumers. The local Compose broker is a single-node
+development configuration. Production requires an appropriately secured and
+replicated Kafka service plus a PostgreSQL deployment sized for the measured
+workload. Deploy one ChargePilot site connector on an always-on host at each
+physical LAN containing Tuya devices.
 
 The connector initiates outbound HTTPS connections to ChargePilot and performs
 TinyTuya discovery/control locally. Do not expose a site listener or route the
@@ -44,7 +47,19 @@ CHARGEPILOT_API_URL=https://api.example.com
 CHARGEPILOT_FRONTEND_URL=https://app.example.com
 CHARGEPILOT_SESSION_COOKIE_SECURE=true
 CHARGEPILOT_SESSION_COOKIE_SAMESITE=lax
+CHARGEPILOT_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+CHARGEPILOT_TELEMETRY_KAFKA_TOPIC=chargepilot.telemetry.v1
+CHARGEPILOT_TELEMETRY_DEAD_LETTER_TOPIC=chargepilot.telemetry.dlq.v1
+CHARGEPILOT_TELEMETRY_CONSUMER_GROUP=chargepilot-automation-v1
 ```
+
+Production Kafka should use TLS and preferably SASL over TLS. Set
+`CHARGEPILOT_KAFKA_SECURITY_PROTOCOL=SASL_SSL`,
+`CHARGEPILOT_KAFKA_SASL_MECHANISM`, `CHARGEPILOT_KAFKA_SASL_USERNAME`, and
+`CHARGEPILOT_KAFKA_SASL_PASSWORD` through a secret manager; mount a trusted CA
+and set `CHARGEPILOT_KAFKA_SSL_CA_FILE` when the cluster uses a private CA.
+Compose's local broker uses plaintext only on its private Compose network and
+does not publish port 9092.
 
 Generate random values rather than using placeholders. Python's `secrets.token_urlsafe(32)` is suitable for the secret key and PostgreSQL password; keep the PostgreSQL password URL-safe because Compose embeds it in the SQLAlchemy URL. The `.env` file is ignored by Git and must remain private. `CHARGEPILOT_ENCRYPTION_KEY` encrypts device local keys at rest. Preserve and
 back up its value; changing it prevents the app from decrypting stored keys.
@@ -77,13 +92,18 @@ docker compose config
 docker compose up --build -d
 ```
 
-The Compose configuration defines PostgreSQL 16, a persistent volume, PostgreSQL health checking, and an app `/ready` health check. The app container runs as an unprivileged user. Check logs with `docker compose logs -f app`; stop services with `docker compose down`. This preserves the database volume. To permanently delete the database and all stored ChargePilot data, use `docker compose down -v`.
+Compose starts PostgreSQL 16, a single-node Kafka broker, the API/frontend,
+the outbox relay, and the automation worker. PostgreSQL and Kafka data use
+named volumes; only the API/frontend ports are published. The API and worker
+containers run as unprivileged users. Check `docker compose ps` and logs for
+`app`, `outbox-relay`, and `automation-worker`. `docker compose down` preserves
+database and broker volumes. `docker compose down -v` permanently deletes both
+stores and all local data.
 
 `/health` reports process liveness. `/ready` executes a database query and returns HTTP 503 while PostgreSQL is unavailable.
 
-The single app image runs the FastAPI backend on container port `8000` and
-serves the built React frontend on container port `5173`. Compose publishes
-both ports. Configure the reverse proxy to route the frontend hostname to
+The API image serves FastAPI on container port `8000` and the built React
+frontend on `5173`. Compose publishes both ports. Configure the reverse proxy to route the frontend hostname to
 `5173` and the API hostname to `8000`; the API hostname must also route the
 authentication paths (`/login`, `/register`, `/logout`) and any server-rendered
 pages still used by the application. Set the public origins in `.env`; the
@@ -101,6 +121,54 @@ TLS should terminate at the reverse proxy. For separate registrable domains,
 set `CHARGEPILOT_SESSION_COOKIE_SAMESITE=none`; Secure cookies are required.
 For local plain-HTTP development only, set
 `CHARGEPILOT_SESSION_COOKIE_SECURE=false`.
+
+Telemetry HTTP success means the endpoint snapshot and outbox event were
+committed; rule evaluation and switch commands happen asynchronously. Monitor
+outbox age, Kafka consumer lag, dead-letter volume, and connector command
+completion before considering telemetry fully processed.
+
+### Kubernetes production deployment
+
+`docker/kubernetes.yaml` contains stateless API, outbox-relay, and automation
+workloads plus the API Service and a CPU-based API HPA. It assumes an external
+PostgreSQL database, a production Kafka cluster, an ingress/TLS configuration,
+and the `chargepilot-runtime` Kubernetes Secret. It intentionally does not
+install a database or broker operator. Choose a horizontally scalable
+PostgreSQL distribution/partition strategy and Kafka operator/provider based
+on a staging benchmark before applying the manifest. The sample replica counts
+and resource requests are starting points, not capacity guarantees.
+
+Build and publish an immutable image digest, replace the image placeholder in
+the manifest, and create the runtime secret from a protected environment file
+that includes `CHARGEPILOT_DATABASE_URL`, strong application secrets, public
+browser origins, and authenticated Kafka settings. Then apply:
+
+```bash
+kubectl create namespace chargepilot
+kubectl -n chargepilot create secret generic chargepilot-runtime --from-env-file=.env
+kubectl -n chargepilot apply -f docker/kubernetes.yaml
+kubectl -n chargepilot rollout status deployment/chargepilot-api
+kubectl -n chargepilot rollout status deployment/chargepilot-outbox-relay
+kubectl -n chargepilot rollout status deployment/chargepilot-automation
+```
+
+Do not expose Kafka or PostgreSQL publicly. Use Kafka partitions at least as
+large as the expected useful automation consumer concurrency, then scale
+consumers against observed lag; consumers beyond the partition count add no
+parallelism. The manifest's API HPA requires Kubernetes Metrics Server. For
+production worker scaling, use an operator such as KEDA or an equivalent lag
+metric adapter only after testing rebalances, duplicate delivery, and
+dead-letter recovery.
+
+The current services share PostgreSQL and are not yet database-sharded.
+`scripts/scale_test.py` can verify a temporary synthetic dataset above 10
+million rows on a dedicated PostgreSQL database with a `_scale_test` suffix.
+`tests/scale_telemetry.js` drives configurable HTTP load from k6. These tools
+do not establish 10M-device capacity by themselves. Benchmark 1M active agents
+at the selected reporting cadence on provisioned staging hardware, recording
+the database topology, Kafka partitioning, event latency percentiles, error
+rates, queue age, consumer lag, and connector outcomes. Never point scale
+tools at production.
 
 ### Portainer deployments split across stacks
 
@@ -169,6 +237,21 @@ The app creates its schema and initial admin account at startup. The database ro
 On a genuinely empty database, startup uses SQLAlchemy `Base.metadata.create_all()` followed by the compatibility column and foreign-key adjustments in `app/core/database.py`. The `users.created_at` column is PostgreSQL `TIMESTAMPTZ`, matching its server-side `now()` default.
 
 The repository does not currently contain Alembic revision files. `create_all()` is not a versioned migration system and does not safely upgrade arbitrary existing schemas. Back up existing data and plan a dedicated schema migration before deploying schema-changing updates to an existing installation.
+
+The telemetry lookup path now uses the composite
+`ix_endpoints_tenant_hostname` index. `create_all()` creates it for a new
+database, but does not add it to an already-existing `endpoints` table. For
+large PostgreSQL deployments, create it outside a transaction before scaling
+telemetry traffic:
+
+```sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_endpoints_tenant_hostname
+    ON endpoints (tenant_id, hostname);
+```
+
+The transactional outbox and automation cursor tables are created at startup;
+review their storage/retention needs and PostgreSQL capacity before a high-rate
+production rollout.
 
 ## 7. Site connector deployment
 

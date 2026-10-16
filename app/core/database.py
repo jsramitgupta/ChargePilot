@@ -23,6 +23,7 @@ from app.models.tenant import Tenant  # noqa: F401,E402
 from app.models.user import User  # noqa: F401,E402
 from app.models.system_setting import SystemSetting  # noqa: F401,E402
 from app.models.connector import SiteConnector, DeviceCommand  # noqa: F401,E402
+from app.models.messaging import TelemetryAutomationCursor, TelemetryOutbox  # noqa: F401,E402
 from app.services.local_key_service import decrypt_local_key, encrypt_local_key  # noqa: E402
 
 
@@ -257,20 +258,35 @@ def ensure_default_system_settings() -> None:
 
 
 def create_db_and_tables() -> None:
-    Base.metadata.create_all(bind=engine)
-    _ensure_table_columns()
-    with SessionLocal() as db:
-        for device in db.query(Device).all():
-            if not device.encrypted_local_key.startswith("gAAAA"):
-                device.encrypted_local_key = encrypt_local_key(device.encrypted_local_key)
-            else:
-                decrypt_local_key(device.encrypted_local_key)
-        db.commit()
-    _backfill_tenant_ownership()
-    _ensure_tenant_indexes()
-    _ensure_cascade_foreign_keys()
-    ensure_default_admin_user()
-    ensure_default_system_settings()
+    lock_connection = None
+    if engine.dialect.name == "postgresql":
+        lock_connection = engine.connect()
+        lock_connection.execute(text("SELECT pg_advisory_lock(731946120587)"))
+        lock_connection.commit()
+
+    try:
+        Base.metadata.create_all(bind=lock_connection or engine)
+        if lock_connection is not None:
+            lock_connection.commit()
+        _ensure_table_columns()
+        with SessionLocal() as db:
+            for device in db.query(Device).all():
+                if not device.encrypted_local_key.startswith("gAAAA"):
+                    device.encrypted_local_key = encrypt_local_key(device.encrypted_local_key)
+                else:
+                    decrypt_local_key(device.encrypted_local_key)
+            db.commit()
+        _backfill_tenant_ownership()
+        _ensure_tenant_indexes()
+        _ensure_cascade_foreign_keys()
+        ensure_default_admin_user()
+        ensure_default_system_settings()
+    finally:
+        if lock_connection is not None:
+            lock_connection.rollback()
+            lock_connection.execute(text("SELECT pg_advisory_unlock(731946120587)"))
+            lock_connection.commit()
+            lock_connection.close()
 
 
 def get_db() -> Generator[Session, None, None]:

@@ -4,7 +4,12 @@ ChargePilot is a cloud-capable, local-first battery automation platform for Wind
 
 ## Project summary
 
-The current codebase is a modular monolith built with FastAPI and SQLAlchemy. It contains:
+The cloud control plane has independently deployable API, outbox-relay, and
+automation-consumer processes. It uses a PostgreSQL transactional outbox and
+Kafka for telemetry events; site connectors continue polling durable commands
+from the API. The API and workers currently share the existing PostgreSQL
+schema, so this is not yet a horizontally sharded 10-million-endpoint system.
+The product contains:
 
 - a battery telemetry ingestion API
 - device, endpoint, mapping, and event models
@@ -22,6 +27,7 @@ The current codebase is a modular monolith built with FastAPI and SQLAlchemy. It
 - FastAPI 0.115.0
 - SQLAlchemy 2.0.32
 - PostgreSQL / psycopg
+- Apache Kafka / aiokafka for asynchronous telemetry processing
 - Pydantic + pydantic-settings
 - TinyTuya 1.20.0
 - tuya-device-sharing-sdk for Smart Life QR pairing
@@ -39,7 +45,8 @@ The current codebase is a modular monolith built with FastAPI and SQLAlchemy. It
 │   ├── core/                # settings, DB session, startup bootstrap, security helpers
 │   ├── models/              # SQLAlchemy ORM models
 │   ├── schemas/             # Pydantic request/response contracts
-│   ├── services/            # battery rule logic and Tuya abstraction
+│   ├── services/            # battery rules, event processor, Tuya abstraction
+│   ├── workers.py           # Kafka outbox relay and automation consumer roles
 │   ├── static/              # CSS assets
 │   ├── templates/           # Jinja dashboard and admin HTML pages
 │   └── main.py              # FastAPI app setup and HTML routes
@@ -47,7 +54,10 @@ The current codebase is a modular monolith built with FastAPI and SQLAlchemy. It
 │   ├── BatteryAgent.ps1               # Windows laptop telemetry sender
 │   └── CreateAgentScheduledTask.ps1   # creates the recurring Windows task
 ├── docker/
-│   └── Dockerfile
+│   ├── Dockerfile
+│   └── kubernetes.yaml      # stateless API and worker workloads
+├── scripts/scale_test.py    # temporary PostgreSQL dataset above 10M rows
+├── tests/scale_telemetry.js # configurable k6 ingestion load
 ├── tests/
 │   ├── api/
 │   ├── integration/
@@ -88,7 +98,7 @@ Expected payload:
 }
 ```
 
-The request is authenticated with the tenant's agent token in the `Authorization` bearer header. Sign in to ChargePilot and open **Install Agent** in the top navigation to download the Windows scripts and get the PowerShell installation command for the current token. Tenant admins can regenerate the tenant token there; existing agents must be reconfigured after rotation. Super Admins can update or regenerate the installation-wide global agent token from the same page. A random global token is created during fresh database initialization and is stored in the database for tenantless Super Admin installations.
+The request is authenticated with the tenant's agent token in the `Authorization` bearer header. The API commits the latest endpoint snapshot and a transactional outbox event together. A relay publishes the event to Kafka; automation consumers then evaluate mappings asynchronously. An HTTP accepted response confirms durable ingestion, not completed switch control. Monitor outbox age, consumer lag, dead-letter events, and connector command outcomes. Sign in to ChargePilot and open **Install Agent** in the top navigation to download the Windows scripts and get the PowerShell installation command for the current token. Tenant admins can regenerate the tenant token there; existing agents must be reconfigured after rotation. Super Admins can update or regenerate the installation-wide global agent token from the same page. A random global token is created during fresh database initialization and is stored in the database for tenantless Super Admin installations.
 
 Extract `chargepilot-agent-scripts.zip`, open PowerShell in that folder, and run the displayed command. The installer saves the token in the local agent configuration and registers the recurring scheduled task. The ZIP download requires an authenticated ChargePilot session and does not contain the tenant token.
 
@@ -233,7 +243,13 @@ docker compose config
 docker compose up --build -d
 ```
 
-The Compose stack starts PostgreSQL 16 with persistent storage, waits for database health before starting the app, and runs the app as a non-root user. `/health` reports process liveness; `/ready` checks database connectivity. `docker compose down` preserves database data; `docker compose down -v` deletes it.
+The Compose stack starts PostgreSQL 16, a single-node Kafka broker, the API,
+outbox relay, and automation consumer. Both stateful services use persistent
+volumes; only app ports `8000` and `5173` are published. `/health` reports
+process liveness; `/ready` checks database connectivity. `docker compose down`
+preserves data; `docker compose down -v` deletes database and broker volumes.
+This single-host Compose topology is for development/smoke tests, not the
+10M-device production deployment.
 
 To publish an image to Docker Hub or install/update ChargePilot from a published image, see the [Docker Hub deployment guide](DOCKER_HUB_DEPLOYMENT.md).
 
@@ -245,9 +261,9 @@ Vite serves the frontend on `http://localhost:5173` and proxies application
 requests to FastAPI. Set `CHARGEPILOT_BACKEND_URL` to change the development
 proxy target.
 
-The Docker image builds the React bundle and serves both applications from the
-same container: FastAPI listens on port `8000`, and the React application listens
-on port `5173`. Docker Compose publishes both ports. `CHARGEPILOT_API_URL` and
+The Docker image builds the React bundle and serves FastAPI on port `8000` and
+the React application on port `5173`. Compose runs separate relay and
+automation-worker processes from the same image. `CHARGEPILOT_API_URL` and
 `CHARGEPILOT_FRONTEND_URL` are read when the container starts and injected into
 the frontend at runtime; changing them does not require rebuilding the image.
 Use browser-accessible public URLs, not Docker service names. For example:
@@ -275,12 +291,20 @@ a public HTTPS deployment. Run `npm --prefix frontend run build` to type-check
 and build the frontend independently. No server secrets belong in frontend
 configuration.
 
-The app's startup schema compatibility path creates the connector tables and
-adds the device connector assignment column to older databases. Back up the
-database before upgrading. The repository currently has no versioned Alembic
-revisions; `create_all()` and the compatibility bootstrap are not a general
-schema migration system. Plan and apply a reviewed, versioned migration before
-future production schema changes.
+The app's current schema bootstrap creates tables and runs compatibility SQL;
+it is not a substitute for reviewed, versioned production migrations. New
+outbox and per-endpoint automation-cursor tables are part of the current
+schema.
+
+The requested capacity target is 10 million registered endpoints and 1 million
+active telemetry agents. `scripts/scale_test.py` builds and queries a temporary
+10,000,001-row dataset in a dedicated PostgreSQL database ending in
+`_scale_test`; `tests/scale_telemetry.js` drives configurable live HTTP traffic
+with k6. These are test tools, not evidence of target-scale performance. The
+current app/worker schema is not horizontally sharded, and no 1M-active
+staging benchmark has been run. See the [deployment guide](.github/instructions/DEPLOYMENT.md)
+and [architecture](.github/instructions/ARCHITECTURE.md) for the scale gate
+and Kubernetes starting manifest.
 
 ## Operational observations from the codebase
 
@@ -310,12 +334,17 @@ pytest tests/api/test_device_mapping_crud.py -q
 
 ## Notes for AI agents and future maintainers
 
-This codebase is a compact local automation system, not a distributed SaaS product. The most important design constraints are:
+ChargePilot remains local-first at the device edge while the cloud control
+plane uses asynchronous services. The most important design constraints are:
 
 - local network access is required for Tuya control
 - telemetry auth uses generated bearer tokens for new installations; rotate the legacy `test-endpoint-token` after upgrading an older database
 - device actions depend on the actual switch payload format
 - the rule engine uses hysteresis and a cooldown window to avoid chatter
 - all automation outcomes are persisted in the database as events
+- telemetry HTTP acceptance is asynchronous; inspect the outbox, Kafka lag,
+  dead-letter topic, and connector result before treating an action as done
+- production capacity remains unproven until the documented 10M-row and
+  provisioned live-load tests have been run and reviewed
 
 The technical docs in [.github/instructions](.github/instructions) are meant to serve as the implementation reference for future rebuilds and deeper automated analysis.

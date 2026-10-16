@@ -2,10 +2,14 @@
 
 ## 1. Architectural style
 
-ChargePilot's cloud control plane is a modular monolith implemented in Python
-with FastAPI and PostgreSQL. One site connector runs per physical device LAN.
-The cloud remains a single app/database deployment; connectors make outbound
-HTTPS requests and execute LAN-bound TinyTuya operations locally.
+ChargePilot uses independently deployable API, outbox-relay, and automation
+consumer processes. FastAPI serves the existing management/API surface;
+PostgreSQL owns transactional application state and the telemetry outbox;
+Kafka transports accepted telemetry to automation consumers. The API and
+workers currently share a PostgreSQL schema, so database-per-service ownership
+and horizontal database sharding remain future production-scale work. One site
+connector runs per physical device LAN and executes LAN-bound TinyTuya
+operations locally.
 
 Device communication remains local-first even when the control plane is hosted
 in the cloud. See [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md)
@@ -17,7 +21,9 @@ for the canonical implementation design and deployment boundaries.
 Windows laptop
   -> PowerShell telemetry agent
   -> POST /api/v1/telemetry
-  -> FastAPI validates token, updates endpoint, evaluates mapping/rules
+  -> API validates token, updates endpoint, writes transactional outbox event
+  -> outbox-relay publishes keyed event to Kafka
+  -> automation-consumer evaluates mapping/rules
   -> PostgreSQL persists a desired-state device command
   -> Site connector claims command over outbound HTTPS
   -> TinyTuya controls the assigned device on its LAN
@@ -44,7 +50,7 @@ Populate only the local key; device details and IP come from LAN scan
 
 ### 3.1 API layer
 
-The main router modules are in `app/api/`:
+The HTTP API modules are in `app/api/`:
 
 - `health.py` — liveness and database readiness
 - `auth.py` — authenticated-user profile API
@@ -89,6 +95,8 @@ Current services include:
 - `app/services/smartlife_service.py` — QR login, link polling, session persistence, and normalization
 - `app/services/endpoint_service.py` — endpoint auth validation
 - `app/services/broadcaster.py` — SSE event broadcasting
+- `app/services/automation_processor.py` — idempotent asynchronous rule processing
+- `app/workers.py` — horizontally deployable outbox relay and Kafka consumer
 
 ## 4. Request execution flow
 
@@ -96,15 +104,16 @@ Current services include:
 
 1. The PowerShell agent posts battery and connection telemetry to `/api/v1/telemetry`.
 2. `receive_telemetry()` validates the bearer token and timestamp freshness.
-3. The endpoint is upserted or updated by hostname.
-4. The app loads active mappings for that endpoint.
-5. For connector-assigned switches, the app evaluates confirmed state and
-   queues a durable desired-state command for the assigned connector; the
-   connector performs TinyTuya control on its LAN and acknowledges the result.
-6. For devices without a connector, the retained direct-local control path uses
-   `TuyaService`.
-7. The resulting device state and automation event are persisted.
-8. The UI updates through the API and SSE where subscribed.
+3. Endpoint snapshot and telemetry outbox event commit in one transaction.
+4. One or more outbox relays publish records to Kafka, retaining per-endpoint
+   ordering and allowing safe relay concurrency across distinct endpoints.
+5. A consumer group processes the event, checks its idempotency record, loads
+   mappings, and applies battery hysteresis/cooldown.
+6. Connector-assigned switches receive durable desired-state commands;
+   unassigned local devices use the existing direct TinyTuya path.
+7. The processor records state and audit outcomes. Kafka acknowledgements
+   follow database processing; repeated delivery is guarded by event ID.
+8. The UI reads updated state through the API and receives SSE where subscribed.
 
 ### Device wizard flow
 
@@ -151,7 +160,11 @@ tenants. Command rows use explicit queue/lease/completion states.
 
 ## 6. Database bootstrap and schema compatibility
 
-The database bootstrap is still simple but needs to be resilient:
+The bootstrap creates the current schema, including telemetry outbox and
+per-endpoint automation cursor tables. It remains `create_all()` plus compatibility SQL, not
+a versioned production migration system. The new services still share the
+existing PostgreSQL database; cross-service table ownership and independent
+database scaling are not solved by adding Kafka.
 
 - `create_db_and_tables()` creates tables on startup
 - compatibility checks add missing columns when needed
@@ -196,7 +209,9 @@ The SmartLife bridge handles:
 
 ## 8. Architectural decisions to preserve
 
-- keep the app as a single deployable backend rather than a distributed platform
+- keep API, outbox relay, and automation consumers independently deployable;
+  maintain explicit service boundaries and shared PostgreSQL ownership until
+  per-domain stores are implemented
 - keep Tuya-specific logic behind service abstractions
 - preserve battery thresholds and event logging as core product behavior
 - keep the SmartLife flow isolated from core automation logic
@@ -205,6 +220,23 @@ The SmartLife bridge handles:
   pages, while preserving the Jinja workflows that are not yet migrated
 - reuse `app/static/style.css` semantic tokens and retain coherent light/dark
   themes and the left-aligned authenticated top navigation
+
+### Distributed runtime and capacity limits
+
+The initial target is 10 million registered endpoints and 1 million active
+telemetry sources. Kafka consumer groups can scale automation processing by
+topic partitions; the local Compose broker is single-node development only.
+The current PostgreSQL schema is shared and is not partitioned or sharded for
+the target. The repository's scale harness verifies a temporary PostgreSQL
+dataset above 10 million rows and k6 provides configurable live telemetry
+traffic. Neither is a production-scale benchmark until run against sized,
+multi-node staging infrastructure. Do not publish throughput or availability
+claims without recording the hardware, active endpoint count, cadence, test
+duration, Kafka lag, database utilization, and error/latency percentiles.
+
+Redis is not included by default: event IDs, the outbox, Kafka, and database
+constraints provide current durability/idempotency. Add a cache only after a
+measured read-path bottleneck and explicit invalidation/security design.
 
 ### Shared UI theme and regression coverage
 
