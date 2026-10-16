@@ -4,6 +4,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field
+from pydantic import SecretStr
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -32,6 +33,15 @@ class Settings(BaseSettings):
     frontend_url: str = ""
     session_cookie_secure: bool = False
     session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    kafka_bootstrap_servers: str = "kafka:9092"
+    kafka_security_protocol: Literal["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"] = "PLAINTEXT"
+    kafka_sasl_mechanism: str | None = None
+    kafka_sasl_username: SecretStr | None = None
+    kafka_sasl_password: SecretStr | None = None
+    kafka_ssl_ca_file: str | None = None
+    telemetry_kafka_topic: str = "chargepilot.telemetry.v1"
+    telemetry_dead_letter_topic: str = "chargepilot.telemetry.dlq.v1"
+    telemetry_consumer_group: str = "chargepilot-automation-v1"
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

@@ -1,3 +1,5 @@
+import asyncio
+import json
 from datetime import timedelta
 from datetime import datetime, timezone
 
@@ -42,7 +44,32 @@ def _mock_tuya_service(monkeypatch):
             return {"device_id": device_id, "channel": channel, "success": True, "state": "ON" if on else "OFF"}
 
     monkeypatch.setattr("app.main.TuyaService", FakeTuyaService)
-    monkeypatch.setattr("app.api.telemetry.TuyaService", FakeTuyaService)
+    monkeypatch.setattr("app.services.automation_processor.TuyaService", FakeTuyaService)
+
+
+def _process_telemetry_outbox(session, hostname: str) -> None:
+    from app.models.messaging import TelemetryAutomationCursor, TelemetryOutbox
+    from app.schemas.telemetry import TelemetryPayload
+    from app.services.automation_processor import process_telemetry_event
+
+    events = session.query(TelemetryOutbox).order_by(TelemetryOutbox.created_at).all()
+    for event in events:
+        event_payload = json.loads(event.payload_json)
+        if event_payload["hostname"] != hostname:
+            continue
+        endpoint_id = event_payload.pop("endpoint_id")
+        cursor = session.get(TelemetryAutomationCursor, endpoint_id)
+        if cursor is not None and cursor.last_event_id == event.id:
+            continue
+        asyncio.run(
+            process_telemetry_event(
+                session,
+                event_id=event.id,
+                endpoint_id=endpoint_id,
+                tenant_id=event.tenant_id,
+                payload=TelemetryPayload.model_validate(event_payload),
+            )
+        )
 
 
 def test_ensure_table_columns_adds_missing_device_channel_state_column():
@@ -827,7 +854,7 @@ def test_telemetry_does_not_override_mapping_thresholds_with_agent_switch_state(
         async def set_state(self, device_id, on, channel=1):
             raise AssertionError("Battery below off threshold must not change the switch state.")
 
-    monkeypatch.setattr("app.api.telemetry.TuyaService", FakeTuyaService)
+    monkeypatch.setattr("app.services.automation_processor.TuyaService", FakeTuyaService)
 
     endpoint_response = client.post(
         "/api/v1/telemetry",
@@ -874,6 +901,7 @@ def test_telemetry_does_not_override_mapping_thresholds_with_agent_switch_state(
         },
     )
     assert response.status_code == 200, response.text
+    _process_telemetry_outbox(session, "AGENT-CONTROLLED-ENDPOINT")
 
     updated_device = session.query(DeviceModel).filter(DeviceModel.id == device["id"]).one()
     assert updated_device.current_state is True
@@ -994,6 +1022,7 @@ def test_telemetry_turns_off_mapped_device_when_battery_exceeds_off_threshold(mo
         },
     )
     assert off_response.status_code == 200, off_response.text
+    _process_telemetry_outbox(session, "AUTO-OFF-ENDPOINT")
 
     updated_device = session.query(Device).filter(Device.id == device["id"]).one()
     assert updated_device.current_state is False
@@ -1051,7 +1080,7 @@ def test_telemetry_uses_live_device_status_when_db_state_is_stale(monkeypatch):
         async def set_state(self, device_id, on, channel=1):
             return {"device_id": device_id, "channel": channel, "success": True, "state": "OFF" if not on else "ON"}
 
-    monkeypatch.setattr("app.api.telemetry.TuyaService", FakeTuyaService)
+    monkeypatch.setattr("app.services.automation_processor.TuyaService", FakeTuyaService)
 
     telemetry_response = client.post(
         "/api/v1/telemetry",
@@ -1096,6 +1125,7 @@ def test_telemetry_uses_live_device_status_when_db_state_is_stale(monkeypatch):
         },
     )
     assert second_response.status_code == 200, second_response.text
+    _process_telemetry_outbox(session, "LIVE-STATE-ENDPOINT")
 
     updated_device = session.query(DeviceModel).filter(DeviceModel.id == device["id"]).one()
     assert updated_device.current_state is False

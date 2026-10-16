@@ -1,0 +1,259 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chargepilot-api
+  labels:
+    app.kubernetes.io/name: chargepilot
+    app.kubernetes.io/component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chargepilot
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chargepilot
+        app.kubernetes.io/component: api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: DOCKERHUB_USERNAME/chargepilot@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+          ports:
+            - name: api
+              containerPort: 8000
+            - name: frontend
+              containerPort: 5173
+          envFrom:
+            - secretRef:
+                name: chargepilot-runtime
+          env:
+            - name: CHARGEPILOT_ENVIRONMENT
+              value: "production"
+            - name: CHARGEPILOT_SESSION_COOKIE_SECURE
+              value: "true"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /health
+              port: api
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: api
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: api
+            periodSeconds: 10
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chargepilot
+spec:
+  selector:
+    app.kubernetes.io/name: chargepilot
+    app.kubernetes.io/component: api
+  ports:
+    - name: api
+      port: 8000
+      targetPort: api
+    - name: frontend
+      port: 5173
+      targetPort: frontend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chargepilot-outbox-relay
+  labels:
+    app.kubernetes.io/name: chargepilot
+    app.kubernetes.io/component: outbox-relay
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chargepilot
+      app.kubernetes.io/component: outbox-relay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chargepilot
+        app.kubernetes.io/component: outbox-relay
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-api-schema
+          image: DOCKERHUB_USERNAME/chargepilot@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+          command:
+            - python
+            - -c
+            - "import time,urllib.request; url='http://chargepilot:8000/ready'; exec(\"while True:\\n try:\\n  urllib.request.urlopen(url, timeout=3); break\\n except Exception:\\n  time.sleep(3)\")"
+          envFrom:
+            - secretRef:
+                name: chargepilot-runtime
+      containers:
+        - name: relay
+          image: DOCKERHUB_USERNAME/chargepilot@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+          command: ["python", "-m", "app.workers", "outbox-relay"]
+          envFrom:
+            - secretRef:
+                name: chargepilot-runtime
+          env:
+            - name: CHARGEPILOT_ENVIRONMENT
+              value: "production"
+            - name: CHARGEPILOT_SESSION_COOKIE_SECURE
+              value: "true"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: kafka-ca
+              mountPath: /etc/chargepilot/kafka-ca
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: kafka-ca
+          secret:
+            secretName: chargepilot-kafka-ca
+            optional: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chargepilot-automation
+  labels:
+    app.kubernetes.io/name: chargepilot
+    app.kubernetes.io/component: automation
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chargepilot
+      app.kubernetes.io/component: automation
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chargepilot
+        app.kubernetes.io/component: automation
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-api-schema
+          image: DOCKERHUB_USERNAME/chargepilot@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+          command:
+            - python
+            - -c
+            - "import time,urllib.request; url='http://chargepilot:8000/ready'; exec(\"while True:\\n try:\\n  urllib.request.urlopen(url, timeout=3); break\\n except Exception:\\n  time.sleep(3)\")"
+          envFrom:
+            - secretRef:
+                name: chargepilot-runtime
+      containers:
+        - name: consumer
+          image: DOCKERHUB_USERNAME/chargepilot@sha256:REPLACE_WITH_IMMUTABLE_DIGEST
+          command: ["python", "-m", "app.workers", "automation-consumer"]
+          envFrom:
+            - secretRef:
+                name: chargepilot-runtime
+          env:
+            - name: CHARGEPILOT_ENVIRONMENT
+              value: "production"
+            - name: CHARGEPILOT_SESSION_COOKIE_SECURE
+              value: "true"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "4"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: kafka-ca
+              mountPath: /etc/chargepilot/kafka-ca
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: kafka-ca
+          secret:
+            secretName: chargepilot-kafka-ca
+            optional: true
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: chargepilot-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chargepilot-api
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

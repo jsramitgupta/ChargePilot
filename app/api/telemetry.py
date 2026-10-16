@@ -1,26 +1,19 @@
 import json
-import logging
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.authorization import get_authenticated_user, is_super_admin_user
-from app.models.device import Device, DeviceChannel
 from app.models.endpoint import Endpoint
-from app.models.event import AutomationEvent
-from app.models.mapping import Mapping
+from app.models.messaging import TelemetryOutbox
 from app.models.user import User
 from app.schemas.telemetry import TelemetryPayload, TelemetryResponse
 from app.services.endpoint_service import authenticate_endpoint_token
-from app.services.rule_engine import evaluate_battery_action
-from app.services.tuya_service import TuyaService
-from app.services.connector_service import queue_device_command
-from app.services.broadcaster import publish_event
 
 router = APIRouter(prefix="/telemetry", tags=["telemetry"])
-logger = logging.getLogger("chargepilot.telemetry")
 
 
 @router.get("/stream")
@@ -118,158 +111,23 @@ async def receive_telemetry(
         endpoint.enabled = True
 
     endpoint.updated_at = datetime.now(UTC)
-    db.commit()
-    db.refresh(endpoint)
-
-    mappings = (
-        db.query(Mapping)
-        .filter(
-            Mapping.endpoint_id == endpoint.id,
-            Mapping.tenant_id == endpoint.tenant_id,
-            Mapping.enabled.is_(True),
+    db.flush()
+    event_id = str(uuid4())
+    event_payload = payload.model_dump(mode="json")
+    event_payload["endpoint_id"] = endpoint.id
+    db.add(
+        TelemetryOutbox(
+            id=event_id,
+            tenant_id=endpoint.tenant_id,
+            aggregate_key=f"{endpoint.tenant_id or 'global'}:{endpoint.id}",
+            payload_json=json.dumps(event_payload, separators=(",", ":")),
         )
-        .all()
     )
-
-    for mapping in mappings:
-        device = (
-            db.query(Device)
-            .filter(Device.id == mapping.device_id, Device.tenant_id == endpoint.tenant_id)
-            .first()
-        )
-        if device is None:
-            continue
-
-        channel = None
-        channel_index = 1
-        if mapping.channel_id:
-            channel = (
-                db.query(DeviceChannel)
-                .filter(DeviceChannel.id == mapping.channel_id, DeviceChannel.device_id == device.id)
-                .first()
-            )
-            if channel is not None:
-                channel_index = channel.channel_index
-
-        current_state = bool(channel.current_state) if channel is not None else bool(device.current_state)
-        if not device.connector_id:
-            live_status = await TuyaService.from_device(device).get_status(device.device_id, channel=channel_index)
-            if isinstance(live_status, dict) and "state" in live_status and live_status.get("online", True):
-                current_state = bool(live_status["state"])
-
-        decision = evaluate_battery_action(
-            battery=payload.battery_percentage,
-            current_state=current_state,
-            on_threshold=mapping.on_threshold,
-            off_threshold=mapping.off_threshold,
-            minimum_interval_seconds=mapping.minimum_state_change_interval,
-            last_state_change_at=device.last_state_change_at,
-            now=datetime.now(UTC),
-        )
-
-        if decision == "NO_ACTION":
-            continue
-
-        new_state = decision == "TURN_ON"
-        if decision == "TURN_ON":
-            reason = (
-                f"Battery {payload.battery_percentage}% is at or below "
-                f"the turn-on threshold of {mapping.on_threshold}%."
-            )
-        else:
-            reason = (
-                f"Battery {payload.battery_percentage}% is at or above "
-                f"the turn-off threshold of {mapping.off_threshold}%."
-            )
-
-        if device.connector_id:
-            try:
-                queue_device_command(
-                    db,
-                    device=device,
-                    operation="set_state",
-                    channel_index=channel_index,
-                    channel_id=mapping.channel_id,
-                    desired_state=new_state,
-                    context={
-                        "event_type": decision,
-                        "reason": reason,
-                        "endpoint_id": endpoint.id,
-                        "battery_percentage": payload.battery_percentage,
-                        "previous_state": str(current_state).lower(),
-                        "new_state": str(new_state).lower(),
-                    },
-                )
-                db.commit()
-            except ValueError as exc:
-                db.rollback()
-                logger.warning("Could not queue automation for device %s: %s", device.id, exc)
-                db.add(
-                    AutomationEvent(
-                        tenant_id=endpoint.tenant_id,
-                        event_type=decision,
-                        reason=reason,
-                        endpoint_id=endpoint.id,
-                        device_id=device.id,
-                        channel_id=mapping.channel_id,
-                        battery_percentage=payload.battery_percentage,
-                        previous_state=str(current_state).lower(),
-                        new_state=str(new_state).lower(),
-                        success=False,
-                        error=str(exc)[:255],
-                    )
-                )
-                db.commit()
-            continue
-
-        action_result = await TuyaService.from_device(device).set_state(
-            device_id=device.device_id,
-            on=new_state,
-            channel=channel_index,
-        )
-
-        previous_state = device.current_state
-        success = bool(action_result.get("success", False))
-        if success:
-            device.current_state = new_state
-            device.last_state_change_at = datetime.now(UTC)
-            device.updated_at = datetime.now(UTC)
-            if channel is not None:
-                channel.current_state = new_state
-
-        db.add(
-            AutomationEvent(
-                tenant_id=endpoint.tenant_id,
-                event_type=decision,
-                reason=reason,
-                endpoint_id=endpoint.id,
-                device_id=device.id,
-                channel_id=mapping.channel_id,
-                battery_percentage=payload.battery_percentage,
-                previous_state=str(previous_state).lower(),
-                new_state=str(new_state).lower(),
-                success=success,
-                error=None if success else str(action_result.get("error") or "Local device command failed.")[:255],
-            )
-        )
-        db.commit()
-        # Publish device state change event for SSE clients
-        try:
-            publish_event({
-                "type": "device_state_change",
-                "tenant_id": endpoint.tenant_id,
-                "device_id": device.id,
-                "channel_id": mapping.channel_id,
-                "previous_state": previous_state,
-                "new_state": new_state,
-                "timestamp": datetime.now(UTC).isoformat(),
-            })
-        except Exception:
-            pass
+    db.commit()
 
     return TelemetryResponse(
         status="accepted",
         hostname=payload.hostname,
         battery_percentage=payload.battery_percentage,
-        message="Telemetry accepted and endpoint updated.",
+        message="Telemetry accepted for asynchronous automation processing.",
     )

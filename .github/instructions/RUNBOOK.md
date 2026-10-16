@@ -10,18 +10,23 @@ python -m pip install -e .[dev]
 ```
 
 3. For Compose, copy `.env.example` to `.env` if needed and set unique secret, admin-password, and PostgreSQL-password values. For a manual deployment, configure the `CHARGEPILOT_DATABASE_URL` setting.
-4. Ensure PostgreSQL is available and the database URL is valid. Compose waits for its PostgreSQL health check before starting the app.
-5. Start the app:
+4. Ensure PostgreSQL is available and the database URL is valid. Compose also
+   starts a private single-node Kafka broker for local development.
+5. Start the API, relay, and automation consumer:
+
+```bash
+docker compose up --build -d
+docker compose ps
+```
+
+6. For API-only local development, run:
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-6. Optionally validate with Docker:
-
-```bash
-docker compose up --build -d
-```
+API-only mode stores telemetry in the outbox but requires the separate relay
+and automation worker processes to publish/process it.
 
 ## 2. Important environment variables
 
@@ -37,6 +42,11 @@ From `app/core/config.py`:
 - `CHARGEPILOT_POSTGRES_PASSWORD`
 - `CHARGEPILOT_TELEMETRY_RATE_LIMIT_PER_MINUTE`
 - `CHARGEPILOT_ENDPOINT_OFFLINE_TIMEOUT_SECONDS`
+- `CHARGEPILOT_KAFKA_BOOTSTRAP_SERVERS`
+- `CHARGEPILOT_TELEMETRY_KAFKA_TOPIC`
+- `CHARGEPILOT_TELEMETRY_DEAD_LETTER_TOPIC`
+- `CHARGEPILOT_TELEMETRY_CONSUMER_GROUP`
+- `CHARGEPILOT_KAFKA_SECURITY_PROTOCOL` and SASL/TLS settings for production
 
 The app uses the prefix `CHARGEPILOT_` and ignores extra keys.
 
@@ -57,9 +67,14 @@ A valid telemetry request must include:
 Authorization: Bearer <YOUR_AGENT_TOKEN>
 ```
 
-The app rejects stale payloads older than 10 minutes and accepts only a valid timestamp plus a bearer token.
+The app rejects telemetry older than seven days and accepts only a valid
+timestamp plus a bearer token. HTTP acceptance means the endpoint update and
+outbox event committed; it does not mean automation or device control has
+finished.
 
-The telemetry posting flow is implemented in `app/api/telemetry.py` and can be checked with a request such as:
+The ingress flow is implemented in `app/api/telemetry.py`. The outbox relay
+publishes to Kafka; `app/services/automation_processor.py` is run by the
+automation consumer.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/telemetry \
@@ -81,14 +96,20 @@ curl -X POST http://localhost:8000/api/v1/telemetry \
 
 When a switch command fails or remains pending, check the following in order:
 
-1. Confirm the switch is assigned to the connector physically on its LAN.
-2. Check **Connectors** for an online heartbeat and expected connector version.
-3. Confirm outbound HTTPS from the connector to ChargePilot and local LAN
+1. Check `docker compose ps` and recent logs for `app`, `outbox-relay`, and
+   `automation-worker`.
+2. Check pending rows and age in `telemetry_outbox`; old rows indicate relay
+   backlog or Kafka connectivity issues.
+3. Inspect Kafka consumer lag and the `chargepilot.telemetry.dlq.v1` topic for
+   exhausted/invalid events; do not copy telemetry or tokens into shared logs.
+4. Confirm the switch is assigned to the connector physically on its LAN.
+5. Check **Connectors** for an online heartbeat and expected connector version.
+6. Confirm outbound HTTPS from the connector to ChargePilot and local LAN
    access from the connector to the Tuya switch.
-4. Confirm device IP, protocol version, and channel index.
-5. Inspect `device_commands` for status, attempts, expiry, and sanitized result.
-6. Inspect `automation_events` for the final control outcome.
-7. Review connector logs for failure details only; do not log local keys or
+7. Confirm device IP, protocol version, and channel index.
+8. Inspect `device_commands` for status, attempts, expiry, and sanitized result.
+9. Inspect `automation_events` for the final control outcome.
+10. Review connector logs for failure details only; do not log local keys or
    bearer credentials.
 
 The connector polls every few seconds. Commands expire after five minutes and
@@ -198,3 +219,34 @@ If the app is behaving unexpectedly:
 4. confirm the device and channel IDs are still valid
 5. inspect the `automation_events` table for the last decision and failure message
 6. validate the local Tuya device response payload and channel index
+
+## 12. Scale validation
+
+Never run scale tests against production. For the synthetic PostgreSQL data
+test, provision a disposable database whose name ends in `_scale_test`, set
+`CHARGEPILOT_SCALE_DATABASE_URL`, and run:
+
+```bash
+python scripts/scale_test.py
+```
+
+It creates a temporary table with 10,000,001 rows, verifies an indexed
+tenant/hostname lookup, prints insertion/query timings, and drops the table
+when its connection closes. This validates a database operation, not full app
+capacity.
+
+For live load, use k6 against staging with a test tenant's token:
+
+```bash
+CHARGEPILOT_API_URL=https://staging.example.com \
+CHARGEPILOT_ENDPOINT_TOKEN='<staging-agent-token>' \
+ACTIVE_DEVICE_VUS=1000 \
+TELEMETRY_CADENCE_SECONDS=60 \
+TEST_DURATION=10m \
+k6 run tests/scale_telemetry.js
+```
+
+Increase virtual users only as staging capacity permits. Record active
+endpoints, request rate, latency percentiles, errors, outbox age, Kafka lag,
+database utilization, and completed connector commands. A synthetic 10M-row
+result does not prove 1M active-device throughput.

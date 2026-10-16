@@ -12,6 +12,7 @@ The project currently uses:
 - FastAPI 0.115+
 - SQLAlchemy 2.x
 - PostgreSQL via psycopg
+- Kafka via `aiokafka` for asynchronous telemetry delivery
 - Pydantic + pydantic-settings
 - TinyTuya for local control and discovery
 - httpx-based outbound HTTPS connector runtime
@@ -89,13 +90,18 @@ This is the new critical component for the current state of the product. It hand
 
 This service is effectively the onboarding bridge between mobile app pairing and local Tuya device control.
 
-### 3.7 `app/api/telemetry.py`
+### 3.7 Telemetry API and workers
 
-This is still the core automation route. It validates telemetry, updates endpoint state, resolves mappings, evaluates battery actions, sends local control commands, and writes `AutomationEvent` records.
-
-For connector-assigned devices, it stores desired-state work in PostgreSQL
-instead of attempting to reach private device IPs. It also publishes
-state-change events after confirmed connector results.
+`app/api/telemetry.py` validates telemetry auth/freshness, updates the endpoint
+snapshot, and writes a `TelemetryOutbox` record in the same PostgreSQL
+transaction. `app/workers.py` runs two separate process roles: an outbox relay
+publishes keyed records to Kafka, and a consumer group calls
+`app/services/automation_processor.py` to evaluate rules and create
+desired-state commands. A per-endpoint automation cursor prevents duplicate or
+out-of-order telemetry from reapplying rules after at-least-once redelivery.
+Direct LAN Tuya calls remain worker-side for devices
+without a connector; connector-assigned commands remain durable PostgreSQL
+records.
 
 ### 3.8 `app/services/connector_service.py` and `app/api/connectors.py`
 
@@ -212,9 +218,10 @@ PowerShell agent
   -> POST /api/v1/telemetry
   -> validate bearer token
   -> validate timestamp freshness
-  -> upsert Endpoint row
-  -> load active mappings
-  -> evaluate battery rule using confirmed persisted state
+  -> upsert Endpoint and write TelemetryOutbox in one DB transaction
+  -> outbox-relay publishes ordered endpoint-keyed record to Kafka
+  -> automation-consumer deduplicates by event ID
+  -> load active mappings and evaluate battery rule
   -> persist desired-state command for assigned connector
   -> connector claims and executes locally
   -> acknowledge success/failure
@@ -264,7 +271,10 @@ User clicks Run scan
 - Local LAN control and discovery must remain serial enough to avoid overlapping scan calls.
 - SmartLife polling loops are bounded to a timeout window and may refresh QR if the token fails immediately.
 - Device metadata can vary widely across Tuya firmware and device families.
-- The app deliberately favors a single-process monolith over distributed orchestration.
+- Kafka consumers use at-least-once delivery; keep event processing and
+  explicit desired-state commands idempotent across worker restarts.
+- The API and workers currently share one PostgreSQL schema. Database ownership,
+  sharding, and 10-million-device performance are not yet validated.
 
 ## 7. Security and resilience notes
 
@@ -282,6 +292,16 @@ The repo includes a small but important validation set:
 - threshold behavior and hysteresis rules: `tests/unit/test_rule_engine.py`
 - API and mapping CRUD behavior: `tests/api/test_device_mapping_crud.py`
 - additional Tuya-related checks under `tests/unit` and `tests/integration`
+- outbox persistence and duplicate-event processing: `tests/api/test_telemetry_api.py`
+  and `tests/unit/test_automation_processor.py`
+- a temporary PostgreSQL synthetic dataset above 10 million endpoint rows:
+  `scripts/scale_test.py` (uses a dedicated database name ending `_scale_test`)
+- configurable live telemetry traffic: `tests/scale_telemetry.js` (k6)
+
+The 10M row and k6 tools are scale-test harnesses, not a claim that 10M live
+devices have been benchmarked. Run them on provisioned staging infrastructure
+and record the environment, throughput, percentiles, Kafka lag, and database
+load before publishing capacity claims.
 
 These tests are the baseline regression suite for the core automation path and should be preserved when rebuilding or refactoring.
 
@@ -291,5 +311,7 @@ These tests are the baseline regression suite for the core automation path and s
 - Keep `SmartLifeService` isolated from the database layer if possible.
 - Treat local key recovery and device discovery as first-class onboarding steps, not afterthoughts.
 - Keep event logging and device state updates durable and visible.
-- Keep the cloud control plane modular and simple; do not add a broker or VPN
-  until measured scale or latency needs justify it.
+- Kafka carries telemetry events only; PostgreSQL remains the command-of-record
+  store and connectors still use outbound HTTPS polling.
+- Redis is not a required runtime dependency; add it only for a measured,
+  well-scoped cache/rate-limit need, not as a second source of truth.
