@@ -39,9 +39,13 @@ files change on `main`.
 
 The k3s manifests are in `deploy/k3s/`; the ArgoCD Application is
 `deploy/argocd/chargepilot.yaml`. The deployment uses
-`app.endusercompute.in` for the frontend and `api.endusercompute.in` for the
-JSON API, Windows agent, and downloads. Before applying the ArgoCD
-Application:
+`console-chargepilot.endusercompute.in` for the frontend and
+`api-chargepilot.endusercompute.in` for the JSON API, Windows agent, and
+downloads. Configure both DNS/proxy hosts to the existing public ingress and
+ensure public HTTPS is terminated by the edge proxy or configured at ingress.
+The checked-in Istio Gateway currently accepts HTTP on port 80, so configure a
+TLS origin at the ingress before selecting strict HTTPS-to-origin validation.
+Before applying the ArgoCD Application:
 
 1. Merge the CI/CD and deployment changes to `main`, then wait for CI, image
    publish, and the GitOps tag update to succeed.
@@ -50,14 +54,12 @@ Application:
    admin secrets, public browser origins, and Kafka settings. Use the same
    URL-safe PostgreSQL password in both the URL and
    `CHARGEPILOT_POSTGRES_PASSWORD`.
-3. Create the `chargepilot-ingress-tls` Secret in `istio-system` with a
-   Cloudflare Origin Certificate covering both hostnames. Never commit the
-   private key.
-4. Apply `deploy/argocd/chargepilot.yaml`; ArgoCD will sync the app and future
+3. Apply `deploy/argocd/chargepilot.yaml`; ArgoCD will sync the app and future
    successful main-branch image updates automatically.
-5. In Cloudflare, create proxied DNS records for both hostnames to the public
-   address that forwards TCP 443 to the Istio ingress gateway, and set
-   encryption to **Full (strict)**.
+4. In Cloudflare, create proxied DNS records for both hostnames to the public
+   address that forwards traffic to the ingress. Select a TLS mode compatible
+   with the configured origin; use **Full (strict)** only after configuring a
+   trusted origin certificate and TLS listener.
 
 See `.github/instructions/DEPLOYMENT.md` for exact Secret keys, commands,
 health checks, and recovery guidance.

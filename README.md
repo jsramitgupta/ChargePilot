@@ -252,7 +252,8 @@ The `ChargePilot CI` workflow runs backend tests/lint and frontend lint/build on
 pull requests and main commits. Successful main CI builds a multi-platform
 `endusercompute/chargepilot:sha-<full-commit-sha>` image and updates the
 ArgoCD-deployed k3s manifests. The UI hostname is
-`app.endusercompute.in`; API and telemetry use `api.endusercompute.in`. See the
+`console-chargepilot.endusercompute.in`; API and telemetry use
+`api-chargepilot.endusercompute.in`. See the
 [Docker Hub and k3s deployment guide](DOCKER_HUB_DEPLOYMENT.md) for required
 GitHub/Docker Hub setup, Cloudflare TLS, ArgoCD bootstrap, and single-node
 storage limitations.

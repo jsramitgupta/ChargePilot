@@ -134,10 +134,12 @@ completion before considering telemetry fully processed.
 
 The GitOps manifests live in `deploy/k3s/`; `deploy/argocd/chargepilot.yaml`
 defines the ArgoCD Application. The deployment exposes the UI at
-`https://app.endusercompute.in` and the JSON API and downloads at
-`https://api.endusercompute.in`. Istio redirects HTTP to HTTPS and
-terminates TLS on the existing ingress gateway using the
-`chargepilot-ingress-tls` Secret in `istio-system`.
+`https://console-chargepilot.endusercompute.in` and the JSON API and downloads
+at `https://api-chargepilot.endusercompute.in`. Create DNS/proxy records for
+both hosts that route to the existing public ingress. The checked-in Istio
+Gateway accepts HTTP on port 80; public TLS must be terminated by the existing
+edge proxy or explicitly configured at the ingress before HTTPS traffic reaches
+the cluster. Keep the browser-facing origins HTTPS.
 
 The checked-in k3s topology is sized for a single-node installation: one API,
 relay, automation consumer, PostgreSQL StatefulSet, and single-node Kafka
@@ -188,8 +190,8 @@ CHARGEPILOT_SECRET_KEY=<unique_random_secret_at_least_32_characters>
 CHARGEPILOT_ENCRYPTION_KEY=<unique_random_value_at_least_32_characters>
 CHARGEPILOT_ADMIN_USERNAME=admin
 CHARGEPILOT_ADMIN_PASSWORD=<unique_strong_password>
-CHARGEPILOT_API_URL=https://api.endusercompute.in
-CHARGEPILOT_FRONTEND_URL=https://app.endusercompute.in
+CHARGEPILOT_API_URL=https://api-chargepilot.endusercompute.in
+CHARGEPILOT_FRONTEND_URL=https://console-chargepilot.endusercompute.in
 CHARGEPILOT_SESSION_COOKIE_SECURE=true
 CHARGEPILOT_SESSION_COOKIE_SAMESITE=lax
 CHARGEPILOT_KAFKA_BOOTSTRAP_SERVERS=chargepilot-kafka.chargepilot.svc.cluster.local:9092
@@ -215,16 +217,10 @@ sudo kubectl -n chargepilot create secret generic chargepilot-runtime \
   --from-env-file=.env.k3s --dry-run=client -o yaml | sudo kubectl apply -f -
 ```
 
-Create a Cloudflare Origin Certificate for both hostnames (or use another
-certificate trusted by your clients) and keep its private key out of the repo.
-With the certificate and key available as local files, create the secret used
-by the Istio gateway:
-
-```bash
-sudo kubectl -n istio-system create secret tls chargepilot-ingress-tls \
-  --cert=origin-cert.pem --key=origin-key.pem \
-  --dry-run=client -o yaml | sudo kubectl apply -f -
-```
+Configure the DNS provider or edge proxy for both hostnames and ensure its TLS
+mode matches the origin connection. The current Istio Gateway manifest accepts
+HTTP only; do not select strict HTTPS-to-origin validation unless TLS is
+configured on the ingress with a matching certificate.
 
 Only after the first successful Docker publish has updated the image tag, add
 the ArgoCD Application:

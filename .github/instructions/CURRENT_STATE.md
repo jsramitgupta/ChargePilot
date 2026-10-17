@@ -96,8 +96,10 @@ tests/lint and frontend lint/build) and
 `.github/workflows/publish-deploy.yml` (multi-platform Docker Hub publish and
 ArgoCD image-tag update after successful main CI). App images use the immutable
 `endusercompute/chargepilot:sha-<full-commit-sha>` format. The k3s manifests
-under `deploy/k3s/` configure Istio routes for `app.endusercompute.in` and
-`api.endusercompute.in`; ArgoCD bootstrapping is under `deploy/argocd/`.
+under `deploy/k3s/` configure Istio routes for
+`console-chargepilot.endusercompute.in` and `api-chargepilot.endusercompute.in`;
+runtime frontend and API origins use HTTPS on those hosts. ArgoCD bootstrapping
+is under `deploy/argocd/`.
 The checked-in k3s PostgreSQL and Kafka services are single-replica,
 single-node starting components and are not highly available.
 
