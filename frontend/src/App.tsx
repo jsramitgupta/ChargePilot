@@ -216,18 +216,6 @@ type EventPage = {
   last_row: number
 }
 
-type DeviceFormValues = {
-  name: string
-  device_id: string
-  ip_address?: string
-  device_type?: string
-  protocol_version?: string
-  encrypted_local_key: string
-  enabled?: boolean
-  channel_count: number
-  connector_id: string
-}
-
 const deviceSchema = z.object({
   name: z.string().min(1, 'Display name is required'),
   device_id: z.string().min(1, 'Device ID is required'),
@@ -239,6 +227,9 @@ const deviceSchema = z.object({
   channel_count: z.number().int().min(1).max(8),
   connector_id: z.string().default(''),
 })
+
+type DeviceFormInput = z.input<typeof deviceSchema>
+type DeviceFormValues = z.output<typeof deviceSchema>
 
 const API_BASE_URL = (
   window.CHARGEPILOT_CONFIG?.apiBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? ''
@@ -836,7 +827,7 @@ function DevicesPage() {
     queryFn: () => apiFetch<Connector[]>('/api/v1/connectors'),
   })
 
-  const form = useForm<DeviceFormValues>({
+  const form = useForm<DeviceFormInput, unknown, DeviceFormValues>({
     resolver: zodResolver(deviceSchema),
     defaultValues: {
       name: '',
