@@ -28,3 +28,21 @@ def test_light_and_dark_themes_share_chargepilot_design_tokens():
     assert "#c98338" in light
     assert "body.theme-dark" in dark
     assert "prefers-reduced-motion" in light
+
+
+def test_mapping_wizard_and_switch_inventory_have_tenant_safe_theme_support():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    dark = DARK_THEME.read_text(encoding="utf-8")
+
+    assert "Choose laptop" in app
+    assert "Choose switch" in app
+    assert "Set battery rules" in app
+    assert "switch-filter-group" in app
+    assert "switch-view-toggle" in app
+    assert "connector.tenant_id === device.tenant_id" in app
+    assert "channel_id: channelId || null" in app
+    assert ".mapping-stepper" in light
+    assert ".switch-inventory-grid" in light
+    assert "body.theme-dark .mapping-builder" in dark
+    assert "body.theme-dark .switch-route-warning" in dark

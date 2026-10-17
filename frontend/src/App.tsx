@@ -6,7 +6,10 @@ import {
   Building2,
   Cable,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleDashed,
+  List,
   KeyRound,
   LayoutGrid,
   LogIn,
@@ -17,6 +20,7 @@ import {
   Network,
   PlugZap,
   Plus,
+  Search,
   ShieldCheck,
   Sun,
   Users,
@@ -221,6 +225,7 @@ type DeviceFormValues = {
   encrypted_local_key: string
   enabled?: boolean
   channel_count: number
+  connector_id: string
 }
 
 const deviceSchema = z.object({
@@ -232,6 +237,7 @@ const deviceSchema = z.object({
   encrypted_local_key: z.string().min(1, 'Local key is required'),
   enabled: z.boolean().default(true),
   channel_count: z.number().int().min(1).max(8),
+  connector_id: z.string().default(''),
 })
 
 const API_BASE_URL = (
@@ -790,6 +796,9 @@ function DevicesPage() {
   const queryClient = useQueryClient()
   const { data: user } = useSession()
   const [manualOpen, setManualOpen] = useState(false)
+  const [switchView, setSwitchView] = useState<'cards' | 'list'>('cards')
+  const [switchFilter, setSwitchFilter] = useState<'all' | 'on' | 'off' | 'unassigned'>('all')
+  const [switchSearch, setSwitchSearch] = useState('')
   const [smartLifeOpen, setSmartLifeOpen] = useState(false)
   const [scanLocation, setScanLocation] = useState('server')
   const [discovered, setDiscovered] = useState<LanDevice[]>([])
@@ -838,12 +847,25 @@ function DevicesPage() {
       encrypted_local_key: '',
       enabled: true,
       channel_count: 1,
+      connector_id: '',
+    },
+  })
+
+  const connectorMutation = useMutation({
+    mutationFn: ({ deviceId, connectorId }: { deviceId: string; connectorId: string }) =>
+      apiFetch<{ message: string }>(`/api/v1/devices/${deviceId}/connector`, {
+        method: 'PUT',
+        body: JSON.stringify({ connector_id: connectorId || null }),
+      }),
+    onSuccess: ({ message }) => {
+      setStatusMessage(message)
+      queryClient.invalidateQueries({ queryKey: ['devices'] })
     },
   })
 
   const mutation = useMutation({
     mutationFn: async (values: DeviceFormValues) => {
-      const { channel_count, ...devicePayload } = values
+      const { channel_count, connector_id, ...devicePayload } = values
       const device = await apiFetch<Device>('/api/v1/devices', {
         method: 'POST',
         body: JSON.stringify(devicePayload),
@@ -859,15 +881,17 @@ function DevicesPage() {
           }),
         })
       }
-      return device
+      return { device, connectorId: connector_id }
     },
-    onSuccess: () => {
+    onSuccess: ({ device, connectorId }) => {
       queryClient.invalidateQueries({ queryKey: ['devices'] })
       form.reset()
       setManualOpen(false)
       setSelectedLanDeviceId('')
       setStatusMessage('Switch added.')
+      if (connectorId) connectorMutation.mutate({ deviceId: device.id, connectorId })
     },
+    onError: () => queryClient.invalidateQueries({ queryKey: ['devices'] }),
   })
   const scanMutation = useMutation({
     mutationFn: () => {
@@ -883,10 +907,10 @@ function DevicesPage() {
     onSuccess: (result) => setDiscovered(result.devices),
   })
   const switchMutation = useMutation({
-    mutationFn: async ({ deviceId, channelId, desiredState }: { deviceId: string; channelId: string; desiredState: boolean }) => {
+    mutationFn: async ({ deviceId, channelId, desiredState }: { deviceId: string; channelId: string | null; desiredState: boolean }) => {
       const result = await apiFetch<{ status: string; command_id?: string; message?: string }>(`/api/v1/devices/${deviceId}/state`, {
         method: 'POST',
-        body: JSON.stringify({ channel_id: channelId, desired_state: desiredState }),
+        body: JSON.stringify({ channel_id: channelId || null, desired_state: desiredState }),
       })
       if (result.command_id) await waitForConnectorCommands([{ id: result.command_id }])
       return result.message ?? `Switch turned ${desiredState ? 'on' : 'off'}.`
@@ -895,17 +919,6 @@ function DevicesPage() {
       setStatusMessage(message)
       queryClient.invalidateQueries({ queryKey: ['devices'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-    },
-  })
-  const connectorMutation = useMutation({
-    mutationFn: ({ deviceId, connectorId }: { deviceId: string; connectorId: string }) =>
-      apiFetch<{ message: string }>(`/api/v1/devices/${deviceId}/connector`, {
-        method: 'PUT',
-        body: JSON.stringify({ connector_id: connectorId || null }),
-      }),
-    onSuccess: ({ message }) => {
-      setStatusMessage(message)
-      queryClient.invalidateQueries({ queryKey: ['devices'] })
     },
   })
   const deleteMutation = useMutation({
@@ -987,6 +1000,20 @@ function DevicesPage() {
 
   const channelCount = data?.devices.reduce((total, device) => total + (device.channels?.length ?? 0), 0) ?? 0
   const canManageConnectors = user?.role === 'super_admin' || user?.role === 'tenant_admin' || user?.role === 'manager'
+  const setupConnectors = connectors.filter((connector) => (
+    connector.is_active && connector.is_enrolled && connector.tenant_id === user?.tenant_id
+  ))
+  const onlineSetupConnectors = setupConnectors.filter((connector) => connector.is_online)
+  const filteredDevices = (data?.devices ?? []).filter((device) => {
+    const matchesSearch = `${device.name} ${device.device_id} ${device.ip_address ?? ''}`
+      .toLocaleLowerCase()
+      .includes(switchSearch.trim().toLocaleLowerCase())
+    const matchesState = switchFilter === 'all'
+      || (switchFilter === 'on' && device.current_state)
+      || (switchFilter === 'off' && !device.current_state)
+      || (switchFilter === 'unassigned' && !device.connector_id)
+    return matchesSearch && matchesState
+  })
 
   return (
     <div className="space-y-6">
@@ -1030,8 +1057,9 @@ function DevicesPage() {
                   form.setValue('device_type', device.device_type || 'switch')
                   form.setValue('protocol_version', device.protocol_version || '3.5')
                   form.setValue('encrypted_local_key', '')
-                  setManualOpen(true)
-                    }}>{device.already_added ? 'Added' : 'Use device'}</button></div>
+                form.setValue('connector_id', onlineSetupConnectors.length === 1 ? onlineSetupConnectors[0].id : '')
+                setManualOpen(true)
+                  }}>{device.already_added ? 'Added' : 'Use device'}</button></div>
                     {device.already_added && <p className="mt-2 text-xs text-slate-500">This device is already configured.</p>}
                   </article>)}
             </div>}
@@ -1043,45 +1071,104 @@ function DevicesPage() {
       <section className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-[0_20px_40px_rgba(15,23,42,0.04)] sm:p-6">
         <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div><p className="text-[11px] font-bold uppercase tracking-[0.24em] text-slate-500">Add</p><h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Add a switch</h2><p className="mt-2 text-sm leading-6 text-slate-500">Select a scan result or enter its local connection details.</p></div>
-          <button type="button" className="btn-secondary" onClick={() => { setSelectedLanDeviceId(''); setManualOpen((open) => !open) }}>{manualOpen ? 'Close form' : 'Add switch manually'}</button>
+          <button type="button" className="btn-secondary" onClick={() => {
+            setSelectedLanDeviceId('')
+            setManualOpen((open) => {
+              if (!open) form.setValue('connector_id', onlineSetupConnectors.length === 1 ? onlineSetupConnectors[0].id : '')
+              return !open
+            })
+          }}>{manualOpen ? 'Close setup' : 'Add switch manually'}</button>
         </div>
         {statusMessage && <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
         {(mutation.isError || switchMutation.isError || connectorMutation.isError || deleteMutation.isError) && <div className="mb-4"><ErrorCard message={mutation.error?.message ?? switchMutation.error?.message ?? connectorMutation.error?.message ?? deleteMutation.error?.message ?? 'The action failed.'} /></div>}
         {manualOpen && <form className="grid gap-4 border-t border-slate-200 pt-5 md:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+          <div className="md:col-span-2"><p className="switch-setup-step"><span>1</span> Identify the switch</p></div>
           <div><label className="label" htmlFor="device-name">Display name</label><input id="device-name" className="field" placeholder="Living room plug" {...form.register('name')} />{form.formState.errors.name && <FieldError>{form.formState.errors.name.message}</FieldError>}</div>
           <div><label className="label" htmlFor="device-id">Device ID</label><input id="device-id" className="field" {...form.register('device_id')} />{form.formState.errors.device_id && <FieldError>{form.formState.errors.device_id.message}</FieldError>}</div>
           <div><label className="label" htmlFor="device-ip">Local IP address</label><input id="device-ip" className="field" placeholder="192.168.0.50" {...form.register('ip_address')} /></div>
           <div><label className="label" htmlFor="device-type">Device type</label><input id="device-type" className="field" {...form.register('device_type')} /></div>
           <div><label className="label" htmlFor="device-protocol">Protocol version</label><input id="device-protocol" className="field" {...form.register('protocol_version')} /></div>
-          <div><label className="label" htmlFor="device-key">Local key</label><button type="button" className="ml-2 text-xs font-semibold text-emerald-800 underline" onClick={() => setSmartLifeOpen(true)}>Fetch with Smart Life</button><input id="device-key" type="password" autoComplete="new-password" className="field" placeholder="Blank until entered or retrieved" {...form.register('encrypted_local_key')} />{form.formState.errors.encrypted_local_key && <FieldError>{form.formState.errors.encrypted_local_key.message}</FieldError>}<p className="mt-1.5 text-xs leading-5 text-slate-500">The key is kept blank until entered or matched from Smart Life.</p></div>
+          <div className="md:col-span-2"><p className="switch-setup-step"><span>2</span> Add local access details</p></div>
+          <div><label className="label" htmlFor="device-key">Local key</label><button type="button" className="ml-2 text-xs font-semibold text-brand-600 underline" onClick={() => setSmartLifeOpen(true)}>Fetch with Smart Life</button><input id="device-key" type="password" autoComplete="new-password" className="field" placeholder="Blank until entered or retrieved" {...form.register('encrypted_local_key')} />{form.formState.errors.encrypted_local_key && <FieldError>{form.formState.errors.encrypted_local_key.message}</FieldError>}<p className="mt-1.5 text-xs leading-5 text-slate-500">The key is kept blank until entered or matched from Smart Life.</p></div>
           <div><label className="label" htmlFor="channel-count">Number of channels</label><select id="channel-count" className="field" {...form.register('channel_count', { valueAsNumber: true })}>{Array.from({ length: 8 }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count} channel{count > 1 ? 's' : ''}</option>)}</select></div>
-          <div className="flex items-end"><button type="submit" className="btn-primary w-full" disabled={mutation.isPending}><Plus size={16} className="mr-2" />{mutation.isPending ? 'Adding switch…' : 'Add switch'}</button></div>
+          <div className="md:col-span-2"><p className="switch-setup-step"><span>3</span> Choose where commands run</p></div>
+          <div className="md:col-span-2">
+            <label className="label" htmlFor="new-device-connector">Control this switch through</label>
+            <select id="new-device-connector" className="field" {...form.register('connector_id')}>
+              <option value="">ChargePilot host · local network only</option>
+              {setupConnectors.map((connector) => <option key={connector.id} value={connector.id}>{connector.name} · {connector.is_online ? 'online' : 'offline'}</option>)}
+            </select>
+            {setupConnectors.length ? (
+              <p className="switch-route-help">Choose the site connector that shares this switch’s LAN. An offline connector can be assigned, but won’t control the switch until it reconnects.</p>
+            ) : (
+              <p className="switch-route-warning">No enrolled connector is available for this tenant. The ChargePilot host option works only when the API host can reach the switch directly. <NavLink to="/connectors">Set up a site connector</NavLink>.</p>
+            )}
+          </div>
+          <div className="md:col-span-2 flex justify-end"><button type="submit" className="btn-primary" disabled={mutation.isPending}><Plus size={16} className="mr-2" />{mutation.isPending ? 'Adding switch…' : 'Save switch setup'}</button></div>
         </form>}
       </section>
 
-      <section className="rounded-[28px] border border-slate-200 bg-white/80 p-5 sm:p-6">
-        <div className="mb-5 flex items-center justify-between"><div><p className="text-[11px] font-bold uppercase tracking-[0.24em] text-slate-500">Overview</p><h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Configured switches</h2></div><span className="badge border-slate-200 bg-slate-50 text-slate-600">Live</span></div>
+      <section className="switch-inventory" aria-labelledby="switch-inventory-title">
+        <div className="switch-inventory-heading">
+          <div><p className="switch-section-caption">Your device inventory</p><h2 id="switch-inventory-title">Configured switches</h2><p>Check live state, connection route, and channel controls.</p></div>
+          <span className="switch-inventory-count">{filteredDevices.length}<small>showing</small></span>
+        </div>
         {error && <div className="mb-4"><ErrorCard message={`Could not refresh switch status: ${error.message}`} /></div>}
-        {!!data?.skippedDevices.length && <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">{data.skippedDevices.length} switch(es) could not be checked. Assign an active, online site connector to refresh their live status.</p>}
-        <div className="grid gap-4 lg:grid-cols-2">
-          {data?.devices.map((device) => <article key={device.id} className="switch-device-card rounded-[24px] border border-slate-200 p-4" data-state={device.current_state ? 'on' : 'off'}>
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="min-w-0"><div className="flex items-center gap-3"><span className={`switch-state-light ${device.current_state ? 'is-on' : ''}`} aria-hidden="true" /><h3 className="truncate text-[22px] font-bold tracking-tight text-slate-900">{device.name}</h3><span className="switch-state-label">{device.current_state ? 'ON' : 'OFF'}</span></div>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-500"><span className="rounded-full bg-blue-50 px-2 py-1 font-medium text-blue-700">Tenant · {device.tenant_name ?? 'Unassigned'}</span><span className="rounded-full bg-slate-100 px-2 py-1">{device.device_type || 'default'}</span><span className="rounded-full bg-slate-100 px-2 py-1">{device.ip_address || 'n/a'}</span><span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">{device.channels?.length ?? 0} channel{device.channels?.length === 1 ? '' : 's'}</span><span className={`rounded-full px-2 py-1 ${connectors.find((connector) => connector.id === device.connector_id)?.is_online ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>{device.connector_id ? `${connectors.find((connector) => connector.id === device.connector_id)?.name ?? 'Site connector'} · ${connectors.find((connector) => connector.id === device.connector_id)?.is_online ? 'online' : 'offline'}` : 'No site connector'}</span><span className="text-xs">Checked {formatTimestamp(device.last_seen_at ?? null)}</span></div>
+        {!!data?.skippedDevices.length && <p className="switch-inventory-alert" role="status">{data.skippedDevices.length} switch{data.skippedDevices.length === 1 ? '' : 'es'} could not return live status. Check each switch’s assigned site connector and its heartbeat.</p>}
+        <div className="switch-inventory-tools">
+          <label className="switch-search" htmlFor="switch-search"><Search size={17} /><input id="switch-search" value={switchSearch} onChange={(event) => setSwitchSearch(event.target.value)} placeholder="Find a switch" /></label>
+          <div className="switch-filter-group" role="group" aria-label="Filter switches">
+            {([
+              ['all', 'All'],
+              ['on', 'On'],
+              ['off', 'Off'],
+              ['unassigned', 'Needs connector'],
+            ] as const).map(([value, label]) => <button key={value} type="button" className={switchFilter === value ? 'is-active' : ''} aria-pressed={switchFilter === value} onClick={() => setSwitchFilter(value)}>{label}{value === 'all' ? ` · ${data?.devices.length ?? 0}` : value === 'unassigned' ? ` · ${data?.devices.filter((device) => !device.connector_id).length ?? 0}` : ''}</button>)}
+          </div>
+          <div className="switch-view-toggle" role="group" aria-label="Switch layout">
+            <button type="button" className={switchView === 'cards' ? 'is-active' : ''} aria-label="Card view" aria-pressed={switchView === 'cards'} onClick={() => setSwitchView('cards')}><LayoutGrid size={17} /></button>
+            <button type="button" className={switchView === 'list' ? 'is-active' : ''} aria-label="List view" aria-pressed={switchView === 'list'} onClick={() => setSwitchView('list')}><List size={17} /></button>
+          </div>
+        </div>
+        <div className={`switch-inventory-grid ${switchView === 'list' ? 'is-list-view' : ''}`}>
+          {filteredDevices.map((device) => {
+            const assignedConnector = connectors.find((connector) => connector.id === device.connector_id)
+            const assignableConnectors = connectors.filter((connector) => (
+              connector.is_active && connector.is_enrolled && connector.tenant_id === device.tenant_id
+            ))
+            return <article key={device.id} className={`switch-device-card ${switchView === 'list' ? 'is-list-card' : ''}`} data-state={device.current_state ? 'on' : 'off'}>
+              <div className="switch-card-heading">
+                <div className="min-w-0">
+                  <div className="switch-card-title"><span className={`switch-state-light ${device.current_state ? 'is-on' : ''}`} aria-hidden="true" /><h3>{device.name}</h3><span className={`switch-state-label ${device.current_state ? 'is-on' : ''}`}>{device.current_state ? 'On' : 'Off'}</span></div>
+                  <p className="switch-card-tenant">{device.tenant_name ?? 'Unassigned tenant'}</p>
+                </div>
+                <span className={`switch-route-status ${assignedConnector?.is_online ? 'is-online' : device.connector_id ? 'is-offline' : 'is-unassigned'}`}>
+                  {device.connector_id ? `${assignedConnector?.name ?? 'Site connector'} · ${assignedConnector?.is_online ? 'online' : 'offline'}` : 'No connector assigned'}
+                </span>
               </div>
-            </div>
-            {!!device.channels?.length && <div className="channel-panel mt-4 space-y-2">{device.channels.map((channel) => <div key={channel.id} className="switch-channel-row flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-3 py-2.5">
-              <div className="flex items-center gap-3"><span className="channel-number rounded-full bg-slate-900 px-2 py-1 text-[9px] font-bold text-white">{channel.channel_index}</span><span className="text-sm font-medium text-slate-700">{channel.name}</span><span className="channel-state-label">{channel.current_state ? 'On' : 'Off'}</span></div>
-              <button type="button" className="btn-secondary px-3 py-2 text-xs" disabled={switchMutation.isPending} aria-label={`Turn ${channel.current_state ? 'off' : 'on'} ${channel.name}`} onClick={() => switchMutation.mutate({ deviceId: device.id, channelId: channel.id, desiredState: !channel.current_state })}>{channel.current_state ? 'Turn off' : 'Turn on'}</button>
-            </div>)}</div>}
-            {canManageConnectors && <form className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4" onSubmit={(event) => { event.preventDefault(); const body = new FormData(event.currentTarget); connectorMutation.mutate({ deviceId: device.id, connectorId: String(body.get('connector_id') ?? '') }) }}>
-              <label className="text-xs font-semibold text-slate-600" htmlFor={`connector-${device.id}`}>Control on site</label>
-              <select id={`connector-${device.id}`} name="connector_id" className="field min-w-44 flex-1 py-2 text-xs" defaultValue={device.connector_id ?? ''}><option value="">ChargePilot host (local setup only)</option>{connectors.filter((connector) => connector.is_active && connector.is_enrolled && connector.tenant_id === user?.tenant_id).map((connector) => <option key={connector.id} value={connector.id}>{connector.name}</option>)}</select>
-              <button type="submit" className="btn-secondary px-3 py-2 text-xs" disabled={connectorMutation.isPending}>Save</button>
-            </form>}
-            <div className="mt-4 flex justify-end"><button type="button" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100" disabled={deleteMutation.isPending} onClick={() => { if (window.confirm('Delete this switch and all associated channels? This action cannot be undone.')) deleteMutation.mutate(device.id) }}>Delete switch</button></div>
-          </article>)}
-          {!data?.devices.length && <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center text-sm text-slate-500 lg:col-span-2">No switches configured yet. Scan your network or add a switch above to get started.</div>}
+              <div className="switch-device-facts"><span>{device.device_type || 'Switch'}</span><span>{device.ip_address || 'IP not set'}</span><span>{device.channels?.length ?? 0} channel{device.channels?.length === 1 ? '' : 's'}</span><span>Last checked {formatTimestamp(device.last_seen_at ?? null)}</span></div>
+              {!device.connector_id && <p className="switch-route-warning switch-unassigned-warning" role="status">Commands currently run from the ChargePilot host. In k3s or cloud hosting, assign a site connector on this switch’s LAN.</p>}
+              {!!device.channels?.length ? <div className="channel-panel">{device.channels.map((channel) => <div key={channel.id} className="switch-channel-row">
+                <div className="switch-channel-name"><span className="channel-number">{channel.channel_index}</span><span>{channel.name}</span><span className={`channel-state-label ${channel.current_state ? 'is-on' : ''}`}>{channel.current_state ? 'On' : 'Off'}</span></div>
+                <button type="button" className="btn-secondary px-3 py-2 text-xs" disabled={switchMutation.isPending} aria-label={`Turn ${channel.current_state ? 'off' : 'on'} ${channel.name}`} onClick={() => switchMutation.mutate({ deviceId: device.id, channelId: channel.id, desiredState: !channel.current_state })}>{channel.current_state ? 'Turn off' : 'Turn on'}</button>
+              </div>)}</div> : <div className="switch-card-actions">
+                <span className="channel-state-label">Whole switch</span>
+                <button type="button" className="btn-secondary px-3 py-2 text-xs" disabled={switchMutation.isPending} onClick={() => switchMutation.mutate({ deviceId: device.id, channelId: '', desiredState: !device.current_state })}>{device.current_state ? 'Turn off' : 'Turn on'}</button>
+              </div>}
+              {canManageConnectors && <form className="switch-route-editor" onSubmit={(event) => { event.preventDefault(); const body = new FormData(event.currentTarget); connectorMutation.mutate({ deviceId: device.id, connectorId: String(body.get('connector_id') ?? '') }) }}>
+                <div className="switch-route-editor-copy"><strong>Command route</strong><small>{device.connector_id ? 'Commands are sent to the selected site.' : 'Choose a site connector to control this switch remotely.'}</small></div>
+                <label className="sr-only" htmlFor={`connector-${device.id}`}>Select a command route for {device.name}</label>
+                <select id={`connector-${device.id}`} name="connector_id" className="field" defaultValue={device.connector_id ?? ''}>
+                  <option value="">ChargePilot host · local network only</option>
+                  {assignableConnectors.map((connector) => <option key={connector.id} value={connector.id}>{connector.name} · {connector.is_online ? 'online' : 'offline'}</option>)}
+                </select>
+                <button type="submit" className="btn-secondary px-3 py-2 text-xs" disabled={connectorMutation.isPending}>{connectorMutation.isPending ? 'Saving…' : 'Save route'}</button>
+                {!assignableConnectors.length && <NavLink to="/connectors" className="switch-connector-link">Set up a connector</NavLink>}
+              </form>}
+              <div className="switch-card-footer"><span className="switch-device-id">Device ID · {device.device_id}</span><button type="button" className="switch-delete-button" disabled={deleteMutation.isPending} onClick={() => { if (window.confirm('Delete this switch and all associated channels? This action cannot be undone.')) deleteMutation.mutate(device.id) }}>Delete switch</button></div>
+            </article>
+          })}
+          {!filteredDevices.length && <div className="switch-inventory-empty"><PlugZap size={23} /><strong>{data?.devices.length ? 'No switches match this view' : 'No switches configured yet'}</strong><p>{data?.devices.length ? 'Change the filter or search another switch.' : 'Scan your network or add a switch to get started.'}</p>{!data?.devices.length && <button type="button" className="btn-primary" onClick={() => { setSelectedLanDeviceId(''); setManualOpen(true) }}>Add a switch</button>}</div>}
         </div>
       </section>
 
@@ -1101,15 +1188,18 @@ function DevicesPage() {
 }
 
 function MappingsPage() {
-  const { data: mappings, isLoading: mappingsLoading } = useQuery({
+  const queryClient = useQueryClient()
+  const [step, setStep] = useState(1)
+  const [statusMessage, setStatusMessage] = useState('')
+  const { data: mappings, isLoading: mappingsLoading } = useQuery<Mapping[]>({
     queryKey: ['mappings'],
-    queryFn: async () => apiFetch<Mapping[]>('/api/v1/mappings'),
+    queryFn: () => apiFetch<Mapping[]>('/api/v1/mappings'),
   })
-  const { data: endpoints } = useQuery({
+  const { data: endpoints = [], isLoading: endpointsLoading } = useQuery<Endpoint[]>({
     queryKey: ['endpoints'],
-    queryFn: async () => apiFetch<Endpoint[]>('/api/v1/endpoints'),
+    queryFn: () => apiFetch<Endpoint[]>('/api/v1/endpoints'),
   })
-  const { data: devices } = useQuery({
+  const { data: devices = [], isLoading: devicesLoading } = useQuery<Device[]>({
     queryKey: ['devicesForMappings'],
     queryFn: async () => {
       const listed = await apiFetch<Device[]>('/api/v1/devices')
@@ -1133,12 +1223,14 @@ function MappingsPage() {
   })
   const selectedDeviceId = useWatch({ control: form.control, name: 'device_id' })
   const selectedEndpointId = useWatch({ control: form.control, name: 'endpoint_id' })
+  const onThreshold = useWatch({ control: form.control, name: 'on_threshold' })
+  const offThreshold = useWatch({ control: form.control, name: 'off_threshold' })
   const availableChannels = devices?.find((device) => device.id === selectedDeviceId)?.channels ?? []
   const selectedEndpoint = endpoints?.find((endpoint) => endpoint.id === selectedEndpointId)
   const selectedDevice = devices?.find((device) => device.id === selectedDeviceId)
-  const hasMatchingDevice = Boolean(
-    selectedEndpoint && devices?.some((device) => selectedEndpoint.tenant_id === device.tenant_id),
-  )
+  const matchingDevices = devices.filter((device) => (
+    selectedEndpoint && selectedEndpoint.tenant_id === device.tenant_id
+  ))
   const tenantsMatch = Boolean(
     selectedEndpoint && selectedDevice && selectedEndpoint.tenant_id === selectedDevice.tenant_id,
   )
@@ -1151,7 +1243,10 @@ function MappingsPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mappings'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       form.reset()
+      setStep(1)
+      setStatusMessage('Laptop and switch are now linked.')
     },
   })
   const deleteMutation = useMutation({
@@ -1162,77 +1257,202 @@ function MappingsPage() {
     },
   })
 
-  if (mappingsLoading) return <LoadingCard />
+  if (mappingsLoading || endpointsLoading || devicesLoading) return <LoadingCard />
+
+  async function advanceStep() {
+    const fieldsByStep = {
+      1: ['endpoint_id'],
+      2: ['device_id'],
+    } as const
+    const valid = await form.trigger(fieldsByStep[step as 1 | 2])
+    if (!valid) return
+    if (step === 1 && matchingDevices.length === 0) return
+    setStep((current) => Math.min(current + 1, 3))
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="mapping-workspace">
       <PageHeader
         eyebrow="Automation"
         title="Laptop to switch mappings"
-        description="Connect each laptop to a switch and decide how battery levels should control it."
+        description="Link a laptop to a switch, then set the battery levels that control it."
       />
 
-      <div className="panel p-5">
-        <h3 className="mb-4 text-xl font-bold text-slate-900">Add mapping</h3>
-        <form onSubmit={form.handleSubmit((values) => mutation.mutate(values))} className="grid gap-4 md:grid-cols-2">
+      <section className="mapping-builder" aria-labelledby="mapping-builder-title">
+        <div className="mapping-builder-heading">
           <div>
-            <label className="label" htmlFor="mapping-endpoint">Endpoint</label>
-            <select id="mapping-endpoint" required className="field" {...form.register('endpoint_id', { required: true })}>
-              <option value="">Select endpoint</option>
-              {endpoints?.map((ep) => <option key={ep.id} value={ep.id}>{ep.hostname} · Tenant: {ep.tenant_name ?? 'Unassigned'}{ep.ip_address ? ` • ${ep.ip_address}` : ''}</option>)}
-            </select>
-            {selectedEndpoint && <p className="mt-1 text-xs text-slate-500">Endpoint tenant: {selectedEndpoint.tenant_name ?? 'Unassigned'}</p>}
+            <h2 id="mapping-builder-title">Create a mapping</h2>
+            <p>Choose what should be connected, then set how the battery should control it.</p>
           </div>
-          <div>
-            <label className="label" htmlFor="mapping-device">Smart switch</label>
-            <select id="mapping-device" required className="field" {...form.register('device_id', { required: true, onChange: () => form.setValue('channel_id', '') })}>
-              <option value="">Select switch</option>
-              {devices?.map((device) => <option key={device.id} value={device.id} disabled={Boolean(selectedEndpoint && selectedEndpoint.tenant_id !== device.tenant_id)}>{device.name} · Tenant: {device.tenant_name ?? 'Unassigned'}</option>)}
-            </select>
-          </div>
-          {selectedEndpoint && !hasMatchingDevice && <p className="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">
-            No switch belongs to this endpoint's tenant. Assign the endpoint to the switch tenant from the Endpoints page before creating the mapping.
-          </p>}
-          {selectedEndpoint && selectedDevice && !tenantsMatch && hasMatchingDevice && <p className="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">
-            The endpoint and selected switch belong to different tenants. Choose a switch from the endpoint tenant.
-          </p>}
-          <div>
-            <label className="label" htmlFor="mapping-channel">Channel</label>
-            <select id="mapping-channel" className="field" {...form.register('channel_id')}>
-              <option value="">Default device state</option>
-              {availableChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="label" htmlFor="on-threshold">Turn on at or below (%)</label>
-            <input id="on-threshold" type="number" min={0} max={100} required className="field" {...form.register('on_threshold', { valueAsNumber: true, required: true, min: 0, max: 100 })} />
-          </div>
-          <div>
-            <label className="label" htmlFor="off-threshold">Turn off at or above (%)</label>
-            <input id="off-threshold" type="number" min={0} max={100} required className="field" {...form.register('off_threshold', { valueAsNumber: true, required: true, min: 0, max: 100 })} />
-          </div>
-          <div>
-            <label className="label" htmlFor="mapping-interval">Minimum time between changes (seconds)</label>
-            <input id="mapping-interval" type="number" min={0} required className="field" {...form.register('minimum_state_change_interval', { valueAsNumber: true, required: true, min: 0 })} />
-          </div>
-          <div className="flex items-center gap-3 pt-8">
-            <input id="mapping-enabled" type="checkbox" className="h-4 w-4 rounded border-slate-300 text-brand-600" {...form.register('enabled')} />
-            <label htmlFor="mapping-enabled" className="text-sm text-slate-700">Enabled</label>
-          </div>
+          <span className="mapping-step-count">Step {step} of 3</span>
+        </div>
 
-          {mutation.isError && <p className="md:col-span-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{mutation.error.message}</p>}
+        <ol className="mapping-stepper" aria-label="Mapping setup">
+          {[
+            { number: 1, title: 'Choose laptop' },
+            { number: 2, title: 'Choose switch' },
+            { number: 3, title: 'Set battery rules' },
+          ].map((item) => (
+            <li key={item.number} className={step === item.number ? 'is-current' : step > item.number ? 'is-complete' : ''}>
+              <button
+                type="button"
+                aria-current={step === item.number ? 'step' : undefined}
+                disabled={item.number > step}
+                onClick={() => setStep(item.number)}
+              >
+                <span className="mapping-step-number">{step > item.number ? <CheckCircle2 size={17} /> : item.number}</span>
+                <span>{item.title}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
 
-          <div className="md:col-span-2">
-            <button type="submit" className="btn-primary" disabled={mutation.isPending || !tenantsMatch}>
-              {mutation.isPending ? 'Saving…' : 'Add mapping'}
-            </button>
+        <form onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+          {step === 1 && <div className="mapping-step-content">
+            <div className="mapping-step-copy">
+              <span className="mapping-step-kicker">01 / Laptop</span>
+              <h3>Which laptop should this switch follow?</h3>
+              <p>Only laptops in the same tenant can be linked to a switch.</p>
+            </div>
+            {!endpoints.length ? (
+              <div className="mapping-empty-inline">
+                <MonitorSmartphone size={22} />
+                <div><strong>No laptops registered</strong><p>Register a laptop and send its first telemetry before creating a mapping.</p></div>
+                <NavLink to="/endpoints" className="btn-secondary">View laptops</NavLink>
+              </div>
+            ) : <div className="mapping-choice-grid">
+              {endpoints.map((endpoint) => (
+                <button
+                  key={endpoint.id}
+                  type="button"
+                  className={`mapping-choice-card ${selectedEndpointId === endpoint.id ? 'is-selected' : ''}`}
+                  aria-pressed={selectedEndpointId === endpoint.id}
+                  onClick={() => {
+                    form.setValue('endpoint_id', endpoint.id, { shouldValidate: true })
+                    form.clearErrors('endpoint_id')
+                    if (selectedDevice && selectedDevice.tenant_id !== endpoint.tenant_id) {
+                      form.setValue('device_id', '')
+                      form.setValue('channel_id', '')
+                    }
+                  }}
+                >
+                  <span className={`mapping-choice-status ${endpoint.status === 'online' ? 'is-online' : ''}`} />
+                  <MonitorSmartphone size={19} aria-hidden="true" />
+                  <span className="mapping-choice-copy"><strong>{endpoint.hostname}</strong><small>{endpoint.tenant_name ?? 'Unassigned tenant'}{endpoint.ip_address ? ` · ${endpoint.ip_address}` : ''}</small></span>
+                  <span className={`mapping-choice-battery ${endpoint.battery <= 25 ? 'is-low' : ''}`}>{endpoint.battery}%</span>
+                </button>
+              ))}
+            </div>}
+            {form.formState.errors.endpoint_id && <FieldError>Select a laptop to continue.</FieldError>}
+            {selectedEndpoint && matchingDevices.length === 0 && (
+              <div className="mapping-guidance" role="status">
+                <span>No switches are assigned to <strong>{selectedEndpoint.tenant_name ?? 'this tenant'}</strong> yet.</span>
+                <NavLink to="/devices">Set up a switch</NavLink>
+              </div>
+            )}
+          </div>}
+
+          {step === 2 && <div className="mapping-step-content">
+            <div className="mapping-step-copy">
+              <span className="mapping-step-kicker">02 / Switch</span>
+              <h3>Choose the switch and output</h3>
+              <p>{selectedEndpoint ? `Available switches for ${selectedEndpoint.hostname}.` : 'Return to step 1 and choose a laptop first.'}</p>
+            </div>
+            {!matchingDevices.length ? (
+              <div className="mapping-empty-inline">
+                <PlugZap size={22} />
+                <div><strong>No matching switch is ready</strong><p>Add a switch to the same tenant as the selected laptop.</p></div>
+                <NavLink to="/devices" className="btn-secondary">Set up a switch</NavLink>
+              </div>
+            ) : <div className="mapping-switch-options">
+              {matchingDevices.map((device) => (
+                <button
+                  key={device.id}
+                  type="button"
+                  className={`mapping-switch-option ${selectedDeviceId === device.id ? 'is-selected' : ''}`}
+                  aria-pressed={selectedDeviceId === device.id}
+                  onClick={() => {
+                    form.setValue('device_id', device.id, { shouldValidate: true })
+                    form.setValue('channel_id', '')
+                    form.clearErrors('device_id')
+                  }}
+                >
+                  <span className={`switch-state-light ${device.current_state ? 'is-on' : ''}`} aria-hidden="true" />
+                  <PlugZap size={19} aria-hidden="true" />
+                  <span className="mapping-choice-copy"><strong>{device.name}</strong><small>{device.tenant_name ?? 'Unassigned tenant'}{device.ip_address ? ` · ${device.ip_address}` : ''}</small></span>
+                  <span className="mapping-switch-state">{device.current_state ? 'On' : 'Off'}</span>
+                </button>
+              ))}
+            </div>}
+            {selectedDevice && <div className="mapping-channel-picker">
+              <label className="label" htmlFor="mapping-channel">Switch output</label>
+              <select id="mapping-channel" className="field" {...form.register('channel_id')}>
+                <option value="">Whole switch</option>
+                {availableChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
+              </select>
+              <p>Choose an individual output for multi-channel switches.</p>
+            </div>}
+            {form.formState.errors.device_id && <FieldError>Select a switch to continue.</FieldError>}
+          </div>}
+
+          {step === 3 && <div className="mapping-step-content">
+            <div className="mapping-step-copy">
+              <span className="mapping-step-kicker">03 / Battery rules</span>
+              <h3>When should the switch change?</h3>
+              <p>Separate thresholds create hysteresis and prevent rapid toggling around one battery level.</p>
+            </div>
+            <div className="mapping-rule-layout">
+              <div className="mapping-rule-fields">
+                <label className="mapping-rule-field" htmlFor="on-threshold"><span>Turn on at or below</span><span className="mapping-number-input"><input id="on-threshold" type="number" min={0} max={100} required {...form.register('on_threshold', { valueAsNumber: true, required: true, min: 0, max: 100 })} /><b>%</b></span></label>
+                <label className="mapping-rule-field" htmlFor="off-threshold"><span>Turn off at or above</span><span className="mapping-number-input"><input id="off-threshold" type="number" min={0} max={100} required {...form.register('off_threshold', { valueAsNumber: true, required: true, min: 0, max: 100 })} /><b>%</b></span></label>
+                <label className="mapping-rule-field" htmlFor="mapping-interval"><span>Minimum time between changes</span><span className="mapping-number-input"><input id="mapping-interval" type="number" min={0} required {...form.register('minimum_state_change_interval', { valueAsNumber: true, required: true, min: 0 })} /><b>sec</b></span></label>
+                <label className="mapping-enable-control" htmlFor="mapping-enabled">
+                  <input id="mapping-enabled" type="checkbox" {...form.register('enabled')} />
+                  <span><strong>Enable automation now</strong><small>The laptop will control this switch as soon as the mapping is saved.</small></span>
+                </label>
+              </div>
+              <div className="mapping-rule-preview" aria-label={`Switch turns on at ${onThreshold} percent and off at ${offThreshold} percent`}>
+                <div className="mapping-preview-heading"><BatteryCharging size={18} /><strong>Battery response</strong></div>
+                <div className="mapping-battery-track">
+                  <span className="mapping-battery-fill" />
+                  <span className="mapping-threshold-marker is-on" style={{ left: `${onThreshold}%` }}><i />On · {onThreshold}%</span>
+                  <span className="mapping-threshold-marker is-off" style={{ left: `${offThreshold}%` }}><i />Off · {offThreshold}%</span>
+                </div>
+                <div className="mapping-preview-scale"><span>0%</span><span>100%</span></div>
+                <p>On when battery falls to {onThreshold}% · Off when it reaches {offThreshold}%</p>
+                {offThreshold <= onThreshold && <span className="mapping-threshold-error" role="alert">The turn-off threshold must be higher than the turn-on threshold.</span>}
+              </div>
+            </div>
+            <div className="mapping-review-route">
+              <span className="mapping-review-endpoint"><MonitorSmartphone size={16} />{selectedEndpoint?.hostname ?? 'Laptop not selected'}</span>
+              <ChevronRight size={17} aria-hidden="true" />
+              <span className="mapping-review-device"><PlugZap size={16} />{selectedDevice?.name ?? 'Switch not selected'}{form.getValues('channel_id') ? ` · ${availableChannels.find((channel) => channel.id === form.getValues('channel_id'))?.name ?? 'Channel'}` : ''}</span>
+            </div>
+          </div>}
+
+          {mutation.isError && <ErrorCard message={mutation.error.message} />}
+          {statusMessage && <p className="mapping-success-message" role="status"><CheckCircle2 size={17} />{statusMessage}</p>}
+          <div className="mapping-wizard-footer">
+            {step > 1 ? <button type="button" className="btn-secondary" onClick={() => setStep((current) => current - 1)}><ChevronLeft size={16} />Back</button> : <span />}
+            {step < 3 ? (
+              <button type="button" className="btn-primary" onClick={() => void advanceStep()} disabled={(step === 1 && !selectedEndpointId) || (step === 2 && !tenantsMatch)}>
+                Continue <ChevronRight size={16} />
+              </button>
+            ) : (
+              <button type="submit" className="btn-primary" disabled={mutation.isPending || !tenantsMatch || offThreshold <= onThreshold}>
+                {mutation.isPending ? 'Saving mapping…' : 'Save mapping'}
+              </button>
+            )}
           </div>
         </form>
-      </div>
+      </section>
 
       {deleteMutation.isError && <ErrorCard message={deleteMutation.error.message} />}
-      <section className="mapping-list-panel rounded-2xl border border-slate-200 bg-white p-5 shadow-soft sm:p-6" aria-labelledby="mapping-list-title">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4"><div><h2 id="mapping-list-title" className="text-lg font-semibold text-slate-900">Current mappings</h2><p className="mt-1 text-sm text-slate-500">Review endpoint, switch, channel, and automation rules.</p></div><span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">{mappings?.length ?? 0} configured</span></div>
+      <section className="mapping-list-panel" aria-labelledby="mapping-list-title">
+        <div className="mapping-list-heading">
+          <div><h2 id="mapping-list-title">Current mappings</h2><p>Battery rules currently connecting laptops to switches.</p></div>
+          <span className="mapping-total">{mappings?.length ?? 0}<small>configured</small></span>
+        </div>
         <div className="mapping-list">
           {mappings?.map((mapping) => {
             const endpoint = endpoints?.find((item) => item.id === mapping.endpoint_id)
@@ -1241,19 +1461,31 @@ function MappingsPage() {
             return <article key={mapping.id} className="mapping-card">
               <div className="mapping-card-main">
                 <div className="mapping-route">
-                  <div className="mapping-entity"><span className="mapping-entity-icon endpoint-icon" aria-hidden="true">PC</span><div className="min-w-0"><span className="mapping-overline">Endpoint</span><h3 className="mapping-entity-name">{endpoint?.hostname ?? 'Unknown endpoint'}</h3></div></div>
-                  <span className="mapping-route-arrow" aria-hidden="true">→</span>
-                  <div className="mapping-entity"><span className="mapping-entity-icon switch-icon" aria-hidden="true">⌁</span><div className="min-w-0"><span className="mapping-overline">Smart switch</span><h3 className="mapping-entity-name">{device?.name ?? 'Unknown switch'}</h3></div></div>
+                  <div className="mapping-entity">
+                    <span className="mapping-entity-icon endpoint-icon"><MonitorSmartphone size={18} aria-hidden="true" /></span>
+                    <div className="min-w-0"><span className="mapping-overline">Laptop</span><h3 className="mapping-entity-name">{endpoint?.hostname ?? 'Unknown laptop'}</h3><small>{endpoint?.tenant_name ?? 'Unassigned tenant'}</small></div>
+                  </div>
+                  <ChevronRight className="mapping-route-arrow" size={19} aria-hidden="true" />
+                  <div className="mapping-entity">
+                    <span className="mapping-entity-icon switch-icon"><PlugZap size={18} aria-hidden="true" /></span>
+                    <div className="min-w-0"><span className="mapping-overline">Switch</span><h3 className="mapping-entity-name">{device?.name ?? 'Unknown switch'}</h3><small>{channel?.name ?? 'Whole switch'}</small></div>
+                  </div>
                 </div>
-                <div className="mapping-details"><span className="mapping-detail-pill">Tenant <strong>{mapping.tenant_name ?? 'Unassigned'}</strong></span><span className="mapping-detail-pill">{channel?.name ?? 'Default device state'}</span><span className="mapping-detail-pill">Turn on at <strong>{mapping.on_threshold}% or below</strong></span><span className="mapping-detail-pill">Turn off at <strong>{mapping.off_threshold}% or above</strong></span><span className="mapping-detail-pill">Minimum interval <strong>{mapping.minimum_state_change_interval} sec</strong></span></div>
-                <p className="mapping-id">Mapping ID <span>{mapping.id}</span></p>
+                <div className="mapping-rules">
+                  <div className="mapping-rule-summary"><span>Turn on</span><strong>{mapping.on_threshold}%</strong><small>or below</small></div>
+                  <div className="mapping-rule-summary"><span>Turn off</span><strong>{mapping.off_threshold}%</strong><small>or above</small></div>
+                  <div className="mapping-rule-summary"><span>Cooldown</span><strong>{mapping.minimum_state_change_interval}s</strong><small>between changes</small></div>
+                  <span className={`mapping-enabled-state ${mapping.enabled ? 'is-enabled' : ''}`}>{mapping.enabled ? 'Automation on' : 'Paused'}</span>
+                  <span className="mapping-tenant-label">{mapping.tenant_name ?? 'Unassigned tenant'}</span>
+                </div>
+                <details className="mapping-id"><summary>Mapping details</summary><code>{mapping.id}</code></details>
               </div>
-              <button type="button" className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100" disabled={deleteMutation.isPending} onClick={() => {
+              <button type="button" className="mapping-delete-button" disabled={deleteMutation.isPending} onClick={() => {
                 if (window.confirm('Delete this battery mapping?')) deleteMutation.mutate(mapping.id)
-              }}>Delete mapping</button>
+              }}>Delete</button>
             </article>
           })}
-          {!mappings?.length && <div className="mapping-empty-state"><span className="mapping-empty-icon" aria-hidden="true">⌁</span><h3>No mappings configured yet</h3><p>Add a mapping to connect a laptop with a smart switch and automate battery-based control.</p></div>}
+          {!mappings?.length && <div className="mapping-empty-state"><Cable size={22} aria-hidden="true" /><h3>No mappings yet</h3><p>Use the three steps above to connect a laptop with a switch.</p></div>}
         </div>
       </section>
     </div>

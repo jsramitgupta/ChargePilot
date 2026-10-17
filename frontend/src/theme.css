@@ -182,6 +182,175 @@ body.theme-dark .auth-card .field {
   background: #192824;
 }
 
+body.theme-dark .ui-accent-surface {
+  border-color: #34463e;
+  background: #192824;
+}
+
+body.theme-dark .mapping-builder,
+body.theme-dark .mapping-list-panel,
+body.theme-dark .switch-inventory,
+body.theme-dark .mapping-card,
+body.theme-dark .switch-device-card {
+  border-color: #34463e;
+  color: #dce9e1;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+body.theme-dark .mapping-step-count,
+body.theme-dark .mapping-total,
+body.theme-dark .switch-inventory-count,
+body.theme-dark .mapping-choice-card,
+body.theme-dark .mapping-switch-option,
+body.theme-dark .mapping-number-input,
+body.theme-dark .mapping-rule-preview,
+body.theme-dark .switch-search,
+body.theme-dark .switch-filter-group,
+body.theme-dark .switch-view-toggle,
+body.theme-dark .switch-channel-row,
+body.theme-dark .switch-card-actions {
+  border-color: #40544a;
+  color: #dce9e1;
+  background-color: #1b2a24;
+}
+
+body.theme-dark .mapping-choice-card.is-selected,
+body.theme-dark .mapping-switch-option.is-selected {
+  border-color: #83b18e;
+  background: #22372c;
+  box-shadow: 0 0 0 2px rgba(131, 177, 142, .22);
+}
+
+body.theme-dark .mapping-step-number,
+body.theme-dark .switch-filter-group button.is-active,
+body.theme-dark .switch-view-toggle button.is-active {
+  border-color: #40544a;
+  color: #e1ece5;
+  background: #25362e;
+}
+
+body.theme-dark .mapping-stepper .is-current .mapping-step-number,
+body.theme-dark .mapping-stepper .is-complete .mapping-step-number {
+  border-color: #6f9a7a;
+  color: #f3fbf5;
+  background: #39734f;
+}
+
+body.theme-dark .mapping-choice-copy strong,
+body.theme-dark .mapping-step-copy h3,
+body.theme-dark .mapping-builder-heading h2,
+body.theme-dark .mapping-list-heading h2,
+body.theme-dark .switch-inventory-heading h2,
+body.theme-dark .mapping-rule-field,
+body.theme-dark .mapping-enable-control strong,
+body.theme-dark .mapping-preview-heading,
+body.theme-dark .mapping-review-endpoint,
+body.theme-dark .mapping-review-device,
+body.theme-dark .mapping-entity-name,
+body.theme-dark .mapping-rule-summary strong,
+body.theme-dark .mapping-empty-state h3,
+body.theme-dark .switch-inventory-empty strong,
+body.theme-dark .switch-card-title h3,
+body.theme-dark .switch-route-editor-copy strong,
+body.theme-dark .switch-channel-name {
+  color: #e1ece5;
+}
+
+body.theme-dark .mapping-choice-copy small,
+body.theme-dark .mapping-step-copy p,
+body.theme-dark .mapping-builder-heading p,
+body.theme-dark .mapping-list-heading p,
+body.theme-dark .switch-inventory-heading p,
+body.theme-dark .mapping-enable-control small,
+body.theme-dark .mapping-rule-preview > p,
+body.theme-dark .mapping-preview-scale,
+body.theme-dark .mapping-guidance,
+body.theme-dark .mapping-empty-inline,
+body.theme-dark .mapping-entity small,
+body.theme-dark .mapping-overline,
+body.theme-dark .mapping-rule-summary span,
+body.theme-dark .mapping-rule-summary small,
+body.theme-dark .mapping-id,
+body.theme-dark .mapping-empty-state,
+body.theme-dark .switch-card-tenant,
+body.theme-dark .switch-device-id,
+body.theme-dark .switch-device-facts span,
+body.theme-dark .switch-route-editor-copy small,
+body.theme-dark .switch-inventory-empty {
+  color: #a4b5ac;
+}
+
+body.theme-dark .mapping-guidance,
+body.theme-dark .mapping-empty-inline,
+body.theme-dark .mapping-enable-control,
+body.theme-dark .mapping-review-route,
+body.theme-dark .switch-filter-group button.is-active,
+body.theme-dark .switch-view-toggle button.is-active,
+body.theme-dark .switch-device-facts span,
+body.theme-dark .switch-state-label,
+body.theme-dark .channel-state-label,
+body.theme-dark .mapping-enabled-state,
+body.theme-dark .mapping-tenant-label,
+body.theme-dark .mapping-choice-battery,
+body.theme-dark .mapping-switch-state,
+body.theme-dark .channel-number {
+  background-color: #21312b;
+}
+
+body.theme-dark .mapping-entity-icon {
+  color: #b9d9c1;
+  background: #294334;
+}
+
+body.theme-dark .mapping-enabled-state.is-enabled,
+body.theme-dark .switch-state-label.is-on,
+body.theme-dark .channel-state-label.is-on {
+  color: #a7d4b3;
+  background: rgba(56, 100, 76, .35);
+}
+
+body.theme-dark .mapping-tenant-label {
+  color: #add0df;
+}
+
+body.theme-dark .mapping-choice-battery.is-low {
+  color: #efb49e;
+  background: rgba(126, 52, 43, .3);
+}
+
+body.theme-dark .mapping-delete-button,
+body.theme-dark .switch-delete-button {
+  border-color: rgba(214, 134, 116, .34);
+  color: #e6a89a;
+  background: rgba(126, 52, 43, .25);
+}
+
+body.theme-dark .switch-route-status {
+  color: #a7d4b3;
+  background: rgba(56, 100, 76, .35);
+}
+
+body.theme-dark .switch-route-status.is-offline,
+body.theme-dark .switch-route-status.is-unassigned,
+body.theme-dark .switch-route-warning,
+body.theme-dark .switch-inventory-alert {
+  border-color: rgba(222, 169, 93, .37);
+  color: #efc98f;
+  background: rgba(135, 86, 37, .25);
+}
+
+body.theme-dark .mapping-success-message {
+  border-color: rgba(142, 192, 151, .35);
+  color: #a7d4b3;
+  background: rgba(56, 100, 76, .28);
+}
+
+body.theme-dark .mapping-choice-card:hover,
+body.theme-dark .mapping-switch-option:hover {
+  border-color: #83b18e;
+}
+
 body.theme-dark .choice-card {
   border-color: #40544a;
   color: #dce9e1;
