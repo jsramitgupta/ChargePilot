@@ -58,6 +58,8 @@ left-rail navigation and light/dark theme parity.
    navigation and connector, profile, account, user, tenant, and agent setup
    workflows are React routes. Super admins can change their own password from
    the React account page using the authenticated auth API.
+   Account settings select the user's display time zone from a region-grouped
+   IANA time-zone dropdown; timestamps throughout the app follow that choice.
 
 ## Current important service modules
 - app/services/rule_engine.py — threshold logic and hysteresis

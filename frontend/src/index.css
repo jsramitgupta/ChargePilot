@@ -19,6 +19,7 @@
   --copper: #c98338;
   --paper: #eef3f0;
   --surface: #ffffff;
+  --surface-muted: #f5f8f6;
   --line: #d7e2dc;
   --muted: #71827b;
 }
@@ -60,13 +61,27 @@ button, a {
   .panel {
     @apply rounded-2xl border border-slate-200 bg-white;
     border-radius: 15px;
+    border-color: var(--line);
+    color: var(--ink);
+    background: var(--surface);
     box-shadow: 0 3px 12px rgba(23, 63, 57, 0.035);
   }
   .panel-muted {
     @apply rounded-2xl border border-slate-200 bg-slate-50;
+    border-color: var(--line);
+    color: var(--ink);
+    background: var(--surface-muted);
   }
   .btn-primary {
     @apply inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60;
+    gap: 7px;
+    min-height: 42px;
+    padding: 9px 14px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 680;
+    line-height: 1.25;
     background: var(--forest);
   }
   .btn-primary:hover {
@@ -74,10 +89,27 @@ button, a {
   }
   .btn-secondary {
     @apply inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition focus:outline-none focus:ring-2 focus:ring-offset-2;
+    gap: 7px;
+    min-height: 42px;
+    padding: 9px 14px;
+    border-color: var(--line);
+    border-radius: 9px;
+    color: var(--ink);
+    background: var(--surface);
+    font-size: 12px;
+    font-weight: 680;
+    line-height: 1.25;
+  }
+  .btn-secondary:hover {
+    border-color: var(--leaf);
+    background: var(--surface-muted);
   }
   .field {
     @apply mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none;
     border-radius: 9px;
+    border-color: var(--line);
+    color: var(--ink);
+    background: var(--surface);
   }
   .field:focus {
     border-color: var(--leaf);
@@ -85,6 +117,7 @@ button, a {
   }
   .label {
     @apply block text-sm font-medium text-slate-700;
+    color: var(--ink);
   }
   .badge {
     @apply inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold;
@@ -436,6 +469,158 @@ button, a {
   font-weight: 650;
 }
 
+.hero-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 26px;
+  padding: clamp(21px, 3vw, 33px);
+  border: 1px solid #244c43;
+  border-radius: 18px;
+  color: #edf5ef;
+  background: linear-gradient(115deg, #173f39, #215447);
+}
+
+.hero-copy {
+  max-width: 680px;
+}
+
+.hero-copy .mini-label {
+  margin: 0 0 8px;
+  color: #b8d7c5;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.hero-copy h2 {
+  margin: 0;
+  color: #f4f8f5;
+  font-size: clamp(19px, 2.4vw, 27px);
+  font-weight: 680;
+  letter-spacing: -.035em;
+  line-height: 1.25;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.primary-btn,
+.secondary-btn {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 680;
+  line-height: 1.25;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+
+.primary-btn {
+  color: #fff;
+  background: var(--forest);
+}
+
+.primary-btn:hover {
+  background: #24594c;
+}
+
+.secondary-btn {
+  border-color: var(--line);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.secondary-btn:hover {
+  border-color: var(--leaf);
+  background: var(--surface-muted);
+}
+
+.hero-panel .primary-btn {
+  color: #183c33;
+  background: #e4b66e;
+}
+
+.hero-panel .primary-btn:hover {
+  background: #f0c982;
+}
+
+.hero-panel .secondary-btn {
+  border-color: rgba(230, 242, 234, .38);
+  color: #edf5ef;
+  background: rgba(255, 255, 255, .06);
+}
+
+.hero-panel .secondary-btn:hover {
+  border-color: rgba(230, 242, 234, .68);
+  background: rgba(255, 255, 255, .13);
+}
+
+.panel .secondary-btn,
+.table-panel .secondary-btn {
+  border-color: var(--line);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.panel .secondary-btn:hover,
+.table-panel .secondary-btn:hover {
+  border-color: var(--leaf);
+  background: var(--surface-muted);
+}
+
+.profile-preference {
+  display: grid;
+  gap: 17px;
+  padding: clamp(18px, 3vw, 25px);
+}
+
+.profile-preference h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 720;
+  letter-spacing: -.02em;
+}
+
+.profile-preference > div > p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.profile-preference-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 7px 12px;
+}
+
+.profile-timezone-label {
+  grid-column: 1 / -1;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.profile-preference-form .field {
+  min-width: 0;
+  margin-top: 0;
+}
+
 .panel-header {
   display: flex;
   align-items: center;
@@ -524,20 +709,6 @@ button, a {
 .field-group .field,
 .auth-form .field {
   margin-top: 0;
-}
-
-.primary-btn {
-  border: 0;
-  border-radius: 9px;
-  color: #fff;
-  background: var(--forest);
-  font-size: 13px;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.primary-btn:hover {
-  background: #24594c;
 }
 
 .large-btn {
@@ -981,6 +1152,38 @@ button, a {
 
   .topbar-actions {
     gap: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .hero-panel {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 18px;
+  }
+
+  .hero-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 460px) {
+  .hero-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .primary-btn,
+  .secondary-btn {
+    white-space: normal;
+  }
+
+  .profile-preference-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profile-timezone-label {
+    grid-column: auto;
   }
 }
 

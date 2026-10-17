@@ -80,25 +80,39 @@ Request:
 The endpoint returns `{"message": "Password changed."}`. The signed-in
 session remains active.
 
-### 2.2 POST /api/v1/auth/logout
+### 2.2 PUT /api/v1/auth/profile
+
+Saves the authenticated user's display time zone. `timezone` must be a valid
+IANA time-zone identifier (for example, `Asia/Kolkata` or `UTC`). The React
+account page presents supported IANA zones in a region-grouped dropdown.
+
+Request:
+
+```json
+{"timezone":"Asia/Kolkata"}
+```
+
+The response is `{"message":"Time zone saved.","timezone":"Asia/Kolkata"}`.
+
+### 2.3 POST /api/v1/auth/logout
 
 Clears the authenticated browser session and returns `{"status":"logged_out"}`.
 React navigation then moves to the frontend login route without navigating the
 browser to an API-host page.
 
-### 2.3 GET /api/v1/admin/users
+### 2.4 GET /api/v1/admin/users
 
 Lists user accounts visible to the signed-in Super Admin or tenant admin.
 Passwords and password hashes are never returned. Tenant admins see only users
 in their tenant.
 
-### 2.4 GET /api/v1/admin/tenants
+### 2.5 GET /api/v1/admin/tenants
 
 Lists tenants for Super Admin workflows. The response includes each tenant's
 agent token, matching the existing Super Admin tenant-management screen. The
 response is marked `private, no-store`.
 
-### 2.5 Tenant invitations and administration
+### 2.6 Tenant invitations and administration
 
 - `POST /api/v1/admin/invites` creates a seven-day, single-use tenant invite.
   Tenant admins/managers can issue codes for their tenant; Super Admins must
@@ -116,7 +130,7 @@ response is marked `private, no-store`.
 - `PUT /api/v1/admin/global-agent-token` saves or regenerates the Super Admin
   global endpoint token.
 
-### 2.6 GET /api/v1/agent/setup
+### 2.7 GET /api/v1/agent/setup
 
 Returns the authenticated user's agent install command and token for the React
 agent setup page. Requires an assigned tenant, except for the Super Admin. A

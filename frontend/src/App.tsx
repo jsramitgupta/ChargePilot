@@ -238,6 +238,32 @@ const FRONTEND_BASE_URL = (
   window.CHARGEPILOT_CONFIG?.frontendUrl ?? ''
 ).replace(/\/+$/, '') || window.location.origin
 
+const TIME_ZONE_REGIONS = [
+  'Africa',
+  'America',
+  'Antarctica',
+  'Arctic',
+  'Asia',
+  'Atlantic',
+  'Australia',
+  'Europe',
+  'Indian',
+  'Pacific',
+] as const
+const TIME_ZONE_OPTIONS = typeof Intl.supportedValuesOf === 'function'
+  ? Intl.supportedValuesOf('timeZone')
+  : [
+      'Africa/Cairo',
+      'America/Los_Angeles',
+      'America/New_York',
+      'Asia/Kolkata',
+      'Asia/Tokyo',
+      'Australia/Sydney',
+      'Europe/London',
+      'Europe/Paris',
+      'Pacific/Auckland',
+    ]
+
 function backendUrl(path: string) {
   return `${API_BASE_URL}${path}`
 }
@@ -1738,19 +1764,42 @@ function ProfilePage() {
   })
   if (isLoading) return <LoadingCard />
   if (error || !user) return <ErrorCard message={error?.message ?? 'Your account could not be loaded.'} />
+  const currentTimezone = timezone || user.timezone || 'UTC'
   return <div className="mx-auto max-w-3xl space-y-5">
     <PageHeader eyebrow="Account" title={user.username} description="Manage the display settings for your ChargePilot account." />
     <section className="grid gap-4 sm:grid-cols-2">
       <MetricMini label="Role" value={user.role.replaceAll('_', ' ')} />
       <MetricMini label="Tenant" value={user.tenant_name ?? 'Personal tenant'} />
     </section>
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-bold text-slate-900">Time zone</h2>
-      <p className="mt-1 text-sm text-slate-600">Set the time zone used for timestamps throughout the app.</p>
+    <section className="profile-preference panel">
+      <div>
+        <h2>Time zone</h2>
+        <p>Choose how dates and times are shown across ChargePilot.</p>
+      </div>
       {statusMessage && <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
       {mutation.error && <div className="mt-4"><ErrorCard message={mutation.error.message} /></div>}
-      <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={(event) => { event.preventDefault(); setStatusMessage(''); mutation.mutate() }}>
-        <input className="field min-w-0 flex-1" aria-label="Time zone" value={timezone || user.timezone || ''} onChange={(event) => setTimezone(event.target.value)} placeholder="For example: America/Los_Angeles" required />
+      <form className="profile-preference-form" onSubmit={(event) => { event.preventDefault(); setStatusMessage(''); mutation.mutate() }}>
+        <label className="profile-timezone-label" htmlFor="profile-timezone">Your time zone</label>
+        <select
+          id="profile-timezone"
+          className="field"
+          aria-label="Time zone"
+          value={currentTimezone}
+          onChange={(event) => setTimezone(event.target.value)}
+          required
+        >
+          <option value="UTC">UTC — Coordinated Universal Time</option>
+          {currentTimezone !== 'UTC' && !TIME_ZONE_OPTIONS.includes(currentTimezone) && (
+            <option value={currentTimezone}>{currentTimezone.replaceAll('_', ' ')}</option>
+          )}
+          {TIME_ZONE_REGIONS.map((region) => {
+            const regionZones = TIME_ZONE_OPTIONS.filter((zone) => zone.startsWith(`${region}/`))
+            if (!regionZones.length) return null
+            return <optgroup key={region} label={region}>
+              {regionZones.map((zone) => <option key={zone} value={zone}>{zone.replaceAll('_', ' ')}</option>)}
+            </optgroup>
+          })}
+        </select>
         <button type="submit" className="btn-primary" disabled={mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save time zone'}</button>
       </form>
     </section>

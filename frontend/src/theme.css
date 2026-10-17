@@ -5,6 +5,7 @@ body.theme-dark {
   --copper: #e0a456;
   --paper: #101c19;
   --surface: #192824;
+  --surface-muted: #21312b;
   --line: #32443d;
   --muted: #a1b3aa;
   color: var(--ink);
@@ -19,6 +20,43 @@ body.theme-dark .workspace-body {
 body.theme-dark .workspace-topbar {
   border-color: #293a33;
   background: rgba(16, 28, 25, 0.94);
+}
+
+body.theme-dark .hero-panel {
+  border-color: #35584b;
+  color: #e3eee8;
+  background: linear-gradient(115deg, #142f29, #1d4035);
+}
+
+body.theme-dark .hero-copy .mini-label {
+  color: #b2d2bd;
+}
+
+body.theme-dark .hero-copy h2 {
+  color: #f0f6f1;
+}
+
+body.theme-dark .hero-panel .secondary-btn {
+  border-color: rgba(225, 239, 228, .34);
+  color: #e3eee8;
+  background: rgba(255, 255, 255, .05);
+}
+
+body.theme-dark .hero-panel .secondary-btn:hover {
+  background: rgba(255, 255, 255, .12);
+}
+
+body.theme-dark .panel .secondary-btn,
+body.theme-dark .table-panel .secondary-btn {
+  border-color: #40544a;
+  color: #e1ece5;
+  background: #1b2a24;
+}
+
+body.theme-dark .panel .secondary-btn:hover,
+body.theme-dark .table-panel .secondary-btn:hover {
+  border-color: #83b18e;
+  background: #25362e;
 }
 
 body.theme-dark .workspace-topbar .inline-flex {
@@ -180,6 +218,15 @@ body.theme-dark .auth-card .field {
   border-color: #40544a;
   color: #e3eee8;
   background: #192824;
+}
+
+body.theme-dark .profile-preference h2,
+body.theme-dark .profile-timezone-label {
+  color: #e1ece5;
+}
+
+body.theme-dark .profile-preference > div > p {
+  color: #a4b5ac;
 }
 
 body.theme-dark .ui-accent-surface {
