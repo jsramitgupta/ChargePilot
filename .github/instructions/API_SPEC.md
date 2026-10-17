@@ -263,7 +263,7 @@ Exchange a one-time enrollment code in the `Authorization: Bearer` header for a
 connector ID and permanent credential. Codes expire after 15 minutes, are
 single-use, and are returned only once.
 
-Request: `{"version":"0.1.0"}`
+Request: `{"version":"0.1.1"}`
 
 Response:
 
@@ -290,7 +290,7 @@ expire after 15 minutes and are stored only as hashes. The response is marked
 ### POST /api/v1/connectors/heartbeat
 
 Refreshes last-seen time and connector version. The connector sends its
-credential and `{"version":"0.1.0"}`.
+credential and `{"version":"0.1.1"}`.
 
 ### POST /api/v1/connectors/commands/claim
 
@@ -428,4 +428,5 @@ The app stores the last-seen timestamp, current switch state, last state change 
 - `switch_state` may be explicit in the telemetry payload, but the service still applies rule evaluation when it is `null`.
 - Device state is often nested under `dps` rather than a flat boolean field.
 - Channel selection is required for multi-gang devices and directly affects the command sent to TinyTuya.
+- Generic device labels (`switch`, `plug`, and `outlet`) are normalized to TinyTuya's `default` OutletDevice profile by both direct control and the site connector.
 - The API layer is intentionally simple and should be treated as a local admin interface, not a public production API by default.

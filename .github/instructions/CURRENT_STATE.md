@@ -56,12 +56,14 @@ state.
 ## Current important service modules
 - app/services/rule_engine.py — threshold logic and hysteresis
 - app/services/tuya_service.py — local device control / discovery
+- connector/chargepilot_connector.py — site-side TinyTuya runtime; generic
+  switch, plug, and outlet labels are normalized to the default OutletDevice
+  profile, matching the app's direct-control path
 - app/services/smartlife_service.py — QR generation and linked-device polling
 - app/services/broadcaster.py — SSE updates
 - app/services/connector_service.py — connector identity, command queue, lease, and result handling
 - app/services/automation_processor.py — asynchronous rule evaluation and command creation
 - app/workers.py — transactional-outbox relay and Kafka automation consumer processes
-- connector/chargepilot_connector.py — site-side TinyTuya runtime
 
 ## Service topology and scale status
 

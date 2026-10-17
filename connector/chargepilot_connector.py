@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 import httpx
 from tinytuya import OutletDevice, deviceScan
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 POLL_INTERVAL_SECONDS = 3
 HEARTBEAT_INTERVAL_SECONDS = 20
 logger = logging.getLogger("chargepilot.connector")
@@ -139,6 +139,15 @@ def _switch_state(value: Any) -> bool | None:
     return None
 
 
+def _normalize_device_type(device_type: str | None) -> str:
+    value = (device_type or "default").strip()
+    if not value:
+        return "default"
+    if value.lower() in {"switch", "plug", "outlet", "default"}:
+        return "default"
+    return value
+
+
 def _read_device_state(device: OutletDevice, channel: int) -> bool:
     response = device.status(switch=channel)
     dps = response.get("dps") if isinstance(response, dict) else None
@@ -163,7 +172,7 @@ def _execute_device_command(command: dict[str, Any]) -> dict[str, Any]:
         device_info["device_id"],
         device_info["ip_address"],
         device_info["local_key"],
-        device_info.get("device_type") or "default",
+        _normalize_device_type(device_info.get("device_type")),
         version=version,
     )
     channel = int(command.get("channel_index") or 1)

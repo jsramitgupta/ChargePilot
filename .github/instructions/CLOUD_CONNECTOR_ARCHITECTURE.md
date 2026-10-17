@@ -102,6 +102,8 @@ HTTP contract versioned for later connector upgrades.
    broadcasts the update, and exposes failures or pending work in the UI.
 
 Manual switch controls use the connector path for connector-assigned devices.
+The connector normalizes generic `switch`, `plug`, and `outlet` labels to
+TinyTuya's `default` OutletDevice profile, matching direct local control.
 LAN discovery can scan directly from the ChargePilot server's network or be
 explicitly delegated to an online site connector for a remote LAN. Server-side
 discovery requires the app process (including its container, if used) to have

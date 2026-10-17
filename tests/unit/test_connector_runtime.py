@@ -40,7 +40,13 @@ def test_switch_state_coerces_common_tuya_values(value, expected):
 
 def test_connector_reports_set_state_only_after_readback(monkeypatch):
     device = _FakeDevice("true")
-    monkeypatch.setattr(chargepilot_connector, "OutletDevice", lambda *args, **kwargs: device)
+    constructed_device_types = []
+
+    def build_device(*args, **kwargs):
+        constructed_device_types.append(args[3])
+        return device
+
+    monkeypatch.setattr(chargepilot_connector, "OutletDevice", build_device)
     result = chargepilot_connector._execute_device_command(
         {
             "operation": "set_state",
@@ -49,12 +55,19 @@ def test_connector_reports_set_state_only_after_readback(monkeypatch):
                 "device_id": "test-device",
                 "ip_address": "192.168.1.2",
                 "local_key": "secret",
+                "device_type": "switch",
             },
         }
     )
 
+    assert constructed_device_types == ["default"]
     assert device.commanded_state is True
     assert result == {"state": True}
+
+
+@pytest.mark.parametrize("device_type", ["switch", "plug", "outlet", "default", None, ""])
+def test_connector_normalizes_generic_device_types(device_type):
+    assert chargepilot_connector._normalize_device_type(device_type) == "default"
 
 
 def test_connector_fails_when_device_readback_does_not_match_desired_state(monkeypatch):
