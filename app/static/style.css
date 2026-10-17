@@ -179,6 +179,25 @@ body.theme-dark .text-red-700 {
   color: #fca5a5 !important;
 }
 
+body.theme-dark .text-amber-700,
+body.theme-dark .text-amber-900,
+body.theme-dark .text-amber-950 {
+  color: #fde68a !important;
+}
+
+body.theme-dark .text-emerald-700 {
+  color: #6ee7b7 !important;
+}
+
+body.theme-dark .bg-amber-50 {
+  background-color: rgba(120, 53, 15, 0.24) !important;
+}
+
+body.theme-dark .border-amber-200,
+body.theme-dark .border-amber-300 {
+  border-color: rgba(251, 191, 36, 0.36) !important;
+}
+
 body.theme-dark .bg-red-50,
 body.theme-dark .border-red-200 {
   background-color: rgba(127, 29, 29, 0.38) !important;

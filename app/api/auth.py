@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.authorization import get_authenticated_user, is_super_admin_user
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password
+from app.models.tenant import Tenant
 from app.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -31,6 +32,7 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user.tenant_id else None
     return {
         "id": user.id,
         "username": user.username,
@@ -39,7 +41,14 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)):
         "is_admin": bool(user.is_admin),
         "smartlife_user_code": user.smartlife_user_code,
         "timezone": user.timezone,
+        "tenant_name": tenant.name if tenant else None,
     }
+
+
+@router.post("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return {"status": "logged_out"}
 
 
 @router.put("/password")

@@ -1,9 +1,10 @@
 import hmac
 import json
-from datetime import UTC, datetime
+import secrets
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,7 @@ from app.core.database import get_db
 from app.core.security import get_bearer_token, generate_token
 from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device
+from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.connector_service import (
     claim_next_command,
@@ -38,6 +40,11 @@ class CommandResultRequest(BaseModel):
     error: str | None = Field(default=None, max_length=255)
 
 
+class ConnectorCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    tenant_id: str | None = None
+
+
 @router.get("")
 async def list_connectors(
     user: User = Depends(get_authenticated_user),
@@ -58,6 +65,47 @@ async def list_connectors(
         }
         for connector in connectors
     ]
+
+
+@router.post("/enrollment-codes", status_code=status.HTTP_201_CREATED)
+async def create_enrollment_code(
+    payload: ConnectorCreateRequest,
+    response: Response,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    if not is_super_admin_user(user) and user.role not in {"tenant_admin", "manager"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Connector administration permission required.",
+        )
+    tenant_id = payload.tenant_id if is_super_admin_user(user) else user.tenant_id
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a valid tenant.")
+    if db.query(Tenant.id).filter(Tenant.id == tenant_id).first() is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a valid tenant.")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Connector name is required.")
+
+    response.headers["Cache-Control"] = "private, no-store"
+    enrollment_code = secrets.token_urlsafe(32)
+    expires_at = datetime.now(UTC) + timedelta(minutes=15)
+    connector = SiteConnector(
+        tenant_id=tenant_id,
+        name=name,
+        enrollment_token_hash=hash_connector_token(enrollment_code),
+        enrollment_expires_at=expires_at,
+        is_active=True,
+    )
+    db.add(connector)
+    db.commit()
+    return {
+        "id": connector.id,
+        "name": connector.name,
+        "enrollment_code": enrollment_code,
+        "expires_at": expires_at,
+    }
 
 
 def _connector_from_auth(
@@ -246,3 +294,29 @@ async def revoke_connector(
         device.connector_id = None
     db.commit()
     return {"status": "revoked"}
+
+
+@router.delete("/{connector_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_connector(
+    connector_id: UUID,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    if not is_super_admin_user(user) and user.role not in {"tenant_admin", "manager"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Connector administration permission required.",
+        )
+    connector = tenant_scoped_query(db.query(SiteConnector), SiteConnector, user).filter(
+        SiteConnector.id == str(connector_id)
+    ).first()
+    if connector is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector not found.")
+    if connector.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Revoke the connector before deleting it.",
+        )
+    db.query(DeviceCommand).filter(DeviceCommand.connector_id == connector.id).delete(synchronize_session=False)
+    db.delete(connector)
+    db.commit()

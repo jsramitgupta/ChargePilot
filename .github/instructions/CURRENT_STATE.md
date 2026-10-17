@@ -21,7 +21,12 @@ ChargePilot is a cloud-capable, local-first battery automation platform for Wind
 ## Frontend and rendering
 The frontend is a Vite-built React application in `frontend/`. It currently
 provides sign-in/registration, dashboard, switches, mappings, endpoints,
-events, and super-admin account pages. It shares the original
+events, connector administration, profile, user/tenant administration, agent
+setup, and super-admin account pages. Authenticated in-app navigation stays
+within React Router, with the dev server serving the SPA for direct page loads;
+API-host downloads remain resource links rather than page navigation. React
+admin pages use authenticated, tenant-scoped API data and preserve the existing
+server-side authorization and business rules. The frontend shares the original
 `app/static/style.css` design tokens and theme behavior; the authenticated top
 navigation is left aligned. FastAPI continues to serve Jinja pages for the
 remaining operational/admin workflows. Keep the React and Jinja experiences
@@ -43,8 +48,10 @@ state.
    API/frontend origins are provided by runtime `CHARGEPILOT_API_URL` and
    `CHARGEPILOT_FRONTEND_URL` configuration. Login and registration screens are
    served by the frontend; API-host `/login` and `/register` GET requests redirect
-   to the frontend. Super admins can change their own password from the React
-   account page using the authenticated auth API.
+   to the frontend. Authenticated navigation and connector, profile, account,
+   user, tenant, and agent setup workflows are React routes. Super admins can
+   change their own password from the React account page using the authenticated
+   auth API.
 
 ## Current important service modules
 - app/services/rule_engine.py — threshold logic and hysteresis

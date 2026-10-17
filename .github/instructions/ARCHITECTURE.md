@@ -64,8 +64,10 @@ The HTTP API modules are in `app/api/`:
 
 `app/main.py` retains server-rendered operational and administrative routes not
 yet represented in React, along with form-based sign-in and onboarding
-workflows. Login and registration pages are frontend-only; their API-host GET
-routes redirect to the configured frontend origin.
+workflows. The authenticated React shell owns its dashboard, switch, mapping,
+endpoint, event, connector, profile, user, tenant, agent setup, and account
+navigation. API-host GET routes for login and registration redirect to the
+configured frontend origin.
 
 ### 3.2 Core layer
 

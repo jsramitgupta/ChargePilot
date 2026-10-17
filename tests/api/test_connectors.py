@@ -71,6 +71,78 @@ def test_connector_api_lists_status_for_authenticated_tenant():
     assert connectors[0]["is_online"] is False
 
 
+def test_react_connector_api_creates_revokes_and_deletes_connectors():
+    client = _tenant_admin_client("connector_react_workflow")
+    created = client.post(
+        "/api/v1/connectors/enrollment-codes",
+        json={"name": "React LAN"},
+    )
+
+    assert created.status_code == 201, created.text
+    assert created.headers["cache-control"] == "private, no-store"
+    payload = created.json()
+    assert payload["name"] == "React LAN"
+    assert payload["enrollment_code"]
+
+    listed = client.get("/api/v1/connectors")
+    assert listed.status_code == 200
+    assert listed.json()[0]["id"] == payload["id"]
+    assert listed.json()[0]["is_enrolled"] is False
+
+    revoked = client.post(f"/api/v1/connectors/{payload['id']}/revoke")
+    assert revoked.status_code == 200, revoked.text
+    assert revoked.json() == {"status": "revoked"}
+
+    deleted = client.delete(f"/api/v1/connectors/{payload['id']}")
+    assert deleted.status_code == 204
+    assert client.get("/api/v1/connectors").json() == []
+
+
+def test_connector_enrollment_code_creation_requires_admin_and_tenant():
+    client = TestClient(app)
+    client.post(
+        "/register",
+        data={"username": "connector_viewer", "password": "secret123"},
+        follow_redirects=False,
+    )
+
+    denied = client.post(
+        "/api/v1/connectors/enrollment-codes",
+        json={"name": "Not allowed"},
+    )
+
+    assert denied.status_code == 403
+    assert client.get("/api/v1/admin/users").status_code == 403
+
+
+def test_react_admin_api_limits_user_and_tenant_data_to_authorized_roles():
+    client = _tenant_admin_client("react_admin_api_owner")
+
+    users = client.get("/api/v1/admin/users")
+    tenants = client.get("/api/v1/admin/tenants")
+
+    assert users.status_code == 200
+    assert len(users.json()) == 1
+    assert users.json()[0]["username"] == "react_admin_api_owner"
+    assert "password_hash" not in users.json()[0]
+    assert tenants.status_code == 403
+
+
+def test_agent_setup_api_supplies_tenant_scoped_install_command():
+    client = _tenant_admin_client("react_agent_setup")
+
+    response = client.get("/api/v1/agent/setup")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "private, no-store"
+    payload = response.json()
+    assert payload["token"]
+    assert payload["token_scope"] == "tenant"
+    assert "-ServerUrl " in payload["install_command"]
+    assert "-EndpointToken " in payload["install_command"]
+    assert payload["can_rotate_tenant_token"] is True
+
+
 def test_connector_download_contains_runtime_and_pinned_requirements():
     client = _tenant_admin_client("connector_package_owner")
     response = client.get("/connectors/download")

@@ -23,7 +23,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
-import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useSearchParams } from 'react-router-dom'
+import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
 declare global {
@@ -52,6 +52,7 @@ type User = {
   is_admin: boolean
   smartlife_user_code?: string | null
   timezone?: string
+  tenant_name?: string | null
 }
 
 type Endpoint = {
@@ -107,6 +108,32 @@ type Connector = {
   is_active: boolean
   is_enrolled: boolean
   is_online: boolean
+  last_seen_at?: string | null
+}
+
+type AdminUser = {
+  id: string
+  username: string
+  role: string
+  tenant_id?: string | null
+  tenant_name?: string | null
+  created_at: string
+}
+
+type TenantInfo = {
+  id: string
+  name: string
+  slug: string
+  agent_token: string
+  created_at: string
+}
+
+type AgentSetup = {
+  token: string
+  token_scope: string
+  install_command: string
+  is_super_admin: boolean
+  can_rotate_tenant_token: boolean
 }
 
 type SmartLifeDevice = {
@@ -264,6 +291,11 @@ function App() {
             <Route path="/endpoints" element={<EndpointsPage />} />
             <Route path="/events" element={<EventsPage />} />
             <Route path="/account" element={<SuperAdminAccountPage />} />
+            <Route path="/connectors" element={<ConnectorsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/users" element={<UsersPage />} />
+            <Route path="/tenants" element={<TenantsPage />} />
+            <Route path="/agent" element={<AgentSetupPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
@@ -317,6 +349,14 @@ function ThemeToggleButton({ isDark, onToggle, className = '' }: { isDark: boole
 function AppShell({ user }: { user: User }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isDark, setIsDark] = useAppTheme()
+  const navigate = useNavigate()
+  const logoutMutation = useMutation({
+    mutationFn: () => apiFetch<{ status: string }>('/api/v1/auth/logout', { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.clear()
+      navigate('/login', { replace: true })
+    },
+  })
 
   useEffect(() => {
     document.body.dataset.userTimezone = user.timezone || 'UTC'
@@ -330,7 +370,7 @@ function AppShell({ user }: { user: User }) {
     { to: '/devices', label: 'Switches', icon: PlugZap },
     { to: '/mappings', label: 'Mappings', icon: Cable },
     { to: '/endpoints', label: 'Endpoints', icon: MonitorSmartphone },
-    { to: '/connectors', label: 'Connectors', icon: Network, legacy: true },
+    { to: '/connectors', label: 'Connectors', icon: Network },
     { to: '/events', label: 'Events', icon: Bell },
   ]
 
@@ -348,25 +388,26 @@ function AppShell({ user }: { user: User }) {
           <div className="site-header-actions">
             <div className="hidden items-center gap-2 md:flex"><span className="mini-badge live-pill">Live telemetry</span></div>
             <ThemeToggleButton isDark={isDark} onToggle={() => setIsDark((value) => !value)} />
-            <a href={backendUrl('/agent')} className="agent-header-button">Download Agent</a>
+            <NavLink to="/agent" className="agent-header-button">Agent setup</NavLink>
             {user.role === 'super_admin' && <NavLink to="/account" className="header-account-link"><KeyRound size={14} className="mr-1 inline" />Account</NavLink>}
-            <a href={backendUrl('/profile')} className="header-account-link">Profile</a>
-            <a href={backendUrl('/logout')} className="header-account-link"><LogOut size={14} className="mr-1 inline" />Logout</a>
+            <NavLink to="/profile" className="header-account-link">Profile</NavLink>
+            <button type="button" className="header-account-link" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}>
+              <LogOut size={14} className="mr-1 inline" />{logoutMutation.isPending ? 'Logging out…' : 'Logout'}
+            </button>
             <button className="nav-toggle" type="button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="mainNav" onClick={() => setMobileOpen((value) => !value)}>
               <span className="sr-only">Open menu</span><Menu size={18} aria-hidden="true" />
             </button>
           </div>
         </div>
+        {logoutMutation.error && <p className="mx-4 mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:mx-auto md:max-w-6xl">{logoutMutation.error.message}</p>}
         <nav id="mainNav" className={`site-nav ${mobileOpen ? 'is-open' : ''}`} aria-label="Main navigation">
-          {navItems.map(({ to, label, icon: Icon, legacy }) => legacy ? (
-            <a key={to} href={to} onClick={() => setMobileOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold transition"><Icon size={15} className="mr-1 inline" />{label}</a>
-          ) : (
+          {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} end={to === '/'} onClick={() => setMobileOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold transition"><Icon size={15} className="mr-1 inline" />{label}</NavLink>
           ))}
           {(user.role === 'super_admin' || user.role === 'tenant_admin' || user.role === 'manager') && (
-            <a href={backendUrl('/users')} onClick={() => setMobileOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold transition"><Users size={15} className="mr-1 inline" />Users</a>
+            <NavLink to="/users" onClick={() => setMobileOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold transition"><Users size={15} className="mr-1 inline" />Users</NavLink>
           )}
-          {user.role === 'super_admin' && <a href={backendUrl('/tenants')} onClick={() => setMobileOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold transition"><Building2 size={15} className="mr-1 inline" />Tenants</a>}
+          {user.role === 'super_admin' && <NavLink to="/tenants" onClick={() => setMobileOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold transition"><Building2 size={15} className="mr-1 inline" />Tenants</NavLink>}
         </nav>
       </header>
       <main className="page-shell">
@@ -871,7 +912,7 @@ function DevicesPage() {
             </div>}
           </section>
         )}
-        {!connectors.some((connector) => connector.is_active && connector.is_enrolled) && <p className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">You can scan the ChargePilot server network now. To scan a remote site, <a href={backendUrl('/connectors')} className="font-semibold underline">enroll a site connector</a>.</p>}
+        {!connectors.some((connector) => connector.is_active && connector.is_enrolled) && <p className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">You can scan the ChargePilot server network now. To scan a remote site, <NavLink to="/connectors" className="font-semibold underline">enroll a site connector</NavLink>.</p>}
       </section>
 
       <section className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-[0_20px_40px_rgba(15,23,42,0.04)] sm:p-6">
@@ -1180,6 +1221,279 @@ function EventsPage() {
       </section>
     </div>
   )
+}
+
+function ConnectorsPage() {
+  const queryClient = useQueryClient()
+  const { data: user } = useSession()
+  const [name, setName] = useState('')
+  const [tenantId, setTenantId] = useState('')
+  const [enrollmentCode, setEnrollmentCode] = useState('')
+  const [copyStatus, setCopyStatus] = useState('')
+
+  const connectorsQuery = useQuery({
+    queryKey: ['connectors'],
+    queryFn: () => apiFetch<Connector[]>('/api/v1/connectors'),
+  })
+  const tenantsQuery = useQuery({
+    queryKey: ['admin-tenants'],
+    queryFn: () => apiFetch<TenantInfo[]>('/api/v1/admin/tenants'),
+    enabled: user?.role === 'super_admin',
+  })
+  const createMutation = useMutation({
+    mutationFn: () => apiFetch<{ enrollment_code: string }>('/api/v1/connectors/enrollment-codes', {
+      method: 'POST',
+      body: JSON.stringify({ name, tenant_id: tenantId || undefined }),
+    }),
+    onSuccess: ({ enrollment_code }) => {
+      setEnrollmentCode(enrollment_code)
+      setName('')
+      setTenantId('')
+      queryClient.invalidateQueries({ queryKey: ['connectors'] })
+    },
+  })
+  const revokeMutation = useMutation({
+    mutationFn: (connectorId: string) => apiFetch<{ status: string }>(`/api/v1/connectors/${connectorId}/revoke`, { method: 'POST' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['connectors'] }),
+  })
+  const deleteMutation = useMutation({
+    mutationFn: (connectorId: string) => apiFetch<void>(`/api/v1/connectors/${connectorId}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['connectors'] }),
+  })
+
+  if (connectorsQuery.isLoading || tenantsQuery.isLoading) return <LoadingCard />
+  if (connectorsQuery.error) return <ErrorCard message={connectorsQuery.error.message} />
+  if (tenantsQuery.error) return <ErrorCard message={tenantsQuery.error.message} />
+  const connectors = connectorsQuery.data ?? []
+  const tenants = tenantsQuery.data ?? []
+  const actionError = createMutation.error ?? revokeMutation.error ?? deleteMutation.error
+  const canManageConnectors = user?.role === 'super_admin' || user?.role === 'tenant_admin' || user?.role === 'manager'
+
+  return (
+    <div className="space-y-6">
+      <PageHeader eyebrow="Remote device networks" title="Site connectors" description="Connect a computer on the same local network as your Tuya switches. It securely polls ChargePilot over HTTPS and performs discovery and control on site." />
+      {actionError && <ErrorCard message={actionError.message} />}
+      {enrollmentCode && (
+        <section className="rounded-2xl border border-amber-300 bg-amber-50 p-5" aria-labelledby="enrollment-code-title">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><h2 id="enrollment-code-title" className="text-lg font-bold text-amber-950">One-time enrollment code</h2><p className="mt-1 text-sm text-amber-900">Enter it on the connector computer within 15 minutes. This code is shown only once.</p></div>
+            <button type="button" className="btn-secondary" onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(enrollmentCode)
+                setCopyStatus('Enrollment code copied.')
+              } catch {
+                setCopyStatus('Copy was blocked. Select the code and copy it manually.')
+              }
+            }}>Copy code</button>
+          </div>
+          <output className="mt-4 block select-all break-all rounded-lg border border-amber-200 bg-white px-4 py-4 font-mono text-lg font-semibold tracking-wider text-slate-900">{enrollmentCode}</output>
+          <p className="mt-2 min-h-4 text-xs text-amber-900" role="status">{copyStatus}</p>
+        </section>
+      )}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        {canManageConnectors && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-900">Add a connector</h2>
+          <p className="mt-1 text-sm text-slate-600">Download the package, then create a single-use enrollment code.</p>
+          <a href={backendUrl('/connectors/download')} className="mt-4 inline-flex rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100">Download connector package</a>
+          <form className="mt-4 space-y-3" onSubmit={(event) => { event.preventDefault(); createMutation.mutate() }}>
+            <label className="label" htmlFor="connector-name">Name<input id="connector-name" required maxLength={160} className="field" value={name} onChange={(event) => setName(event.target.value)} placeholder="Main office LAN" /></label>
+            {user?.role === 'super_admin' && <label className="label" htmlFor="connector-tenant">Tenant<select id="connector-tenant" required className="field" value={tenantId} onChange={(event) => setTenantId(event.target.value)}><option value="">Select a tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></label>}
+            <button type="submit" className="btn-primary" disabled={createMutation.isPending}>{createMutation.isPending ? 'Creating code…' : 'Create one-time code'}</button>
+          </form>
+        </section>}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-baseline justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">Connectors</h2><span className="text-sm text-slate-500">{connectors.length}</span></div>
+          <div className="mt-4 divide-y divide-slate-100">
+            {connectors.map((connector) => {
+              const status = !connector.is_active ? 'Revoked' : !connector.is_enrolled ? 'Awaiting enrollment' : connector.is_online ? 'Online' : 'Offline'
+              const statusColor = !connector.is_active ? 'text-red-700' : connector.is_online ? 'text-emerald-700' : 'text-amber-700'
+              return <article key={connector.id} className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
+                <div><h3 className="font-semibold text-slate-900">{connector.name}</h3><p className="mt-1 text-sm"><span className={statusColor}>{status}</span><span className="text-slate-500"> · Last contact {formatTimestamp(connector.last_seen_at ?? null)}</span></p></div>
+                {canManageConnectors && (connector.is_active
+                  ? <button type="button" className="btn-secondary border-red-200 text-red-700 hover:bg-red-50" disabled={revokeMutation.isPending} onClick={() => { if (window.confirm('Revoke this connector and unassign its switches?')) revokeMutation.mutate(connector.id) }}>Revoke</button>
+                  : <button type="button" className="btn-secondary border-red-200 text-red-700 hover:bg-red-50" disabled={deleteMutation.isPending} onClick={() => { if (window.confirm('Permanently delete this revoked connector and its command history?')) deleteMutation.mutate(connector.id) }}>Delete</button>)}
+              </article>
+            })}
+            {!connectors.length && <p className="py-6 text-sm text-slate-500">No connectors yet. Add one for a remote switch network.</p>}
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function ProfilePage() {
+  const queryClient = useQueryClient()
+  const { data: user, isLoading, error } = useSession()
+  const [timezone, setTimezone] = useState('')
+  const [statusMessage, setStatusMessage] = useState('')
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const body = new FormData()
+      body.set('timezone', timezone || user?.timezone || 'UTC')
+      return submitLegacyAction('/profile/timezone', body)
+    },
+    onSuccess: (message) => {
+      setStatusMessage(message)
+      queryClient.invalidateQueries({ queryKey: ['session'] })
+    },
+  })
+  if (isLoading) return <LoadingCard />
+  if (error || !user) return <ErrorCard message={error?.message ?? 'Your account could not be loaded.'} />
+  return <div className="mx-auto max-w-3xl space-y-5">
+    <PageHeader eyebrow="Account" title={user.username} description="Manage the display settings for your ChargePilot account." />
+    <section className="grid gap-4 sm:grid-cols-2">
+      <MetricMini label="Role" value={user.role.replaceAll('_', ' ')} />
+      <MetricMini label="Tenant" value={user.tenant_name ?? 'Personal tenant'} />
+    </section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-bold text-slate-900">Time zone</h2>
+      <p className="mt-1 text-sm text-slate-600">Set the time zone used for timestamps throughout the app.</p>
+      {statusMessage && <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
+      {mutation.error && <div className="mt-4"><ErrorCard message={mutation.error.message} /></div>}
+      <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={(event) => { event.preventDefault(); setStatusMessage(''); mutation.mutate() }}>
+        <input className="field min-w-0 flex-1" aria-label="Time zone" value={timezone || user.timezone || ''} onChange={(event) => setTimezone(event.target.value)} placeholder="For example: America/Los_Angeles" required />
+        <button type="submit" className="btn-primary" disabled={mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save time zone'}</button>
+      </form>
+    </section>
+  </div>
+}
+
+function UsersPage() {
+  const queryClient = useQueryClient()
+  const { data: currentUser, isLoading: sessionLoading } = useSession()
+  const usersQuery = useQuery({ queryKey: ['admin-users'], queryFn: () => apiFetch<AdminUser[]>('/api/v1/admin/users') })
+  const tenantsQuery = useQuery({ queryKey: ['admin-tenants'], queryFn: () => apiFetch<TenantInfo[]>('/api/v1/admin/tenants'), enabled: currentUser?.role === 'super_admin' })
+  const [statusMessage, setStatusMessage] = useState('')
+  const actionMutation = useMutation({
+    mutationFn: ({ path, body }: { path: string; body: FormData }) => submitLegacyAction(path, body),
+    onSuccess: (message) => {
+      setStatusMessage(message)
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] })
+    },
+  })
+  const isSuperAdmin = currentUser?.role === 'super_admin'
+  if (sessionLoading || usersQuery.isLoading || tenantsQuery.isLoading) return <LoadingCard />
+  if (usersQuery.error) return <ErrorCard message={usersQuery.error.message} />
+  if (tenantsQuery.error) return <ErrorCard message={tenantsQuery.error.message} />
+  const tenants = tenantsQuery.data ?? []
+  const roles = ['tenant_admin', 'manager', 'standard_user', 'viewer']
+  const submit = (event: FormEvent<HTMLFormElement>, path: string) => {
+    event.preventDefault()
+    actionMutation.mutate({ path, body: new FormData(event.currentTarget) })
+  }
+  return <div className="space-y-6">
+    <PageHeader eyebrow="Administration" title="User accounts" description="Add people to your tenant and control which ChargePilot tasks they can access." />
+    {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
+    {actionMutation.error && <ErrorCard message={actionMutation.error.message} />}
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-bold text-slate-900">Create a user</h2>
+      <form className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" onSubmit={(event) => submit(event, '/users')}>
+        <label className="label" htmlFor="new-user-name">Username<input id="new-user-name" name="username" required className="field" /></label>
+        <label className="label" htmlFor="new-user-password">Password<input id="new-user-password" name="password" required type="password" autoComplete="new-password" className="field" /></label>
+        <label className="label" htmlFor="new-user-role">Role<select id="new-user-role" name="role" className="field">{roles.map((role) => <option key={role} value={role}>{role.replaceAll('_', ' ')}</option>)}</select></label>
+        {isSuperAdmin && <label className="label" htmlFor="new-user-tenant">Tenant<select id="new-user-tenant" name="tenant_id" required className="field"><option value="">Select a tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></label>}
+        <button type="submit" className="btn-primary sm:col-span-2 xl:col-span-4" disabled={actionMutation.isPending}>Create user</button>
+      </form>
+    </section>
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-bold text-slate-900">Accounts</h2></div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px] text-left text-sm">
+          <thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="px-4 py-3">Username</th><th className="px-4 py-3">Role</th>{isSuperAdmin && <th className="px-4 py-3">Tenant</th>}<th className="px-4 py-3">Created</th><th className="px-4 py-3">Actions</th></tr></thead>
+          <tbody className="divide-y divide-slate-100">
+            {(usersQuery.data ?? []).map((account) => <tr key={account.id}>
+              <td className="px-4 py-3 font-semibold text-slate-900">{account.username}</td>
+              <td className="px-4 py-3">{account.role === 'super_admin' ? 'Super Admin' : <form className="flex flex-wrap gap-2" onSubmit={(event) => submit(event, `/users/${account.id}/role`)}><select name="role" aria-label={`Role for ${account.username}`} defaultValue={account.role} className="field min-w-32 py-2">{roles.map((role) => <option key={role} value={role}>{role.replaceAll('_', ' ')}</option>)}</select>{isSuperAdmin && <select name="tenant_id" aria-label={`Tenant for ${account.username}`} defaultValue={account.tenant_id ?? ''} required className="field min-w-36 py-2"><option value="">Select tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select>}<button type="submit" className="btn-secondary px-3 py-2">Save</button></form>}</td>
+              {isSuperAdmin && <td className="px-4 py-3">{account.tenant_name ?? 'Unassigned'}</td>}
+              <td className="px-4 py-3 text-slate-500">{formatTimestamp(account.created_at)}</td>
+              <td className="px-4 py-3">{account.id !== currentUser?.id && account.role !== 'super_admin' ? <button type="button" className="btn-secondary border-red-200 px-3 py-2 text-red-700" onClick={() => { if (window.confirm('Delete this user?')) actionMutation.mutate({ path: `/users/${account.id}/delete`, body: new FormData() }) }}>Delete</button> : <span className="text-xs text-slate-400">Current</span>}</td>
+            </tr>)}
+            {!usersQuery.data?.length && <tr><td colSpan={isSuperAdmin ? 5 : 4} className="px-4 py-8 text-center text-slate-500">No users found.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+}
+
+function TenantsPage() {
+  const queryClient = useQueryClient()
+  const tenantsQuery = useQuery({ queryKey: ['admin-tenants'], queryFn: () => apiFetch<TenantInfo[]>('/api/v1/admin/tenants') })
+  const [statusMessage, setStatusMessage] = useState('')
+  const actionMutation = useMutation({
+    mutationFn: ({ path, body }: { path: string; body: FormData }) => submitLegacyAction(path, body),
+    onSuccess: (message) => {
+      setStatusMessage(message)
+      queryClient.invalidateQueries({ queryKey: ['admin-tenants'] })
+    },
+  })
+  if (tenantsQuery.isLoading) return <LoadingCard />
+  if (tenantsQuery.error) return <ErrorCard message={tenantsQuery.error.message} />
+  const submit = (event: FormEvent<HTMLFormElement>, path: string) => {
+    event.preventDefault()
+    actionMutation.mutate({ path, body: new FormData(event.currentTarget) })
+  }
+  return <div className="space-y-6">
+    <PageHeader eyebrow="Super Admin" title="Tenants" description="Create and manage isolated customer environments and their agent credentials." />
+    {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
+    {actionMutation.error && <ErrorCard message={actionMutation.error.message} />}
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-bold text-slate-900">Create a tenant</h2>
+      <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={(event) => submit(event, '/tenants')}><label className="label min-w-0 flex-1" htmlFor="tenant-name">Tenant name<input id="tenant-name" name="tenant_name" required className="field" /></label><button type="submit" className="btn-primary self-end" disabled={actionMutation.isPending}>Create tenant</button></form>
+    </section>
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-bold text-slate-900">Tenant directory</h2></div>
+      <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm">
+        <thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="px-4 py-3">Name</th><th className="px-4 py-3">Slug</th><th className="px-4 py-3">Agent token</th><th className="px-4 py-3">Created</th><th className="px-4 py-3">Actions</th></tr></thead>
+        <tbody className="divide-y divide-slate-100">{(tenantsQuery.data ?? []).map((tenant) => <tr key={tenant.id}>
+          <td className="px-4 py-3 font-semibold text-slate-900">{tenant.name}</td><td className="px-4 py-3 text-slate-600">{tenant.slug}</td><td className="px-4 py-3"><code className="break-all font-mono text-xs">{tenant.agent_token}</code></td><td className="px-4 py-3 text-slate-500">{formatTimestamp(tenant.created_at)}</td>
+          <td className="space-y-2 px-4 py-3"><button type="button" className="btn-secondary px-3 py-2" onClick={() => actionMutation.mutate({ path: `/tenants/${tenant.id}/rotate-agent-token`, body: new FormData() })}>Rotate token</button><button type="button" className="btn-secondary border-red-200 px-3 py-2 text-red-700" onClick={() => { if (window.confirm('Delete this tenant and all of its tenant data?')) actionMutation.mutate({ path: `/tenants/${tenant.id}/delete`, body: new FormData() }) }}>Delete</button></td>
+        </tr>)}
+        {!tenantsQuery.data?.length && <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">No tenants have been created yet.</td></tr>}</tbody>
+      </table></div>
+    </section>
+  </div>
+}
+
+function AgentSetupPage() {
+  const queryClient = useQueryClient()
+  const setupQuery = useQuery({ queryKey: ['agent-setup'], queryFn: () => apiFetch<AgentSetup>('/api/v1/agent/setup') })
+  const [statusMessage, setStatusMessage] = useState('')
+  const [copyStatus, setCopyStatus] = useState('')
+  const mutation = useMutation({
+    mutationFn: async ({ path, body }: { path: string; body: FormData }) => submitLegacyAction(path, body),
+    onSuccess: (message) => {
+      setStatusMessage(message)
+      return queryClient.invalidateQueries({ queryKey: ['agent-setup'] })
+    },
+  })
+  const data = setupQuery.data
+  if (setupQuery.isLoading) return <LoadingCard />
+  if (setupQuery.error) return <ErrorCard message={setupQuery.error.message} />
+  return <div className="space-y-6">
+    <PageHeader eyebrow="Endpoint setup" title="Install the laptop agent" description="Download the Windows scripts, extract them, and run the command on each laptop you want ChargePilot to monitor." />
+    {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
+    {mutation.error && <ErrorCard message={mutation.error.message} />}
+    {data?.is_super_admin && <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold text-slate-900">Global agent token</h2><p className="mt-1 text-sm text-slate-600">Regenerating this token stops agents configured with the previous value.</p></div><button type="button" className="btn-secondary" onClick={() => { if (window.confirm('Regenerate the global agent token? Existing agents using it will stop authenticating.')) { const body = new FormData(); body.set('action', 'regenerate'); mutation.mutate({ path: '/agent/global-token', body }) } }}>Regenerate token</button></div>
+      <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={(event) => { event.preventDefault(); const body = new FormData(); body.set('action', 'save'); body.set('token', String(new FormData(event.currentTarget).get('token') ?? '')); mutation.mutate({ path: '/agent/global-token', body }) }}><input name="token" defaultValue={data?.token} required minLength={16} maxLength={512} autoComplete="off" spellCheck={false} className="field min-w-0 flex-1 font-mono" aria-label="Global agent token" /><button type="submit" className="btn-primary">Save token</button></form>
+    </section>}
+    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <div className="grid lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="ui-modal-heading p-6 text-white sm:p-8"><h2 className="text-2xl font-bold">Get the Windows scripts</h2><p className="mt-2 text-sm leading-6 text-slate-300">The ZIP contains the telemetry agent and scheduled-task installer. Your token is not embedded in the archive.</p><a href={backendUrl('/agent/download')} className="mt-6 inline-flex items-center justify-center rounded-xl bg-blue-500 px-4 py-3 text-sm font-bold text-white hover:bg-blue-400">Download agent scripts</a><p className="mt-3 text-xs text-slate-400">ZIP archive · PowerShell · Windows 10/11</p></div>
+        <div className="p-6 sm:p-8"><h2 className="text-2xl font-bold tracking-tight text-slate-900">Run the setup command</h2><p className="mt-2 text-sm leading-6 text-slate-600">Extract the ZIP, open PowerShell in that folder, and run this command.</p><div className="mt-5 break-all rounded-xl border border-slate-200 bg-slate-50 p-4"><code className="font-mono text-sm text-slate-800">{data?.install_command}</code></div><button type="button" className="btn-secondary mt-3" onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(data?.install_command ?? '')
+            setCopyStatus('Install command copied.')
+          } catch {
+            setCopyStatus('Copy was blocked. Select the command and copy it manually.')
+          }
+        }}>Copy command</button><p className="mt-2 min-h-4 text-xs text-slate-500" role="status">{copyStatus}</p><div className="mt-6 border-t border-slate-200 pt-5"><p className="text-xs font-bold text-slate-500">{data?.token_scope}</p><p className="mt-1 text-xs text-slate-500">Keep this private. Regenerating it stops agents using the previous token.</p><code className="mt-3 block break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm text-slate-800">{data?.token}</code>{data?.can_rotate_tenant_token && <button type="button" className="btn-secondary mt-3" onClick={() => { if (window.confirm('Regenerate this tenant token? Agents using the old token will stop authenticating.')) mutation.mutate({ path: '/tenant/rotate-agent-token', body: new FormData() }) }}>Regenerate tenant token</button>}</div></div>
+      </div>
+    </section>
+    <p className="text-sm text-slate-500">After the first report, the laptop appears on the <NavLink to="/endpoints" className="font-semibold text-blue-700 underline">Endpoints</NavLink> page.</p>
+  </div>
 }
 
 function formatTimestamp(value: string | null) {

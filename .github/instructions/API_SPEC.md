@@ -53,6 +53,30 @@ Request:
 The endpoint returns `{"message": "Password changed."}`. The signed-in
 session remains active.
 
+### 2.2 POST /api/v1/auth/logout
+
+Clears the authenticated browser session and returns `{"status":"logged_out"}`.
+React navigation then moves to the frontend login route without navigating the
+browser to an API-host page.
+
+### 2.3 GET /api/v1/admin/users
+
+Lists user accounts visible to the signed-in Super Admin or tenant admin.
+Passwords and password hashes are never returned. Tenant admins see only users
+in their tenant.
+
+### 2.4 GET /api/v1/admin/tenants
+
+Lists tenants for Super Admin workflows. The response includes each tenant's
+agent token, matching the existing Super Admin tenant-management screen. The
+response is marked `private, no-store`.
+
+### 2.5 GET /api/v1/agent/setup
+
+Returns the authenticated user's agent install command and token for the React
+agent setup page. Requires an assigned tenant, except for the Super Admin. The
+response is marked `private, no-store`.
+
 ## 3. Endpoint reference
 
 ### 3.1 GET /health
@@ -228,10 +252,10 @@ Deletes one channel.
 
 ## 5. Site connector API
 
-Connector endpoints are mounted at `/api/v1/connectors`. Except for enrollment,
-they use the connector-specific bearer credential rather than an endpoint
-agent token. Command status reads require the signed-in ChargePilot session
-and normal tenant authorization.
+Connector endpoints are mounted at `/api/v1/connectors`. Enrollment uses a
+one-time enrollment code. Connector heartbeat and command routes use the
+connector-specific bearer credential. User-facing management routes use the
+signed-in ChargePilot session and normal tenant authorization.
 
 ### POST /api/v1/connectors/enroll
 
@@ -246,6 +270,22 @@ Response:
 ```json
 {"connector_id":"<uuid>","name":"Office LAN","token":"<secret-returned-once>"}
 ```
+
+### POST /api/v1/connectors/enrollment-codes
+
+Creates a connector and returns its single-use enrollment code once. Requires
+Super Admin or tenant admin/manager access. Tenant admins are scoped to their
+own tenant; a Super Admin must provide `tenant_id`.
+
+Request:
+
+```json
+{"name":"Office LAN","tenant_id":"<tenant-uuid>"}
+```
+
+The response includes `id`, `name`, `enrollment_code`, and `expires_at`. Codes
+expire after 15 minutes and are stored only as hashes. The response is marked
+`private, no-store`.
 
 ### POST /api/v1/connectors/heartbeat
 
@@ -283,6 +323,11 @@ Returns a tenant-scoped command status (`queued`, `leased`, `succeeded`,
 
 Revokes the connector credential and unassigns its devices. Available to
 tenant administrators/managers and the Super Admin.
+
+### DELETE /api/v1/connectors/{connector_id}
+
+Permanently deletes a revoked connector and its command history. Active
+connectors must be revoked first. This action is tenant-scoped.
 
 The authenticated **Connectors** page creates enrollment codes, shows
 heartbeat status, and serves the connector package. The **Switches** page

@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import SQLAlchemyError
@@ -27,6 +27,7 @@ from app.api.mappings import router as mappings_router
 from app.api.onboarding import router as onboarding_router
 from app.api.telemetry import router as telemetry_router
 from app.api.auth import router as auth_router
+from app.api.admin import router as admin_router
 from app.api.connectors import router as connectors_router
 from app.core.authorization import is_super_admin_user, tenant_scoped_query
 from app.core.config import settings
@@ -235,6 +236,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(health_router)
 app.include_router(telemetry_router, prefix=settings.api_v1_prefix)
 app.include_router(auth_router, prefix=settings.api_v1_prefix)
+app.include_router(admin_router, prefix=settings.api_v1_prefix)
 app.include_router(connectors_router, prefix=settings.api_v1_prefix)
 app.include_router(endpoints_router, prefix=settings.api_v1_prefix)
 app.include_router(devices_router, prefix=settings.api_v1_prefix)
@@ -272,6 +274,46 @@ def _current_agent_tenant(request: Request, db: Session) -> tuple[User | None, T
     if current_user.tenant_id is None:
         return current_user, None
     return current_user, db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+
+
+@app.get(f"{settings.api_v1_prefix}/agent/setup")
+async def get_agent_setup(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    current_user, tenant = _current_agent_tenant(request, db)
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    is_super_admin = is_super_admin_user(current_user)
+    if tenant is None and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="An assigned tenant is required to configure the agent.",
+        )
+
+    global_token = get_global_agent_token(db, create_if_missing=True) if is_super_admin else None
+    token = ensure_tenant_agent_token(tenant, db) if tenant is not None else global_token
+    if token is None:
+        raise HTTPException(status_code=500, detail="Could not generate an agent token.")
+    response.headers["Cache-Control"] = "private, no-store"
+    server_url = str(request.base_url).rstrip("/")
+    install_command = (
+        "powershell.exe -NoProfile -ExecutionPolicy Bypass -File "
+        + _quote_powershell_literal(".\\CreateAgentScheduledTask.ps1")
+        + " -ServerUrl "
+        + _quote_powershell_literal(server_url)
+        + " -EndpointToken "
+        + _quote_powershell_literal(token)
+        + " -AgentVersion '1.0.0'"
+    )
+    return {
+        "token": token,
+        "token_scope": "system-wide Super Admin token" if is_super_admin and tenant is None else "tenant",
+        "install_command": install_command,
+        "is_super_admin": is_super_admin,
+        "can_rotate_tenant_token": bool(tenant and current_user.is_admin),
+    }
 
 
 @app.get("/agent", response_class=HTMLResponse)
