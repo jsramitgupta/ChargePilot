@@ -105,6 +105,12 @@ def frontend_redirect(path: str, status_code: int = 303) -> RedirectResponse:
     return RedirectResponse(url=target, status_code=status_code)
 
 
+def get_agent_server_url(request: Request) -> str:
+    if settings.api_url:
+        return settings.api_url.rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
 def get_current_user(request: Request, db: Session) -> User | None:
     user_id = request.session.get("user_id")
     if not user_id:
@@ -297,7 +303,7 @@ async def get_agent_setup(
     if token is None:
         raise HTTPException(status_code=500, detail="Could not generate an agent token.")
     response.headers["Cache-Control"] = "private, no-store"
-    server_url = str(request.base_url).rstrip("/")
+    server_url = get_agent_server_url(request)
     install_command = (
         "powershell.exe -NoProfile -ExecutionPolicy Bypass -File "
         + _quote_powershell_literal(".\\CreateAgentScheduledTask.ps1")
@@ -329,7 +335,7 @@ async def agent_setup_page(request: Request, db: Session = Depends(get_db)):
         if tenant is not None
         else global_token
     )
-    server_url = str(request.base_url).rstrip("/")
+    server_url = get_agent_server_url(request)
     install_command = ""
     if token:
         install_command = (
@@ -371,7 +377,7 @@ async def agent_setup_guide(request: Request, db: Session = Depends(get_db)):
         if tenant is not None
         else global_token
     )
-    server_url = str(request.base_url).rstrip("/")
+    server_url = get_agent_server_url(request)
     install_command = ""
     if token:
         install_command = (

@@ -5,6 +5,7 @@ from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.main import app
 from app.models.connector import DeviceCommand, SiteConnector
@@ -128,7 +129,8 @@ def test_react_admin_api_limits_user_and_tenant_data_to_authorized_roles():
     assert tenants.status_code == 403
 
 
-def test_agent_setup_api_supplies_tenant_scoped_install_command():
+def test_agent_setup_api_supplies_tenant_scoped_install_command(monkeypatch):
+    monkeypatch.setattr(settings, "api_url", "https://api.example.test")
     client = _tenant_admin_client("react_agent_setup")
 
     response = client.get("/api/v1/agent/setup")
@@ -139,6 +141,7 @@ def test_agent_setup_api_supplies_tenant_scoped_install_command():
     assert payload["token"]
     assert payload["token_scope"] == "tenant"
     assert "-ServerUrl " in payload["install_command"]
+    assert "-ServerUrl 'https://api.example.test'" in payload["install_command"]
     assert "-EndpointToken " in payload["install_command"]
     assert payload["can_rotate_tenant_token"] is True
 

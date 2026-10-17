@@ -71,7 +71,9 @@ HTTP(S) origins, not internal Docker service names. The API URL may be empty
 when the reverse proxy serves API paths on the frontend origin. Both values
 must be origins without a path, query, or fragment. The frontend origin is
 also the sole credentialed CORS origin and the target for authentication
-redirects. Session cookies use `Secure` in production; use `SameSite=None`
+redirects. Agent setup uses `CHARGEPILOT_API_URL` as the server URL embedded
+in the Windows install command; set it to the public HTTPS API origin when
+agents connect through a TLS-terminating proxy. Session cookies use `Secure` in production; use `SameSite=None`
 when the frontend and API are on different registrable domains.
 
 ## 4. Fresh Docker Compose deployment

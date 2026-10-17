@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.main import app
 from app.models.system_setting import SystemSetting
@@ -75,6 +76,21 @@ def test_authenticated_agent_setup_page_shows_tenant_token_command_and_download(
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
         assert set(archive.namelist()) == {"BatteryAgent.ps1", "CreateAgentScheduledTask.ps1"}
         assert token.encode() not in archive.read("CreateAgentScheduledTask.ps1")
+
+
+def test_agent_setup_pages_use_configured_public_api_origin(monkeypatch):
+    monkeypatch.setattr(settings, "api_url", "https://api.example.test")
+    client = TestClient(app)
+    username = f"agent_public_url_{uuid4().hex[:8]}"
+    _register_tenant_admin(client, username)
+
+    page = client.get("/agent")
+    guide = client.get("/agent/guide")
+
+    assert page.status_code == 200
+    assert guide.status_code == 200
+    assert "-ServerUrl 'https://api.example.test'" in html.unescape(page.text)
+    assert "-ServerUrl &#39;https://api.example.test&#39;" in guide.text
 
 
 def test_agent_download_requires_authenticated_tenant():
