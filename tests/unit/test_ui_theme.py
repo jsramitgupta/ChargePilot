@@ -15,6 +15,19 @@ def css_rule(stylesheet: str, selector: str) -> str:
     return match.group(1)
 
 
+def contrast_ratio(foreground: str, background: str) -> float:
+    def luminance(color: str) -> float:
+        channels = [int(color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        linear = [
+            channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+            for channel in channels
+        ]
+        return sum(weight * channel for weight, channel in zip((0.2126, 0.7152, 0.0722), linear))
+
+    light, dark = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
 def test_react_is_the_only_browser_ui():
     assert not (PROJECT_ROOT / "app" / "templates").exists()
     assert not (PROJECT_ROOT / "app" / "static").exists()
@@ -110,3 +123,31 @@ def test_shared_controls_and_surfaces_use_theme_tokens():
     assert "display: flex;" in actions
     assert "gap: 10px;" in actions
     assert "flex-wrap: wrap;" in actions
+
+
+def test_mapping_rule_inputs_do_not_submit_until_explicit_save():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    mappings_page = app.split("function MappingsPage()", 1)[1].split("\nfunction ", 1)[0]
+
+    assert "event.key === 'Enter'" in mappings_page
+    assert "event.target.type === 'number'" in mappings_page
+    assert "event.preventDefault()" in mappings_page
+    assert 'onSubmit={form.handleSubmit((values) => mutation.mutate(values))}' in mappings_page
+    assert 'type="submit" className="btn-primary"' in mappings_page
+
+
+def test_dark_tables_and_mapping_number_inputs_have_readable_theme_colors():
+    dark = DARK_THEME.read_text(encoding="utf-8")
+
+    table_cells = css_rule(dark, "body.theme-dark .page-shell .table-wrap td")
+    strong_cells = css_rule(dark, "body.theme-dark .page-shell .table-wrap .strong-cell")
+    success_badges = css_rule(dark, "body.theme-dark .page-shell .table-wrap .badge.success")
+    number_input = css_rule(dark, "body.theme-dark .page-shell .mapping-number-input input")
+
+    assert "color: #bdcdc4;" in table_cells
+    assert "color: #e3eee8 !important;" in strong_cells
+    assert "color: #b8e0c0;" in success_badges
+    assert "background-color: transparent !important;" in number_input
+    assert contrast_ratio("#bdcdc4", "#192824") >= 4.5
+    assert contrast_ratio("#e3eee8", "#192824") >= 4.5
+    assert contrast_ratio("#b8e0c0", "#22392f") >= 4.5

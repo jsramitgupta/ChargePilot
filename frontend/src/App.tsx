@@ -1324,7 +1324,18 @@ function MappingsPage() {
           ))}
         </ol>
 
-        <form onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+        <form
+          onKeyDown={(event) => {
+            if (
+              event.key === 'Enter'
+              && event.target instanceof HTMLInputElement
+              && event.target.type === 'number'
+            ) {
+              event.preventDefault()
+            }
+          }}
+          onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+        >
           {step === 1 && <div className="mapping-step-content">
             <div className="mapping-step-copy">
               <span className="mapping-step-kicker">01 / Laptop</span>

@@ -28,6 +28,10 @@ is the only browser UI. Legacy page GETs redirect to the matching React route.
 React admin pages use authenticated, tenant-scoped API data and preserve
 server-side authorization and business rules. The UI has responsive
 left-rail navigation and light/dark theme parity.
+Battery-rule edits in the mapping wizard only create a mapping after explicit
+submission; Enter in a numeric rule field does not implicitly save the form.
+Table text, emphasized cells, and status badges retain readable contrast in
+dark mode.
 
 ## Current primary workflows
 1. PowerShell agent posts its hardware UUID, current hostname, and battery

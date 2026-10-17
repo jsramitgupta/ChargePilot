@@ -653,8 +653,8 @@ button, a {
 
 .table-wrap th {
   padding: 11px 14px;
-  color: #72837b;
-  background: #f5f8f6;
+  color: var(--muted);
+  background: var(--surface-muted);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -662,18 +662,30 @@ button, a {
 
 .table-wrap td {
   padding: 13px 14px;
-  border-top: 1px solid #e9efeb;
-  color: #435a50;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
   vertical-align: middle;
 }
 
 .table-wrap tbody tr:hover {
-  background: #f8faf8;
+  background: var(--surface-muted);
 }
 
 .strong-cell {
-  color: #203e35 !important;
+  color: var(--forest) !important;
   font-weight: 650;
+}
+
+.badge.success {
+  border-color: #c5e1cf;
+  color: #285d49;
+  background: #eff8f1;
+}
+
+.badge.muted {
+  border-color: var(--line);
+  color: var(--muted);
+  background: var(--surface-muted);
 }
 
 .align-right {
@@ -1551,6 +1563,11 @@ button, a {
   border-radius: 8px;
   color: var(--muted);
   background: var(--surface);
+}
+
+.mapping-number-input:focus-within {
+  border-color: var(--leaf);
+  box-shadow: 0 0 0 3px rgba(57, 122, 97, 0.14);
 }
 
 .mapping-number-input input {

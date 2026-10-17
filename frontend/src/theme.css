@@ -191,6 +191,37 @@ body.theme-dark .table-wrap tbody tr:hover {
   background: #1d2c26;
 }
 
+body.theme-dark .page-shell .table-wrap td {
+  color: #bdcdc4;
+}
+
+body.theme-dark .page-shell .table-wrap .strong-cell {
+  color: #e3eee8 !important;
+}
+
+body.theme-dark .page-shell .table-wrap .badge.success {
+  border-color: rgba(142, 192, 151, 0.4);
+  color: #b8e0c0;
+  background: rgba(56, 100, 76, 0.28);
+}
+
+body.theme-dark .page-shell .table-wrap .badge.muted {
+  border-color: #40544a;
+  color: #b4c2ba;
+  background: #21312b;
+}
+
+body.theme-dark .page-shell .mapping-number-input:focus-within {
+  border-color: #83b18e;
+  box-shadow: 0 0 0 3px rgba(131, 177, 142, 0.22);
+}
+
+body.theme-dark .page-shell .mapping-number-input input {
+  border-color: transparent !important;
+  color: #e1ece5 !important;
+  background-color: transparent !important;
+}
+
 body.theme-dark .auth-shell {
   background: #101c19;
 }
