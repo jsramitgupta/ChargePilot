@@ -4,6 +4,7 @@ import { defineConfig } from 'vite'
 
 const backendTarget = process.env.CHARGEPILOT_BACKEND_URL ?? 'http://localhost:8000'
 const reactRoutes = new Set([
+  '/',
   '/login',
   '/register',
   '/devices',
@@ -15,6 +16,7 @@ const reactRoutes = new Set([
   '/users',
   '/tenants',
   '/agent',
+  '/account',
 ])
 const backendProxy = {
   target: backendTarget,
@@ -33,22 +35,11 @@ export default defineConfig({
     proxy: Object.fromEntries(
       [
         '/api',
-        '/login',
-        '/register',
-        '/logout',
         '/devices',
-        '/mappings',
-        '/endpoints',
         '/connectors',
-        '/events',
-        '/users',
-        '/tenants',
-        '/tenant',
         '/agent',
         '/health',
         '/ready',
-        '/profile',
-        '/static',
       ].map((path) => [path, backendProxy]),
     ),
   },

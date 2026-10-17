@@ -19,7 +19,6 @@ The project currently uses:
 - Fernet encryption for stored local keys, derived from the existing encryption setting
 - Tuya sharing SDK for SmartLife linked-device flow
 - React, TypeScript, Tailwind CSS, and Vite for the interactive frontend
-- Jinja2 templates for server-rendered workflows not yet migrated to React
 - qrcode + Pillow-compatible support for QR generation
 - pytest for automated validation
 - Docker Compose for local deployment
@@ -31,10 +30,9 @@ The project currently uses:
 This is the FastAPI application entrypoint. It currently handles:
 
 - FastAPI startup and DB bootstrap
-- static asset mounting
-- API routes and retained server-rendered operational/admin pages
+- JSON API route registration and frontend redirects
 - wizard endpoints for SmartLife QR login, linked-device fetch, and match logic
-- device CRUD and web forms for local discovery
+- device CRUD and JSON operations for local discovery
 - SSE-capable updates for device state changes
 
 The file is no longer only a telemetry and dashboard app. It is also the UI controller for the local device onboarding workflow.

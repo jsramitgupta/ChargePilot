@@ -14,8 +14,11 @@ def test_full_api_flow():
     assert r.status_code == 200
 
     # Login with default admin user created by ensure_default_admin_user
-    resp = client.post("/login", data={"username": "admin", "password": "change-me"}, allow_redirects=False)
-    assert resp.status_code == 303
+    resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "change-me"},
+    )
+    assert resp.status_code == 200
 
     # Auth/me should now succeed
     r = client.get("/api/v1/auth/me")

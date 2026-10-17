@@ -1,127 +1,71 @@
-from datetime import datetime, timezone
-
 from sqlalchemy import inspect
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.core.database import SessionLocal, engine
 from app.main import app, generate_agent_token
 from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
 from app.models.telemetry import BatteryReading
+from app.models.tenant import Tenant
 from app.models.user import User
+from conftest import api_login, register_tenant_admin
 
-client = TestClient(app)
+
+def _tenant_client(username: str) -> TestClient:
+    client = TestClient(app)
+    register_tenant_admin(client, username, "unit-test-password")
+    return client
 
 
 def test_user_registration_and_login_flow():
-    response = client.post(
-        "/register",
-        data={"username": "alice", "password": "secret123"},
-        follow_redirects=False,
+    client = TestClient(app)
+    registered = client.post(
+        "/api/v1/auth/register",
+        json={
+            "account_type": "tenant",
+            "username": "alice",
+            "password": "alice-test-password",
+            "tenant_name": "Alice Site",
+        },
     )
-    assert response.status_code in (200, 302, 303)
-
-    login = client.post(
-        "/login",
-        data={"username": "alice", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert login.status_code in (200, 302, 303)
-
-
-def test_login_and_logout_follow_redirects_to_the_correct_pages():
-    login_page = client.get("/login", follow_redirects=False)
-    assert login_page.status_code == 303
-    assert login_page.headers["location"].endswith("/login")
-    assert "<form" not in login_page.text
-
-    register_page = client.get("/register?account_type=tenant", follow_redirects=False)
-    assert register_page.status_code == 303
-    assert register_page.headers["location"].endswith("/register?account_type=tenant")
-    assert "<form" not in register_page.text
-
-    client.post(
-        "/register",
-        data={"username": "redirect-user", "password": "secret123"},
-        follow_redirects=False,
-    )
-
-    login = client.post(
-        "/login",
-        data={"username": "redirect-user", "password": "secret123"},
-        follow_redirects=True,
-    )
-
-    assert login.status_code == 200
-    assert str(login.url).endswith("/")
-    assert "Device-to-switch control" in login.text
-    assert 'id="mainNav"' in login.text
-
-    logout = client.get("/logout", follow_redirects=False)
-
-    assert logout.status_code == 303
-    assert logout.headers["location"].endswith("/login")
-
-    invalid_login = client.post(
-        "/login",
-        data={"username": "redirect-user", "password": "incorrect"},
-        follow_redirects=False,
-    )
-    assert invalid_login.status_code == 303
-    assert invalid_login.headers["location"].endswith("/login?error=Invalid+username+or+password")
+    assert registered.status_code == 201, registered.text
+    assert registered.json()["user"]["role"] == "tenant_admin"
+    assert client.get("/api/v1/auth/me").json()["username"] == "alice"
+    client.post("/api/v1/auth/logout")
+    assert client.get("/api/v1/auth/me").status_code == 401
+    assert client.post(
+        "/api/v1/auth/login",
+        json={"username": "alice", "password": "alice-test-password"},
+    ).status_code == 200
 
 
-def test_authenticated_header_shows_navigation_tabs():
-    client.post(
-        "/register",
-        data={"username": "nav-user", "password": "secret123"},
-        follow_redirects=False,
-    )
-    client.post(
-        "/login",
-        data={"username": "nav-user", "password": "secret123"},
-        follow_redirects=False,
-    )
+def test_legacy_ui_paths_redirect_to_react_without_server_rendered_forms():
+    client = TestClient(app)
+    for path in ("/", "/login", "/register?account_type=tenant", "/devices", "/mappings"):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 307
+        assert response.headers["location"].endswith(path)
+        assert "<form" not in response.text
+    assert client.post("/login", data={"username": "x", "password": "x"}).status_code == 405
 
-    response = client.get("/")
 
-    assert response.status_code == 200
-    assert 'id="mainNav" class="site-nav"' in response.text
-    assert response.text.count('aria-current="page"') == 1
-    assert '<a href="/" aria-current="page"' in response.text
+def test_authenticated_api_and_legacy_navigation_redirect():
+    client = _tenant_client("nav-user")
+    assert client.get("/api/v1/auth/me").json()["username"] == "nav-user"
     for path in ("/", "/mappings", "/devices", "/endpoints", "/events", "/users", "/tenants"):
-        assert f'href="{path}"' in response.text
-    assert 'href="/logout"' in response.text
-
-    endpoints_response = client.get("/endpoints")
-
-    assert endpoints_response.status_code == 200
-    assert endpoints_response.text.count('aria-current="page"') == 1
-    assert '<a href="/endpoints" aria-current="page"' in endpoints_response.text
-    assert '<a href="/" aria-current="page"' not in endpoints_response.text
+        assert client.get(path, follow_redirects=False).status_code == 307
 
 
-def test_events_include_battery_percentage():
-    register = client.post(
-        "/register",
-        data={"username": "bob", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in (200, 302, 303)
-
-    client.post(
-        "/login",
-        data={"username": "bob", "password": "secret123"},
-        follow_redirects=False,
-    )
-
+def test_events_api_includes_battery_percentage():
+    client = _tenant_client("events-user")
     with SessionLocal() as db:
-        user = db.query(User).filter(User.username == "bob").one()
+        user = db.query(User).filter(User.username == "events-user").one()
         db.add(
             AutomationEvent(
                 tenant_id=user.tenant_id,
                 event_type="TURN_ON",
-                reason="battery 82% reached 79% rule",
+                reason="battery reached rule threshold",
                 battery_percentage=82,
                 endpoint_id="ep-1",
                 device_id="dev-1",
@@ -130,197 +74,115 @@ def test_events_include_battery_percentage():
         )
         db.commit()
 
-    response = client.get("/events")
+    response = client.get("/api/v1/events/page")
     assert response.status_code == 200
-    content = response.text
-    assert "82%" in content or "82" in content
-
-
-def test_profile_page_shows_user_and_timezone_selector():
-    register = client.post(
-        "/register",
-        data={"username": "charlie", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in (200, 302, 303)
-
-    client.post(
-        "/login",
-        data={"username": "charlie", "password": "secret123"},
-        follow_redirects=False,
-    )
-
-    response = client.get("/profile")
-    assert response.status_code == 200
-    content = response.text
-    assert "charlie" in content
-    assert "timezoneSelect" in content
+    assert response.json()["items"][0]["battery"] == "82%"
 
 
 def test_profile_timezone_is_persisted_for_user():
-    register = client.post(
-        "/register",
-        data={"username": "dave", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in (200, 302, 303)
-
-    login = client.post(
-        "/login",
-        data={"username": "dave", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert login.status_code in (200, 302, 303)
-
-    response = client.post(
-        "/profile/timezone",
-        data={"timezone": "Europe/London"},
-        follow_redirects=False,
-    )
-    assert response.status_code in (200, 302, 303)
-
+    client = _tenant_client("timezone-user")
+    response = client.put("/api/v1/auth/profile", json={"timezone": "Europe/London"})
+    assert response.status_code == 200, response.text
     with SessionLocal() as db:
-        user = db.query(User).filter(User.username == "dave").first()
-        assert user is not None
+        user = db.query(User).filter(User.username == "timezone-user").one()
         assert user.timezone == "Europe/London"
 
 
 def test_invalid_timezone_is_rejected_and_user_stays_on_default():
-    register = client.post(
-        "/register",
-        data={"username": "frank", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in (200, 302, 303)
-
-    client.post(
-        "/login",
-        data={"username": "frank", "password": "secret123"},
-        follow_redirects=False,
-    )
-
-    response = client.post(
-        "/profile/timezone",
-        data={"timezone": "Not/ARealZone"},
-        follow_redirects=False,
-    )
-    assert response.status_code in (200, 302, 303)
-
+    client = _tenant_client("invalid-timezone-user")
+    response = client.put("/api/v1/auth/profile", json={"timezone": "Not/ARealZone"})
+    assert response.status_code == 422
     with SessionLocal() as db:
-        user = db.query(User).filter(User.username == "frank").first()
-        assert user is not None
+        user = db.query(User).filter(User.username == "invalid-timezone-user").one()
         assert user.timezone == "UTC"
 
 
 def test_new_user_defaults_to_utc_timezone():
-    register = client.post(
-        "/register",
-        data={"username": "grace", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in (200, 302, 303)
-
+    _tenant_client("utc-user")
     with SessionLocal() as db:
-        user = db.query(User).filter(User.username == "grace").first()
-        assert user is not None
+        user = db.query(User).filter(User.username == "utc-user").one()
         assert user.timezone == "UTC"
 
-    client.post(
-        "/login",
-        data={"username": "grace", "password": "secret123"},
-        follow_redirects=False,
-    )
-    profile_response = client.get("/profile")
-    assert profile_response.status_code == 200
-    assert "timezoneSelect" in profile_response.text
 
-
-def test_dashboard_uses_profile_timezone_for_server_rendered_timestamps():
-    register = client.post(
-        "/register",
-        data={"username": "erin", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in (200, 302, 303)
-
-    login = client.post(
-        "/login",
-        data={"username": "erin", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert login.status_code in (200, 302, 303)
-
-    response = client.post(
-        "/profile/timezone",
-        data={"timezone": "Asia/Kolkata"},
-        follow_redirects=False,
-    )
-    assert response.status_code in (200, 302, 303)
-
+def test_endpoint_api_preserves_profile_timezone_and_power_state_data():
+    client = _tenant_client("endpoint-timezone-user")
+    assert client.put(
+        "/api/v1/auth/profile",
+        json={"timezone": "Asia/Kolkata"},
+    ).status_code == 200
     with SessionLocal() as db:
-        user = db.query(User).filter(User.username == "erin").first()
-        assert user is not None
-        db.add(
-            Endpoint(
-                hostname="timezone-check",
-                ip_address="10.0.0.11",
-                tenant_id=user.tenant_id,
-                battery_percentage=72,
-                charging=False,
-                ac_connected=True,
-                enabled=True,
-                last_seen_at=datetime(2024, 1, 1, 8, 30, tzinfo=timezone.utc),
-            )
+        user = db.query(User).filter(User.username == "endpoint-timezone-user").one()
+        endpoint = Endpoint(
+            hostname="timezone-check",
+            hardware_uuid="a19f1d84-0a2c-4a34-bf95-a61ff3231c41",
+            ip_address="10.0.0.11",
+            tenant_id=user.tenant_id,
+            battery_percentage=72,
+            charging=False,
+            ac_connected=True,
+            enabled=True,
+        )
+        db.add(endpoint)
+        db.commit()
+    endpoints = client.get("/api/v1/endpoints")
+    assert endpoints.status_code == 200
+    assert endpoints.json()[0]["ac_connected"] is True
+    assert endpoints.json()[0]["battery"] == 72
+
+
+def test_tenant_admin_is_isolated_from_other_tenants():
+    client_a = _tenant_client("tenant-a")
+    client_b = _tenant_client("tenant-b")
+    with SessionLocal() as db:
+        tenant_a = db.query(User).filter(User.username == "tenant-a").one().tenant_id
+        tenant_b = db.query(User).filter(User.username == "tenant-b").one().tenant_id
+        db.add_all(
+            [
+                Endpoint(hostname="alpha-endpoint", tenant_id=tenant_a, battery_percentage=50),
+                Endpoint(hostname="beta-endpoint", tenant_id=tenant_b, battery_percentage=90),
+            ]
         )
         db.commit()
 
-    response = client.get("/")
-    assert response.status_code == 200
-    assert "2024-01-01 14:00:00 IST" in response.text or "2024-01-01T14:00:00+05:30" in response.text
+    endpoints_a = client_a.get("/api/v1/endpoints")
+    assert endpoints_a.status_code == 200
+    assert [endpoint["hostname"] for endpoint in endpoints_a.json()] == ["alpha-endpoint"]
+    endpoints_b = client_b.get("/api/v1/endpoints")
+    assert [endpoint["hostname"] for endpoint in endpoints_b.json()] == ["beta-endpoint"]
 
 
-def test_dashboard_renders_power_state_from_ac_connected():
-    register = client.post(
-        "/register",
-        data={"username": "dana", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in (200, 302, 303)
+def test_super_admin_has_global_tenant_management():
+    client = TestClient(app)
+    api_login(client, settings.admin_username, settings.admin_password)
+    tenants = client.get("/api/v1/admin/tenants")
+    assert tenants.status_code == 200
+    created = client.post("/api/v1/admin/tenants", json={"name": "Admin-created tenant"})
+    assert created.status_code == 201, created.text
+    assert created.json()["name"] == "Admin-created tenant"
 
-    login = client.post(
-        "/login",
-        data={"username": "dana", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert login.status_code in (200, 302, 303)
 
+def test_admin_can_rotate_tenant_agent_token():
+    client = _tenant_client("token-rotation-admin")
     with SessionLocal() as db:
-        user = db.query(User).filter(User.username == "dana").first()
-        assert user is not None
-        db.add(
-            Endpoint(
-                hostname="ac-test",
-                ip_address="10.0.0.10",
-                tenant_id=user.tenant_id,
-                battery_percentage=91,
-                charging=False,
-                ac_connected=True,
-                enabled=True,
-            )
-        )
-        db.commit()
+        user = db.query(User).filter(User.username == "token-rotation-admin").one()
+        tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).one()
+        old_token = tenant.agent_token
 
-    response = client.get("/")
-    assert response.status_code == 200
-    content = response.text
-    assert "On AC" in content
+    rotated = client.put("/api/v1/admin/tenant-agent-token")
+    assert rotated.status_code == 200, rotated.text
+    assert rotated.json()["agent_token"] != old_token
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "token-rotation-admin").one()
+        tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).one()
+        assert tenant.agent_token == rotated.json()["agent_token"]
+        assert len(tenant.agent_token) == 32
+        assert tenant.agent_token.isalpha()
 
 
 def test_generate_agent_token_has_valid_format_and_length():
     token = generate_agent_token()
     assert len(token) == 32
     assert token.isalpha()
-    assert all(character.isalpha() for character in token)
 
 
 def test_fresh_database_creates_all_model_tables():
@@ -332,115 +194,7 @@ def test_fresh_database_creates_all_model_tables():
     assert inspector.has_table("mappings")
     assert inspector.has_table("automation_events")
     assert inspector.has_table("tenants")
+    assert inspector.has_table("tenant_invites")
     assert inspector.has_table("users")
-
     with SessionLocal() as db:
         assert db.query(BatteryReading).count() == 0
-
-
-def test_tenant_admin_is_isolated_from_other_tenants():
-    register = client.post(
-        "/register",
-        data={"username": "tenant_a", "password": "secret123", "account_type": "tenant", "tenant_name": "Tenant A"},
-        follow_redirects=False,
-    )
-    assert register.status_code in (200, 302, 303)
-
-    client.post(
-        "/login",
-        data={"username": "tenant_a", "password": "secret123"},
-        follow_redirects=False,
-    )
-
-    with SessionLocal() as db:
-        tenant_a = db.query(User).filter(User.username == "tenant_a").first()
-        assert tenant_a is not None
-        tenant_a_id = tenant_a.tenant_id
-        db.add(Endpoint(hostname="alpha-endpoint", ip_address="10.0.0.10", tenant_id=tenant_a_id, battery_percentage=50, enabled=True))
-        db.commit()
-
-    register_b = client.post(
-        "/register",
-        data={"username": "tenant_b", "password": "secret123", "account_type": "tenant", "tenant_name": "Tenant B"},
-        follow_redirects=False,
-    )
-    assert register_b.status_code in (200, 302, 303)
-
-    client.post(
-        "/login",
-        data={"username": "tenant_b", "password": "secret123"},
-        follow_redirects=False,
-    )
-
-    with SessionLocal() as db:
-        tenant_b = db.query(User).filter(User.username == "tenant_b").first()
-        assert tenant_b is not None
-        tenant_b_id = tenant_b.tenant_id
-        db.add(Endpoint(hostname="beta-endpoint", ip_address="10.0.0.11", tenant_id=tenant_b_id, battery_percentage=90, enabled=True))
-        db.commit()
-
-    client.post(
-        "/login",
-        data={"username": "tenant_a", "password": "secret123"},
-        follow_redirects=False,
-    )
-
-    response = client.get("/endpoints")
-    assert response.status_code == 200
-    body = response.text
-    assert "alpha-endpoint" in body
-    assert "beta-endpoint" not in body
-
-
-def test_super_admin_has_global_tenant_management():
-    with SessionLocal() as db:
-        admin = db.query(User).filter(User.username == "admin").first()
-        assert admin is not None
-        assert admin.is_admin is True
-
-    login = client.post(
-        "/login",
-        data={"username": "admin", "password": "change-me"},
-        follow_redirects=False,
-    )
-    assert login.status_code in (200, 302, 303)
-
-    response = client.get("/tenants")
-    assert response.status_code == 200
-
-
-def test_admin_can_rotate_tenant_agent_token():
-    register = client.post(
-        "/register",
-        data={"username": "erin", "password": "secret123", "account_type": "tenant", "tenant_name": "Erin Co"},
-        follow_redirects=False,
-    )
-    assert register.status_code in (200, 302, 303)
-
-    login = client.post(
-        "/login",
-        data={"username": "erin", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert login.status_code in (200, 302, 303)
-
-    with SessionLocal() as db:
-        user = db.query(User).filter(User.username == "erin").first()
-        assert user is not None
-        assert user.tenant_id is not None
-        original = user.tenant_id
-        tenant = db.query(__import__('app.models.tenant', fromlist=['Tenant']).Tenant).filter_by(id=original).first()
-        assert tenant is not None
-        old_token = tenant.agent_token
-
-    rotate = client.post("/tenant/rotate-agent-token", follow_redirects=False)
-    assert rotate.status_code in (200, 302, 303)
-
-    with SessionLocal() as db:
-        user = db.query(User).filter(User.username == "erin").first()
-        assert user is not None
-        tenant = db.query(__import__('app.models.tenant', fromlist=['Tenant']).Tenant).filter_by(id=user.tenant_id).first()
-        assert tenant is not None
-        assert tenant.agent_token != old_token
-        assert len(tenant.agent_token) == 32
-        assert tenant.agent_token.isalpha()

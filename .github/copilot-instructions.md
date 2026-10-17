@@ -15,11 +15,11 @@ behavior.
   address, and protocol metadata must come from LAN discovery or explicit
   manual entry.
 - Extend the existing FastAPI/SQLAlchemy backend and React/TypeScript/Tailwind
-  frontend. Jinja pages still support workflows not yet migrated; do not
-  remove or replace them without implementing their functionality elsewhere.
-- Preserve the ChargePilot visual language, original HTML/CSS conventions,
-  responsive layout, light/dark theme parity, and left-aligned authenticated
-  navigation. Do not introduce mock data or dead-end controls.
+  frontend. React is the only browser UI; implement JSON API operations for
+  user-facing workflows.
+- Preserve ChargePilot's local-first behavior, responsive layout, light/dark
+  theme parity, and left-aligned authenticated navigation. Do not introduce
+  mock data or dead-end controls.
 
 ## Deployment and secrets
 

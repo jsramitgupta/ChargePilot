@@ -2,6 +2,7 @@ import asyncio
 import json
 from datetime import timedelta
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect, text
@@ -13,7 +14,11 @@ from app.core.database import (
     _ensure_table_columns,
     engine,
 )
-from app.main import app
+from app.core.security import hash_password
+from app.main import app, generate_unique_agent_token
+from app.models.tenant import Tenant
+from app.models.user import User
+from conftest import api_login, register_tenant_admin
 
 
 def _recent_timestamp(seconds_ago: int = 0) -> str:
@@ -22,13 +27,37 @@ def _recent_timestamp(seconds_ago: int = 0) -> str:
 
 def _super_admin_client() -> TestClient:
     client = TestClient(app)
-    login = client.post(
-        "/login",
-        data={"username": "admin", "password": "change-me"},
-        follow_redirects=False,
-    )
-    assert login.status_code == 303
+    api_login(client, "admin", "change-me")
     return client
+
+
+def _create_tenant_client(name: str) -> tuple[TestClient, str, str, str]:
+    suffix = uuid4().hex[:10]
+    username = f"{name.lower()}-{suffix}"
+    with SessionLocal() as db:
+        tenant = Tenant(
+            name=f"{name} {suffix}",
+            slug=f"{name.lower()}-{suffix}",
+            agent_token=generate_unique_agent_token(db),
+        )
+        db.add(tenant)
+        db.flush()
+        user = User(
+            username=username,
+            password_hash=hash_password("tenant-password"),
+            tenant_id=tenant.id,
+            role="tenant_admin",
+            is_admin=True,
+        )
+        db.add(user)
+        db.commit()
+        tenant_id = tenant.id
+        tenant_name = tenant.name
+        agent_token = tenant.agent_token
+
+    client = TestClient(app)
+    api_login(client, username, "tenant-password")
+    return client, tenant_id, tenant_name, agent_token
 
 
 def _create_endpoint(client: TestClient, hostname: str) -> str:
@@ -49,7 +78,7 @@ def _mock_tuya_service(monkeypatch):
         async def set_state(self, device_id, on, channel=1):
             return {"device_id": device_id, "channel": channel, "success": True, "state": "ON" if on else "OFF"}
 
-    monkeypatch.setattr("app.main.TuyaService", FakeTuyaService)
+    monkeypatch.setattr("app.api.devices.TuyaService", FakeTuyaService)
     monkeypatch.setattr("app.services.automation_processor.TuyaService", FakeTuyaService)
 
 
@@ -181,6 +210,188 @@ def test_device_and_mapping_crud_flow():
     assert any(item["device_id"] == device["id"] for item in list_response.json())
 
 
+def test_assigning_endpoint_to_tenant_restores_tenant_scoped_telemetry_and_mapping_flow():
+    admin = _super_admin_client()
+    tenant_client, tenant_id, tenant_name, tenant_token = _create_tenant_client("Assigned")
+    endpoint_response = admin.post(
+        "/api/v1/endpoints",
+        json={"hostname": "assigned-laptop"},
+    )
+    assert endpoint_response.status_code == 201, endpoint_response.text
+    endpoint_id = endpoint_response.json()["id"]
+
+    assignment = admin.patch(
+        f"/api/v1/endpoints/{endpoint_id}/tenant",
+        json={"tenant_id": tenant_id},
+    )
+    assert assignment.status_code == 200, assignment.text
+    assert assignment.json()["tenant_name"] == tenant_name
+    assert tenant_client.patch(
+        f"/api/v1/endpoints/{endpoint_id}/tenant",
+        json={"tenant_id": tenant_id},
+    ).status_code == 403
+
+    agent_setup = admin.get("/api/v1/agent/setup", params={"tenant_id": tenant_id})
+    assert agent_setup.status_code == 200, agent_setup.text
+    assert agent_setup.json()["token"] == tenant_token
+    assert agent_setup.json()["global_token"] != tenant_token
+    assert agent_setup.json()["token_scope"] == f"tenant: {tenant_name}"
+    assert admin.get("/agent", params={"tenant_id": tenant_id}, follow_redirects=False).status_code == 307
+    assert admin.get("/agent/guide", follow_redirects=False).status_code == 307
+
+    device_response = tenant_client.post(
+        "/api/v1/devices",
+        json={
+            "name": "Assigned Tenant Switch",
+            "device_id": f"assigned-device-{uuid4().hex[:8]}",
+            "encrypted_local_key": "test-local-key",
+        },
+    )
+    assert device_response.status_code == 201, device_response.text
+    device = device_response.json()
+    assert device["tenant_id"] == tenant_id
+    assert device["tenant_name"] == tenant_name
+
+    mapping_response = admin.post(
+        "/api/v1/mappings",
+        json={"endpoint_id": endpoint_id, "device_id": device["id"]},
+    )
+    assert mapping_response.status_code == 201, mapping_response.text
+    assert mapping_response.json()["tenant_name"] == tenant_name
+
+    hardware_uuid = "a75f47d3-8923-4914-a317-2c64c4adf21e"
+    telemetry_payload = {
+        "hostname": "assigned-laptop",
+        "hardware_uuid": hardware_uuid,
+        "ip_address": "192.168.10.25",
+        "battery_percentage": 42,
+        "charging": False,
+        "ac_connected": False,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "agent_version": "1.0.0",
+    }
+    telemetry = tenant_client.post(
+        "/api/v1/telemetry",
+        json=telemetry_payload,
+        headers={"Authorization": f"Bearer {tenant_token}"},
+    )
+    assert telemetry.status_code == 200, telemetry.text
+
+    with SessionLocal() as db:
+        from app.models.messaging import TelemetryOutbox
+        from app.models.system_setting import SystemSetting
+
+        global_token = db.query(SystemSetting.value).filter(
+            SystemSetting.key == "global_agent_token"
+        ).scalar()
+        outbox = db.query(TelemetryOutbox).one()
+        assert outbox.tenant_id == tenant_id
+
+    global_telemetry = admin.post(
+        "/api/v1/telemetry",
+        json=telemetry_payload,
+        headers={"Authorization": f"Bearer {global_token}"},
+    )
+    assert global_telemetry.status_code == 409
+    tenant_config = tenant_client.get(
+        "/api/v1/endpoints/agent-config",
+        params={"hardware_uuid": hardware_uuid},
+        headers={"Authorization": f"Bearer {tenant_token}"},
+    )
+    assert tenant_config.status_code == 200, tenant_config.text
+    assert tenant_config.json()["mappings"][0]["device_id"] == device["id"]
+    global_config = admin.get(
+        "/api/v1/endpoints/agent-config",
+        params={"hardware_uuid": hardware_uuid},
+        headers={"Authorization": f"Bearer {global_token}"},
+    )
+    assert global_config.status_code == 404
+
+    endpoints = tenant_client.get("/api/v1/endpoints")
+    assert endpoints.status_code == 200
+    assert endpoints.json()[0]["tenant_name"] == tenant_name
+    devices = tenant_client.get("/api/v1/devices")
+    assert devices.status_code == 200
+    assert devices.json()[0]["tenant_name"] == tenant_name
+    assert tenant_client.get(f"/api/v1/devices/{device['id']}").json()["tenant_name"] == tenant_name
+    mappings = tenant_client.get("/api/v1/mappings")
+    assert mappings.status_code == 200
+    assert mappings.json()[0]["tenant_name"] == tenant_name
+
+    for path in ("/", "/endpoints", "/devices", "/mappings"):
+        assert tenant_client.get(path, follow_redirects=False).status_code == 307
+
+
+def test_tenant_assignment_does_not_allow_cross_tenant_mapping_or_transfer():
+    admin = _super_admin_client()
+    tenant_a, tenant_a_id, _, _ = _create_tenant_client("North")
+    tenant_b, tenant_b_id, _, _ = _create_tenant_client("South")
+    endpoint = admin.post(
+        "/api/v1/endpoints",
+        json={"hostname": "north-laptop"},
+    )
+    assert endpoint.status_code == 201, endpoint.text
+    endpoint_id = endpoint.json()["id"]
+    assigned = admin.patch(
+        f"/api/v1/endpoints/{endpoint_id}/tenant",
+        json={"tenant_id": tenant_a_id},
+    )
+    assert assigned.status_code == 200, assigned.text
+
+    device = tenant_b.post(
+        "/api/v1/devices",
+        json={
+            "name": "South Switch",
+            "device_id": f"south-device-{uuid4().hex[:8]}",
+            "encrypted_local_key": "test-local-key",
+        },
+    )
+    assert device.status_code == 201, device.text
+    cross_tenant_mapping = admin.post(
+        "/api/v1/mappings",
+        json={"endpoint_id": endpoint_id, "device_id": device.json()["id"]},
+    )
+    assert cross_tenant_mapping.status_code == 404
+
+    transfer = admin.patch(
+        f"/api/v1/endpoints/{endpoint_id}/tenant",
+        json={"tenant_id": tenant_b_id},
+    )
+    assert transfer.status_code == 409
+    assert tenant_a.patch(
+        f"/api/v1/endpoints/{endpoint_id}/tenant",
+        json={"tenant_id": tenant_b_id},
+    ).status_code == 403
+
+
+def test_endpoint_with_existing_mapping_cannot_be_assigned_to_a_tenant():
+    admin = _super_admin_client()
+    _, tenant_id, _, _ = _create_tenant_client("Mapped")
+    endpoint = admin.post("/api/v1/endpoints", json={"hostname": "mapped-global-laptop"})
+    device = admin.post(
+        "/api/v1/devices",
+        json={
+            "name": "Global switch",
+            "device_id": f"global-switch-{uuid4().hex[:8]}",
+            "encrypted_local_key": "test-local-key",
+        },
+    )
+    assert endpoint.status_code == 201, endpoint.text
+    assert device.status_code == 201, device.text
+    mapping = admin.post(
+        "/api/v1/mappings",
+        json={"endpoint_id": endpoint.json()["id"], "device_id": device.json()["id"]},
+    )
+    assert mapping.status_code == 201, mapping.text
+
+    assignment = admin.patch(
+        f"/api/v1/endpoints/{endpoint.json()['id']}/tenant",
+        json={"tenant_id": tenant_id},
+    )
+    assert assignment.status_code == 409
+    assert "existing mappings" in assignment.json()["detail"]
+
+
 def test_device_channel_mapping_for_multi_gang_switch():
     client = _super_admin_client()
 
@@ -285,21 +496,8 @@ def test_unique_mapping_per_endpoint_and_device():
 
 
 def test_mappings_page_exposes_editable_threshold_controls():
-    client = _super_admin_client()
-
-    register = client.post(
-        "/register",
-        data={"username": "threshold_admin", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in {200, 302, 303}, register.text
-
-    login = client.post(
-        "/login",
-        data={"username": "threshold_admin", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert login.status_code in {200, 302, 303}, login.text
+    client = TestClient(app)
+    register_tenant_admin(client, "threshold_admin", "threshold-admin-password")
 
     device = client.post(
         "/api/v1/devices",
@@ -324,7 +522,7 @@ def test_mappings_page_exposes_editable_threshold_controls():
             "enabled": True,
         },
     ).json()
-    mapping = client.post(
+    mapping_response = client.post(
         "/api/v1/mappings",
         json={
             "endpoint_id": endpoint["id"],
@@ -335,71 +533,53 @@ def test_mappings_page_exposes_editable_threshold_controls():
             "off_threshold": 90,
             "minimum_state_change_interval": 300,
         },
-    ).json()
+    )
+    assert mapping_response.status_code == 201, mapping_response.text
+    mapping = mapping_response.json()
+    assert mapping["tenant_name"] == "threshold_admin tenant"
 
-    page = client.get("/mappings")
-    assert page.status_code == 200, page.text
-    body = page.text
-    assert "on_threshold" in body
-    assert "off_threshold" in body
-    assert str(mapping["id"]) in body
-    assert "Current mappings" in body
-    assert "Add mapping" in body
-    assert 'id="mapping-modal"' in body
-    assert 'data-mapping-wizard-step="4"' in body
-    assert "Review before saving" in body
-    assert "300 sec" in body
+    updated = client.put(
+        f"/api/v1/mappings/{mapping['id']}",
+        json={"on_threshold": 40, "off_threshold": 85, "minimum_state_change_interval": 420},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["on_threshold"] == 40
+    assert updated.json()["off_threshold"] == 85
+    assert updated.json()["minimum_state_change_interval"] == 420
+    assert client.get("/mappings", follow_redirects=False).status_code == 307
 
 
 def test_mappings_page_groups_channel_choices_under_expandable_switches():
-    client = _super_admin_client()
-    register = client.post(
-        "/register",
-        data={"username": "channel_picker_user", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in {200, 302, 303}, register.text
-    login = client.post(
-        "/login",
-        data={"username": "channel_picker_user", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert login.status_code in {200, 302, 303}, login.text
+    client = TestClient(app)
+    register_tenant_admin(client, "channel_picker_user", "channel-picker-password")
 
     for name, device_id, channel_count in (
         ("Desk Switch", "desk-switch", 2),
         ("Hall Switch", "hall-switch", 1),
     ):
         response = client.post(
-            "/devices",
-            data={
+            "/api/v1/devices",
+            json={
                 "name": name,
                 "device_id": device_id,
                 "ip_address": "192.168.1.20",
                 "device_type": "switch",
                 "protocol_version": "3.5",
                 "encrypted_local_key": "local-key",
-                "channel_count": channel_count,
             },
-            follow_redirects=False,
         )
-        assert response.status_code == 303, response.text
+        assert response.status_code == 201, response.text
+        device = response.json()
+        for channel_index in range(1, channel_count + 1):
+            channel = client.post(
+                f"/api/v1/devices/{device['id']}/channels",
+                json={"channel_index": channel_index, "name": f"Channel {channel_index}"},
+            )
+            assert channel.status_code == 201, channel.text
 
-    page = client.get("/mappings")
-    assert page.status_code == 200, page.text
-    body = page.text
-    assert 'class="channel-picker-group" data-device-group=' in body
-    assert 'data-channel-group-toggle=' in body
-    assert 'data-picker-channel=' in body
-    assert 'data-device-select=' in body
-    assert "Desk Switch" in body
-    assert "Hall Switch" in body
-    assert "Channel 1" in body
-    assert "Channel 2" in body
-    assert 'id="deviceSelect" type="hidden" name="device_id"' in body
-    assert 'id="deviceSelect" name="device_id"' not in body
-    assert 'id="channel-picker-selected" class="channel-picker-selection-note"' in body
-    assert 'id="channelSelect" name="channel_id"' in body
+    devices = client.get("/api/v1/devices").json()
+    assert {device["name"] for device in devices} == {"Desk Switch", "Hall Switch"}
+    assert sorted(len(client.get(f"/api/v1/devices/{device['id']}/channels").json()) for device in devices) == [1, 2]
 
 
 def test_endpoint_agent_config_returns_live_threshold_settings():
@@ -511,85 +691,49 @@ def test_agent_config_lookup_by_hostname_and_token():
 
 def test_devices_page_has_delete_action_and_channel_expander():
     client = _super_admin_client()
-
-    register = client.post(
-        "/register",
-        data={"username": "device_admin", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in {200, 302, 303}, register.text
-
-    login = client.post(
-        "/login",
-        data={"username": "device_admin", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert login.status_code in {200, 302, 303}, login.text
-
     created_response = client.post(
-        "/devices",
-        data={
+        "/api/v1/devices",
+        json={
             "name": "Expandable Device",
             "device_id": "tuya-expandable-device",
             "ip_address": "192.168.0.100",
             "device_type": "switch",
             "protocol_version": "3.1",
             "encrypted_local_key": "expandable-key",
-            "channel_count": "2",
         },
-        follow_redirects=False,
     )
-    assert created_response.status_code in {200, 302, 303}, created_response.text
+    assert created_response.status_code == 201, created_response.text
+    device = created_response.json()
+    for index in (1, 2):
+        assert client.post(
+            f"/api/v1/devices/{device['id']}/channels",
+            json={"channel_index": index, "name": f"Channel {index}"},
+        ).status_code == 201
+    assert len(client.get(f"/api/v1/devices/{device['id']}/channels").json()) == 2
+    assert client.get("/devices", follow_redirects=False).status_code == 307
 
-    page = client.get("/devices")
-    assert page.status_code == 200, page.text
-    body = page.text
-    assert "Expandable Device" in body
-    assert "/delete" in body
-    assert "Master" not in body
-    assert "switch-button-master" not in body
-    assert body.count("state-toggle-form") == 2
 
-
-def test_device_toggle_actions_are_rendered_on_devices_page():
+def test_device_state_is_changed_through_json_api(monkeypatch):
+    _mock_tuya_service(monkeypatch)
     client = _super_admin_client()
 
-    register = client.post(
-        "/register",
-        data={"username": "toggle_admin", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in {200, 302, 303}, register.text
-
-    login = client.post(
-        "/login",
-        data={"username": "toggle_admin", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert login.status_code in {200, 302, 303}, login.text
-
     create = client.post(
-        "/devices",
-        data={
+        "/api/v1/devices",
+        json={
             "name": "Toggle Device",
             "device_id": "tuya-toggle-device",
             "ip_address": "192.168.0.154",
             "device_type": "switch",
             "protocol_version": "3.1",
             "encrypted_local_key": "toggle-key",
-            "channel_count": "1",
         },
-        follow_redirects=False,
     )
-    assert create.status_code in {200, 302, 303}, create.text
-
-    page = client.get("/devices")
-    assert page.status_code == 200, page.text
-    body = page.text
-    assert "/devices/" in body
-    assert "/turn-on" in body or "/turn-off" in body
-    assert body.count("state-toggle-form") == 1
-    assert "data-channel-id=" in body
+    assert create.status_code == 201, create.text
+    device_id = create.json()["id"]
+    toggled = client.post(f"/api/v1/devices/{device_id}/state", json={"desired_state": True})
+    assert toggled.status_code == 200, toggled.text
+    assert client.get(f"/api/v1/devices/{device_id}").json()["current_state"] is True
+    assert client.get("/devices", follow_redirects=False).status_code == 307
 
 
 def test_ui_delete_routes_for_device_and_mapping():
@@ -625,11 +769,11 @@ def test_ui_delete_routes_for_device_and_mapping():
     assert mapping_response.status_code == 201, mapping_response.text
     mapping = mapping_response.json()
 
-    delete_mapping_response = client.post(f"/mappings/{mapping['id']}/delete")
-    assert delete_mapping_response.status_code in {200, 303}, delete_mapping_response.text
+    delete_mapping_response = client.delete(f"/api/v1/mappings/{mapping['id']}")
+    assert delete_mapping_response.status_code == 204
 
-    delete_device_response = client.post(f"/devices/{device['id']}/delete")
-    assert delete_device_response.status_code in {200, 303}, delete_device_response.text
+    delete_device_response = client.delete(f"/api/v1/devices/{device['id']}")
+    assert delete_device_response.status_code == 204
 
     remaining_devices = client.get("/api/v1/devices")
     remaining_mappings = client.get("/api/v1/mappings")
@@ -656,15 +800,21 @@ def test_manual_device_controls_can_force_on_and_off(monkeypatch):
     assert device_response.status_code == 201, device_response.text
     device = device_response.json()
 
-    on_response = client.post(f"/devices/{device['id']}/turn-on")
-    assert on_response.status_code in {200, 303}, on_response.text
+    on_response = client.post(
+        f"/api/v1/devices/{device['id']}/state",
+        json={"desired_state": True},
+    )
+    assert on_response.status_code == 200, on_response.text
 
     device_after_on = client.get(f"/api/v1/devices/{device['id']}")
     assert device_after_on.status_code == 200
     assert device_after_on.json()["current_state"] is True
 
-    off_response = client.post(f"/devices/{device['id']}/turn-off")
-    assert off_response.status_code in {200, 303}, off_response.text
+    off_response = client.post(
+        f"/api/v1/devices/{device['id']}/state",
+        json={"desired_state": False},
+    )
+    assert off_response.status_code == 200, off_response.text
 
     device_after_off = client.get(f"/api/v1/devices/{device['id']}")
     assert device_after_off.status_code == 200
@@ -809,20 +959,26 @@ def test_individual_channel_controls_for_multi_gang_switch(monkeypatch):
     assert channel_response.status_code == 201, channel_response.text
     channel = channel_response.json()
 
-    on_response = client.post(f"/devices/{device['id']}/channels/{channel['id']}/turn-on")
-    assert on_response.status_code in {200, 303}, on_response.text
+    on_response = client.post(
+        f"/api/v1/devices/{device['id']}/state",
+        json={"desired_state": True, "channel_id": channel["id"]},
+    )
+    assert on_response.status_code == 200, on_response.text
     channel_after_on = client.get(f"/api/v1/devices/{device['id']}/channels/{channel['id']}")
     assert channel_after_on.status_code == 200
     assert channel_after_on.json()["current_state"] is True
 
-    off_response = client.post(f"/devices/{device['id']}/channels/{channel['id']}/turn-off")
-    assert off_response.status_code in {200, 303}, off_response.text
+    off_response = client.post(
+        f"/api/v1/devices/{device['id']}/state",
+        json={"desired_state": False, "channel_id": channel["id"]},
+    )
+    assert off_response.status_code == 200, off_response.text
     channel_after_off = client.get(f"/api/v1/devices/{device['id']}/channels/{channel['id']}")
     assert channel_after_off.status_code == 200
     assert channel_after_off.json()["current_state"] is False
 
 
-def test_dashboard_shows_live_endpoint_telemetry():
+def test_endpoint_api_shows_live_telemetry_and_dashboard_redirects_to_react():
     client = _super_admin_client()
 
     telemetry_response = client.post(
@@ -842,11 +998,13 @@ def test_dashboard_shows_live_endpoint_telemetry():
 
     assert telemetry_response.status_code == 200, telemetry_response.text
 
-    dashboard_response = client.get("/")
-    assert dashboard_response.status_code == 200
-    body = dashboard_response.text
-    assert "LIVE-LAPTOP" in body
-    assert "42%" in body
+    endpoints = client.get("/api/v1/endpoints")
+    assert endpoints.status_code == 200
+    assert any(
+        endpoint["hostname"] == "LIVE-LAPTOP" and endpoint["battery"] == 42
+        for endpoint in endpoints.json()
+    )
+    assert client.get("/", follow_redirects=False).status_code == 307
 
 
 def test_telemetry_does_not_override_mapping_thresholds_with_agent_switch_state(monkeypatch):
@@ -954,7 +1112,7 @@ def test_telemetry_does_not_override_mapping_thresholds_with_agent_switch_state(
     session.close()
 
 
-def test_endpoints_and_events_pages_do_not_render_scaffold_data():
+def test_endpoints_and_events_apis_do_not_return_scaffold_data():
     client = _super_admin_client()
 
     telemetry_response = client.post(
@@ -973,18 +1131,21 @@ def test_endpoints_and_events_pages_do_not_render_scaffold_data():
     )
     assert telemetry_response.status_code == 200, telemetry_response.text
 
-    endpoints_response = client.get("/endpoints")
+    endpoints_response = client.get("/api/v1/endpoints")
     assert endpoints_response.status_code == 200
-    endpoints_body = endpoints_response.text
-    assert "REAL-ENDPOINT" in endpoints_body
-    assert "c19f1d84-0a2c-4a34-bf95-a61ff3231c48" in endpoints_body
-    assert "LAPTOP-001" not in endpoints_body
+    endpoint_payloads = endpoints_response.json()
+    assert any(
+        item["hostname"] == "REAL-ENDPOINT"
+        and item["hardware_uuid"] == "c19f1d84-0a2c-4a34-bf95-a61ff3231c48"
+        for item in endpoint_payloads
+    )
+    assert all(item["hostname"] != "LAPTOP-001" for item in endpoint_payloads)
 
-    events_response = client.get("/events")
+    events_response = client.get("/api/v1/events")
     assert events_response.status_code == 200
-    events_body = events_response.text
-    assert "REAL-ENDPOINT" in events_body or "TURN_ON" in events_body or "Automation Events" in events_body
-    assert "LAPTOP-001" not in events_body
+    assert all(event.get("hostname") != "LAPTOP-001" for event in events_response.json())
+    assert client.get("/endpoints", follow_redirects=False).status_code == 307
+    assert client.get("/events", follow_redirects=False).status_code == 307
 
 
 def test_telemetry_turns_off_mapped_device_when_battery_exceeds_off_threshold(monkeypatch):

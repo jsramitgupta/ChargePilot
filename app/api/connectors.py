@@ -238,14 +238,25 @@ async def submit_command_result(
     connector.last_seen_at = datetime.now(UTC)
     db.commit()
     if command.device_id:
+        context = json.loads(command.context_json or "{}")
+        result_state = (payload.result or {}).get("state")
+        new_state = (
+            str(result_state).lower()
+            if command.operation == "get_status" and isinstance(result_state, bool)
+            else context.get("new_state")
+        )
         publish_event(
             {
-                "type": "device_state_change" if payload.success else "device_command_completed",
+                "type": (
+                    "device_state_change"
+                    if payload.success and command.operation in {"set_state", "get_status"}
+                    else "device_command_completed"
+                ),
                 "tenant_id": command.tenant_id,
                 "device_id": command.device_id,
                 "channel_id": command.channel_id,
-                "previous_state": json.loads(command.context_json or "{}").get("previous_state"),
-                "new_state": json.loads(command.context_json or "{}").get("new_state"),
+                "previous_state": context.get("previous_state"),
+                "new_state": new_state,
                 "command_status": command.status,
                 "timestamp": command.completed_at.isoformat() if command.completed_at else None,
             }

@@ -13,22 +13,12 @@ from app.models.connector import SiteConnector
 from app.models.user import User
 from app.services.connector_service import finalize_command, hash_connector_token, queue_discovery_command
 from app.services.smartlife_service import SmartLifeService
+from conftest import register_tenant_admin
 
 
 def _authenticated_client(username: str, root_path: str = "") -> TestClient:
     client = TestClient(app, root_path=root_path)
-    register = client.post(
-        "/register",
-        data={"username": username, "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert register.status_code in {200, 302, 303}, register.text
-    login = client.post(
-        "/login",
-        data={"username": username, "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert login.status_code in {200, 302, 303}, login.text
+    register_tenant_admin(client, username, "secret12345678")
     return client
 
 
@@ -74,23 +64,7 @@ def test_lan_scan_defaults_to_chargepilot_server_network_and_redacts_local_keys(
 
 def test_lan_scan_returns_connector_metadata_without_local_keys(monkeypatch):
     client = TestClient(app)
-    register = client.post(
-        "/register",
-        data={
-            "username": "lan_scan_connector_user",
-            "password": "secret123",
-            "account_type": "tenant",
-            "tenant_name": "LAN scan site",
-        },
-        follow_redirects=False,
-    )
-    assert register.status_code == 303, register.text
-    login = client.post(
-        "/login",
-        data={"username": "lan_scan_connector_user", "password": "secret123"},
-        follow_redirects=False,
-    )
-    assert login.status_code == 303, login.text
+    register_tenant_admin(client, "lan_scan_connector_user", "lan-scan-connector-password", "LAN scan site")
     with SessionLocal() as db:
         user = db.query(User).filter(User.username == "lan_scan_connector_user").one()
         connector = SiteConnector(
@@ -178,57 +152,45 @@ def test_smartlife_pairing_routes_require_login_and_keep_user_session_scoped(mon
     assert poll.json() == {"status": "connected", "devices": []}
 
 
-def test_device_wizard_keeps_local_key_blank_until_user_provides_one():
+def test_device_wizard_route_redirects_to_react_and_scan_api_remains_available():
     client = _authenticated_client("wizard_blank_key_user")
-    page = client.get("/devices")
-
-    assert page.status_code == 200, page.text
-    assert 'id="wizard_local_key" type="password" name="encrypted_local_key" required placeholder="Blank until entered or retrieved"' in page.text
-    assert "Scan local network" in page.text
-    assert "Scan the network where ChargePilot runs" in page.text
-    assert "ChargePilot server network" in page.text
-    assert "Add switch manually" in page.text
-    assert "Fetch with Smart Life" in page.text
-    assert "Generate secure QR" in page.text
-    assert "Remember this account ID on my ChargePilot account" in page.text
-    assert "ChargePilot retrieves only local keys" in page.text
-    assert 'data-scan-url="/devices/scan"' in page.text
-    assert "ajax.js?v=18" in page.text
-    assert 'id="smartlife-modal"' in page.text
-    assert page.text.index("Scan a switch network") < page.text.index("Step 2 · Add")
-    assert page.text.index("Step 2 · Add") < page.text.index("Configured switches")
+    page = client.get("/devices", follow_redirects=False)
+    assert page.status_code == 307
+    assert page.headers["location"] == "/devices"
+    scan = client.post("/devices/scan", json={"source": "connector"})
+    assert scan.status_code == 503
 
 
-def test_switch_controls_render_as_animated_channel_switches():
+def test_switches_and_channels_are_created_through_json_api():
     client = _authenticated_client("animated_switches_user")
     for name, device_id, channel_count in (
         ("Single switch", "single-switch", 1),
         ("Multi switch", "multi-switch", 4),
     ):
         response = client.post(
-            "/devices",
-            data={
+            "/api/v1/devices",
+            json={
                 "name": name,
                 "device_id": device_id,
                 "ip_address": "192.168.1.50",
                 "device_type": "switch",
                 "protocol_version": "3.5",
                 "encrypted_local_key": "local-key",
-                "channel_count": channel_count,
             },
-            follow_redirects=False,
         )
-        assert response.status_code == 303, response.text
-
-    page = client.get("/devices")
-    assert page.status_code == 200, page.text
-    assert 'class="switch-button switch-button-master"' not in page.text
-    assert page.text.count('class="switch-button switch-button-channel"') == 5
-    assert 'class="channel-toggle inline-flex' not in page.text
-    assert 'class="channel-panel hidden' not in page.text
-    assert page.text.count('class="channel-panel mt-4 space-y-2"') == 2
-    assert page.text.count('class="switch-channel-row flex') == 5
-    assert 'data-state="off"' in page.text
+        assert response.status_code == 201, response.text
+        device = response.json()
+        for channel_index in range(1, channel_count + 1):
+            channel = client.post(
+                f"/api/v1/devices/{device['id']}/channels",
+                json={
+                    "channel_index": channel_index,
+                    "name": f"Channel {channel_index}",
+                    "dp_id": str(channel_index),
+                },
+            )
+            assert channel.status_code == 201, channel.text
+        assert len(client.get(f"/api/v1/devices/{device['id']}/channels").json()) == channel_count
 
 
 def test_smartlife_account_id_can_be_remembered_per_user():
@@ -245,12 +207,13 @@ def test_smartlife_account_id_can_be_remembered_per_user():
     )
     assert saved.status_code == 200, saved.text
     assert saved.json() == {"saved": True}
-
-    page = client.get("/devices")
-    assert 'id="smartlife_user_code" type="text" value="account-code"' in page.text
-    assert 'id="smartlife_remember_user_code" type="checkbox" class="smartlife-remember-checkbox' in page.text
-    another_user_page = _authenticated_client("smartlife_other_user").get("/devices")
-    assert 'id="smartlife_user_code" type="text" value="account-code"' not in another_user_page.text
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "smartlife_saved_code_user").one()
+        assert user.smartlife_user_code == "account-code"
+    _authenticated_client("smartlife_other_user")
+    with SessionLocal() as db:
+        other_user = db.query(User).filter(User.username == "smartlife_other_user").one()
+        assert other_user.smartlife_user_code is None
 
     cleared = client.post(
         "/devices/smartlife/preferences",
@@ -258,16 +221,17 @@ def test_smartlife_account_id_can_be_remembered_per_user():
     )
     assert cleared.status_code == 200, cleared.text
     assert cleared.json() == {"saved": False}
-    page_without_saved_code = client.get("/devices")
-    assert 'id="smartlife_user_code" type="text" value=""' in page_without_saved_code.text
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "smartlife_saved_code_user").one()
+        assert user.smartlife_user_code is None
 
 
 def test_device_scan_url_respects_reverse_proxy_root_path():
     client = _authenticated_client("wizard_root_path_user", root_path="/chargepilot")
-    page = client.get("/devices")
+    page = client.get("/devices", follow_redirects=False)
 
-    assert page.status_code == 200, page.text
-    assert 'data-scan-url="/chargepilot/devices/scan"' in page.text
+    assert page.status_code == 307, page.text
+    assert page.headers["location"] == "/devices"
 
 
 @pytest.mark.asyncio

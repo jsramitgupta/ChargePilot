@@ -8,10 +8,20 @@ from app.core.database import get_db
 from app.models.device import Device, DeviceChannel
 from app.models.endpoint import Endpoint
 from app.models.mapping import Mapping
+from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.mapping import MappingCreate, MappingRead, MappingUpdate
 
 router = APIRouter(prefix="/mappings", tags=["mappings"])
+
+
+def _mapping_read(db: Session, mapping: Mapping) -> MappingRead:
+    tenant_name = (
+        db.query(Tenant.name).filter(Tenant.id == mapping.tenant_id).scalar()
+        if mapping.tenant_id is not None
+        else None
+    )
+    return MappingRead.model_validate(mapping).model_copy(update={"tenant_name": tenant_name})
 
 
 def _get_mapping(db: Session, mapping_id: str, user: User) -> Mapping:
@@ -28,7 +38,12 @@ def _get_mapping_resources(
     device_id: str,
     channel_id: str | None,
 ) -> tuple[Endpoint, Device, DeviceChannel | None]:
-    endpoint = tenant_scoped_query(db.query(Endpoint), Endpoint, user).filter(Endpoint.id == endpoint_id).first()
+    endpoint = (
+        tenant_scoped_query(db.query(Endpoint), Endpoint, user)
+        .filter(Endpoint.id == endpoint_id)
+        .with_for_update()
+        .first()
+    )
     device = tenant_scoped_query(db.query(Device), Device, user).filter(Device.id == device_id).first()
     if endpoint is None or device is None or endpoint.tenant_id != device.tenant_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint or device not found.")
@@ -61,7 +76,16 @@ async def list_mappings(
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
 ):
-    return tenant_scoped_query(db.query(Mapping), Mapping, user).order_by(Mapping.created_at.desc()).all()
+    mappings = tenant_scoped_query(db.query(Mapping), Mapping, user).order_by(Mapping.created_at.desc()).all()
+    tenant_ids = {mapping.tenant_id for mapping in mappings if mapping.tenant_id is not None}
+    tenant_names = {
+        tenant.id: tenant.name
+        for tenant in db.query(Tenant).filter(Tenant.id.in_(tenant_ids)).all()
+    } if tenant_ids else {}
+    return [
+        MappingRead.model_validate(mapping).model_copy(update={"tenant_name": tenant_names.get(mapping.tenant_id)})
+        for mapping in mappings
+    ]
 
 
 @router.post("", response_model=MappingRead, status_code=status.HTTP_201_CREATED)
@@ -90,7 +114,7 @@ async def create_mapping(
     db.add(mapping)
     db.commit()
     db.refresh(mapping)
-    return mapping
+    return _mapping_read(db, mapping)
 
 
 @router.get("/{mapping_id}", response_model=MappingRead)
@@ -99,7 +123,7 @@ async def get_mapping(
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
 ):
-    return _get_mapping(db, str(mapping_id), user)
+    return _mapping_read(db, _get_mapping(db, str(mapping_id), user))
 
 
 @router.put("/{mapping_id}", response_model=MappingRead)
@@ -125,7 +149,7 @@ async def update_mapping(
     mapping.tenant_id = endpoint.tenant_id
     db.commit()
     db.refresh(mapping)
-    return mapping
+    return _mapping_read(db, mapping)
 
 
 @router.delete("/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT)

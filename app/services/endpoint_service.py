@@ -1,8 +1,25 @@
 from sqlalchemy.orm import Session
 
 from app.core.security import get_bearer_token
+from app.models.endpoint import Endpoint
+from app.models.mapping import Mapping
 from app.models.system_setting import SystemSetting
 from app.models.tenant import Tenant
+
+
+class EndpointTenantAssignmentError(Exception):
+    pass
+
+
+def assign_unassigned_endpoint(db: Session, endpoint: Endpoint, tenant: Tenant) -> bool:
+    if endpoint.tenant_id == tenant.id:
+        return False
+    if endpoint.tenant_id is not None:
+        raise EndpointTenantAssignmentError("The endpoint already belongs to another tenant.")
+    if db.query(Mapping.id).filter(Mapping.endpoint_id == endpoint.id).first() is not None:
+        raise EndpointTenantAssignmentError("Remove existing mappings before assigning this endpoint to a tenant.")
+    endpoint.tenant_id = tenant.id
+    return True
 
 
 def authenticate_endpoint_token(authorization: str | None, db: Session) -> tuple[bool, Tenant | None]:

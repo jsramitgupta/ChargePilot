@@ -15,9 +15,8 @@ The product contains:
 - device, endpoint, mapping, and event models
 - a hysteresis-based battery rule engine
 - TinyTuya wrappers for local switch discovery and control
-- Jinja-rendered dashboard pages for operational supervision
-- React, TypeScript, and Tailwind frontend in `frontend/`, reusing the
-  server-rendered application's shared stylesheet and connecting to its APIs
+- React, TypeScript, Tailwind, and Vite frontend in `frontend/`, serving the
+  complete browser experience through JSON APIs
 - a PowerShell laptop agent that sends runtime battery data
 - an outbound-HTTPS site connector that scans and controls devices on private LANs
 
@@ -33,7 +32,6 @@ The product contains:
 - tuya-device-sharing-sdk for Smart Life QR pairing
 - qrcode for Smart Life sign-in QR images
 - tzdata for timezone handling in containerized deployments
-- Jinja2 templates
 - pytest for automated checks
 
 ## Repository layout
@@ -47,9 +45,8 @@ The product contains:
 │   ├── schemas/             # Pydantic request/response contracts
 │   ├── services/            # battery rules, event processor, Tuya abstraction
 │   ├── workers.py           # Kafka outbox relay and automation consumer roles
-│   ├── static/              # CSS assets
-│   ├── templates/           # Jinja dashboard and admin HTML pages
-│   └── main.py              # FastAPI app setup and HTML routes
+│   └── main.py              # FastAPI app setup, redirects, and downloads
+├── frontend/                # React application and design system
 ├── agent/
 │   ├── BatteryAgent.ps1               # Windows laptop telemetry sender
 │   └── CreateAgentScheduledTask.ps1   # creates the recurring Windows task
@@ -286,8 +283,7 @@ CHARGEPILOT_SESSION_COOKIE_SAMESITE=lax
 
 Configure the reverse proxy to send the frontend hostname to container port
 `5173` and the API hostname to port `8000`. The API hostname must proxy the
-application routes used by the UI, including `/api/v1`, `/login`, `/register`,
-`/logout`, and server-rendered admin pages. The backend permits credentialed
+JSON API and authenticated downloads used by React. The backend permits credentialed
 browser requests only from the configured frontend origin. For frontend and API
 hostnames on different registrable domains, set
 `CHARGEPILOT_SESSION_COOKIE_SAMESITE=none`; secure cookies are required for
@@ -321,9 +317,9 @@ and k3s GitOps manifests.
 - Device commands target an explicit desired state and channel; they are
   durable and routed only to the assigned site connector.
 - A device can expose its state under `dps`, `data.dps`, or `status` payloads.
-- The FastAPI application retains its Jinja-rendered pages for workflows not yet
-  represented in the React frontend; the React app provides the dashboard,
-  switches, mappings, endpoints, events, and sign-in experience.
+- React is the only browser UI. Login and signup use JSON session APIs;
+  standard-user signup consumes a tenant-admin-created, seven-day invite code,
+  while tenant signup creates a tenant and its first admin.
 - Authentication is intentionally minimal in the current implementation and should be hardened before production use.
 
 ## Documentation pack

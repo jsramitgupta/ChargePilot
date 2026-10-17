@@ -49,7 +49,6 @@ The system has grown beyond the original battery-only flow and now includes:
 - Pydantic + pydantic-settings
 - TinyTuya
 - tuya-device-sharing-sdk
-- Jinja2 templates
 - pytest
 - Docker Compose
 - qrcode

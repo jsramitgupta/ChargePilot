@@ -1,4 +1,3 @@
-import re
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from zipfile import ZipFile
@@ -12,46 +11,23 @@ from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device
 from app.models.event import AutomationEvent
 from app.services.local_key_service import decrypt_local_key
+from conftest import register_standard_user, register_tenant_admin
 
 
 def _tenant_admin_client(username: str) -> TestClient:
     client = TestClient(app)
-    response = client.post(
-        "/register",
-        data={
-            "username": username,
-            "password": "secret123",
-            "account_type": "tenant",
-            "tenant_name": f"{username} site",
-        },
-        follow_redirects=False,
-    )
-    assert response.status_code == 303, response.text
+    register_tenant_admin(client, username, "secret12345678", f"{username} site")
     return client
 
 
 def _enroll_connector(client: TestClient, name: str = "Office LAN") -> tuple[str, str]:
-    created = client.post(
-        "/connectors",
-        data={"name": name},
-        follow_redirects=False,
-    )
-    assert created.status_code == 303, created.text
-    page = client.get("/connectors")
-    assert page.status_code == 200, page.text
-    assert page.headers["cache-control"] == "private, no-store"
-    code_match = re.search(
-        r'<output id="connector-enrollment-code"[^>]*>([^<]+)</output>',
-        page.text,
-    )
-    assert code_match, "The one-time enrollment code should be visible."
-    assert 'data-copy-target="connector-enrollment-code"' in page.text
-    assert 'data-copy-status="Enrollment code copied."' in page.text
-    code = code_match.group(1)
-    assert code not in client.get("/connectors").text
+    created = client.post("/api/v1/connectors/enrollment-codes", json={"name": name})
+    assert created.status_code == 201, created.text
+    assert created.headers["cache-control"] == "private, no-store"
+    enrollment_code = created.json()["enrollment_code"]
     response = client.post(
         "/api/v1/connectors/enroll",
-        headers={"Authorization": f"Bearer {code}"},
+        headers={"Authorization": f"Bearer {enrollment_code}"},
         json={"version": "test"},
     )
     assert response.status_code == 200, response.text
@@ -60,7 +36,8 @@ def _enroll_connector(client: TestClient, name: str = "Office LAN") -> tuple[str
 
 def test_connector_api_lists_status_for_authenticated_tenant():
     client = _tenant_admin_client("connector_list_owner")
-    client.post("/connectors", data={"name": "Office LAN"}, follow_redirects=False)
+    created = client.post("/api/v1/connectors/enrollment-codes", json={"name": "Office LAN"})
+    assert created.status_code == 201, created.text
 
     response = client.get("/api/v1/connectors")
 
@@ -101,11 +78,7 @@ def test_react_connector_api_creates_revokes_and_deletes_connectors():
 
 def test_connector_enrollment_code_creation_requires_admin_and_tenant():
     client = TestClient(app)
-    client.post(
-        "/register",
-        data={"username": "connector_viewer", "password": "secret123"},
-        follow_redirects=False,
-    )
+    register_standard_user(client, "connector_viewer", "standard-user-password")
 
     denied = client.post(
         "/api/v1/connectors/enrollment-codes",
@@ -139,7 +112,7 @@ def test_agent_setup_api_supplies_tenant_scoped_install_command(monkeypatch):
     assert response.headers["cache-control"] == "private, no-store"
     payload = response.json()
     assert payload["token"]
-    assert payload["token_scope"] == "tenant"
+    assert payload["token_scope"] == "tenant: react_agent_setup site"
     assert "-ServerUrl " in payload["install_command"]
     assert "-ServerUrl 'https://api.example.test'" in payload["install_command"]
     assert "-EndpointToken " in payload["install_command"]
@@ -190,16 +163,18 @@ def test_enrollment_code_is_single_use_and_commands_wait_for_connector_ack():
     )
     assert device_response.status_code == 201, device_response.text
     device_id = device_response.json()["id"]
-    assigned = client.post(
-        f"/devices/{device_id}/connector",
-        data={"connector_id": connector_id},
-        follow_redirects=False,
+    assigned = client.put(
+        f"/api/v1/devices/{device_id}/connector",
+        json={"connector_id": connector_id},
     )
-    assert assigned.status_code == 303
+    assert assigned.status_code == 200, assigned.text
 
-    manual = client.post(f"/devices/{device_id}/turn-on", follow_redirects=False)
-    assert manual.status_code == 303
-    assert "queued" in manual.headers["location"]
+    manual = client.post(
+        f"/api/v1/devices/{device_id}/state",
+        json={"desired_state": True},
+    )
+    assert manual.status_code == 200, manual.text
+    assert manual.json()["status"] == "queued"
 
     with SessionLocal() as db:
         device = db.query(Device).filter(Device.id == device_id).one()
@@ -245,9 +220,7 @@ def test_connector_data_is_scoped_to_the_enrolling_tenant():
     owner = _tenant_admin_client("connector_tenant_owner")
     connector_id, token = _enroll_connector(owner, "Owner LAN")
     guest = _tenant_admin_client("connector_other_tenant")
-    page = guest.get("/connectors")
-    assert page.status_code == 200
-    assert "Owner LAN" not in page.text
+    assert guest.get("/api/v1/connectors").json() == []
     revoked = guest.post(f"/api/v1/connectors/{connector_id}/revoke")
     assert revoked.status_code == 404
     invalid_claim = guest.post(
@@ -262,11 +235,10 @@ def test_connector_data_is_scoped_to_the_enrolling_tenant():
 def test_revoked_connector_can_be_deleted_with_its_commands():
     client = _tenant_admin_client("connector_delete_owner")
     created = client.post(
-        "/connectors",
-        data={"name": "Retired LAN"},
-        follow_redirects=False,
+        "/api/v1/connectors/enrollment-codes",
+        json={"name": "Retired LAN"},
     )
-    assert created.status_code == 303
+    assert created.status_code == 201
 
     with SessionLocal() as db:
         connector = db.query(SiteConnector).filter(SiteConnector.name == "Retired LAN").one()
@@ -281,18 +253,14 @@ def test_revoked_connector_can_be_deleted_with_its_commands():
         )
         db.commit()
 
-    active_delete = client.post(f"/connectors/{connector_id}/delete", follow_redirects=False)
-    assert active_delete.status_code == 303
-    assert "Revoke+the+connector+before+deleting+it" in active_delete.headers["location"]
+    active_delete = client.delete(f"/api/v1/connectors/{connector_id}")
+    assert active_delete.status_code == 409
 
-    revoked = client.post(f"/connectors/{connector_id}/revoke", follow_redirects=False)
-    assert revoked.status_code == 303
-    page = client.get("/connectors")
-    assert f'/connectors/{connector_id}/delete' in page.text
+    revoked = client.post(f"/api/v1/connectors/{connector_id}/revoke")
+    assert revoked.status_code == 200
 
-    deleted = client.post(f"/connectors/{connector_id}/delete", follow_redirects=False)
-    assert deleted.status_code == 303
-    assert "Connector+deleted" in deleted.headers["location"]
+    deleted = client.delete(f"/api/v1/connectors/{connector_id}")
+    assert deleted.status_code == 204
     with SessionLocal() as db:
         assert db.query(SiteConnector).filter(SiteConnector.id == connector_id).first() is None
         assert db.query(DeviceCommand).filter(DeviceCommand.connector_id == connector_id).count() == 0

@@ -12,16 +12,12 @@ from app.models.event import AutomationEvent
 from app.models.mapping import Mapping
 from app.models.tenant import Tenant
 from app.models.user import User
+from conftest import api_login
 
 
 def _login(username: str, password: str = "tenant-password") -> TestClient:
     client = TestClient(app)
-    response = client.post(
-        "/login",
-        data={"username": username, "password": password},
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
+    api_login(client, username, password)
     return client
 
 
@@ -49,29 +45,23 @@ def _create_tenant_account(db, label: str) -> tuple[Tenant, User]:
 def test_super_admin_can_assign_new_admin_to_a_tenant():
     client = _login("admin", "change-me")
     tenant_name = f"Assigned tenant {uuid4().hex[:8]}"
-    created_tenant = client.post(
-        "/tenants",
-        data={"tenant_name": tenant_name},
-        follow_redirects=False,
-    )
-    assert created_tenant.status_code == 303
+    created_tenant = client.post("/api/v1/admin/tenants", json={"name": tenant_name})
+    assert created_tenant.status_code == 201, created_tenant.text
 
     username = f"assigned-admin-{uuid4().hex[:8]}"
     with SessionLocal() as db:
-        tenant = db.query(Tenant).filter(Tenant.name == tenant_name).one()
-        tenant_id = tenant.id
+        tenant_id = created_tenant.json()["id"]
 
     created_user = client.post(
-        "/users",
-        data={
+        "/api/v1/admin/users",
+        json={
             "username": username,
             "password": "tenant-password",
             "role": "tenant_admin",
             "tenant_id": tenant_id,
         },
-        follow_redirects=False,
     )
-    assert created_user.status_code == 303
+    assert created_user.status_code == 201, created_user.text
 
     with SessionLocal() as db:
         user = db.query(User).filter(User.username == username).one()
@@ -79,9 +69,9 @@ def test_super_admin_can_assign_new_admin_to_a_tenant():
         assert user.role == "tenant_admin"
         assert user.is_admin is True
 
-    page = client.get("/users")
-    assert username in page.text
-    assert tenant_name in page.text
+    users = client.get("/api/v1/admin/users")
+    assert username in [account["username"] for account in users.json()]
+    assert client.get("/users", follow_redirects=False).status_code == 307
 
 
 def test_tenant_admin_cannot_read_or_mutate_another_tenants_resources():
@@ -147,16 +137,15 @@ def test_tenant_admin_cannot_read_or_mutate_another_tenants_resources():
 
     attempted_user = f"spoofed-assignment-{uuid4().hex[:8]}"
     create_other_tenant_user = client_a.post(
-        "/users",
-        data={
+        "/api/v1/admin/users",
+        json={
             "username": attempted_user,
             "password": "tenant-password",
             "role": "tenant_admin",
             "tenant_id": tenant_b_id,
         },
-        follow_redirects=False,
     )
-    assert create_other_tenant_user.status_code == 303
+    assert create_other_tenant_user.status_code == 201, create_other_tenant_user.text
     with SessionLocal() as db:
         created_user = db.query(User).filter(User.username == attempted_user).one()
         own_tenant_id = db.query(User).filter(User.username == user_a_name).one().tenant_id
@@ -166,7 +155,7 @@ def test_tenant_admin_cannot_read_or_mutate_another_tenants_resources():
     devices = client_a.get("/api/v1/devices")
     assert devices.status_code == 200
     assert [device["device_id"] for device in devices.json()] == ["alpha-device"]
-    assert "bravo-device" not in client_a.get("/devices").text
+    assert client_a.get("/devices", follow_redirects=False).status_code == 307
     assert [endpoint["hostname"] for endpoint in client_a.get("/api/v1/endpoints").json()] == [
         "alpha-endpoint"
     ]
@@ -184,16 +173,14 @@ def test_tenant_admin_cannot_read_or_mutate_another_tenants_resources():
     paged_events = client_a.get("/api/v1/events/page")
     assert paged_events.status_code == 200
     assert [event["event_type"] for event in paged_events.json()["items"]] == ["TENANT_A_EVENT"]
-    event_page = client_a.get("/events")
-    assert "Alpha private event" in event_page.text
-    assert "Bravo private event" not in event_page.text
+    assert client_a.get("/events", follow_redirects=False).status_code == 307
 
     cross_tenant_mapping = client_a.post(
         "/api/v1/mappings",
         json={"endpoint_id": endpoint_b_id, "device_id": device_b_id},
     )
     assert cross_tenant_mapping.status_code == 404
-    assert client_a.post(f"/devices/{device_b_id}/delete", follow_redirects=False).status_code == 303
+    assert client_a.delete(f"/api/v1/devices/{device_b_id}").status_code == 404
     with SessionLocal() as db:
         assert db.query(Device).filter(Device.id == device_b_id).one_or_none() is not None
         assert db.query(Tenant).filter(Tenant.id == tenant_b_id).one_or_none() is not None

@@ -57,6 +57,8 @@ type User = {
 
 type Endpoint = {
   id: string
+  tenant_id?: string | null
+  tenant_name?: string | null
   hostname: string
   hardware_uuid: string | null
   ip_address: string | null
@@ -66,11 +68,14 @@ type Endpoint = {
   last_seen_at: string | null
   status: 'online' | 'offline'
   mapped_device: string
+  mapped_device_tenant?: string | null
   switch_state: boolean | null
 }
 
 type Device = {
   id: string
+  tenant_id?: string | null
+  tenant_name?: string | null
   device_id: string
   name: string
   ip_address?: string | null
@@ -79,6 +84,7 @@ type Device = {
   enabled?: boolean | null
   current_state?: boolean | null
   last_state_change_at?: string | null
+  last_seen_at?: string | null
   channels?: DeviceChannel[]
   connector_id?: string | null
 }
@@ -112,6 +118,21 @@ type Connector = {
   last_seen_at?: string | null
 }
 
+type DeviceStatusRefresh = {
+  commands: Array<{ id: string; device_id: string; channel_id: string | null }>
+  skipped_devices: Array<{ device_id: string; reason: string }>
+}
+
+type ConnectorCommandStatus = {
+  status: 'queued' | 'leased' | 'succeeded' | 'failed' | 'expired'
+  result?: { error?: string } | null
+}
+
+type DevicesPageData = {
+  devices: Device[]
+  skippedDevices: DeviceStatusRefresh['skipped_devices']
+}
+
 type AdminUser = {
   id: string
   username: string
@@ -129,8 +150,19 @@ type TenantInfo = {
   created_at: string
 }
 
+type TenantInviteInfo = {
+  id: string
+  tenant_id: string
+  tenant_name?: string | null
+  created_at: string
+  expires_at: string
+  used_at?: string | null
+  is_active: boolean
+}
+
 type AgentSetup = {
   token: string
+  global_token?: string | null
   token_scope: string
   install_command: string
   is_super_admin: boolean
@@ -144,6 +176,7 @@ type SmartLifeDevice = {
 
 type Mapping = {
   id: string
+  tenant_name?: string | null
   endpoint_id: string
   device_id: string
   channel_id?: string | null
@@ -240,21 +273,34 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   return payload as T
 }
 
-async function submitLegacyAction(path: string, values?: FormData): Promise<string> {
-  const response = await fetch(backendUrl(path), {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    body: values,
-  })
-  const finalUrl = new URL(response.url)
-  if (!response.ok) throw new Error(`The request failed (HTTP ${response.status}).`)
-  if (finalUrl.pathname === '/login') throw new Error('Your session has expired. Sign in again and retry.')
-  const error = finalUrl.searchParams.get('error')
-  if (error) throw new Error(error.replaceAll('+', ' '))
-  const message = finalUrl.searchParams.get('message')?.replaceAll('+', ' ')
-  if (message?.toLowerCase().includes('failed')) throw new Error(message)
-  return message ?? 'Saved.'
+async function waitForConnectorCommands(
+  commands: Array<{ id: string }>,
+  timeoutMs = 45_000,
+): Promise<void> {
+  const pendingIds = new Set(commands.map((command) => command.id))
+  const deadline = Date.now() + timeoutMs
+
+  while (pendingIds.size) {
+    const statuses = await Promise.all(
+      [...pendingIds].map(async (id) => ({
+        id,
+        command: await apiFetch<ConnectorCommandStatus>(`/api/v1/connectors/commands/${id}`),
+      })),
+    )
+
+    for (const { id, command } of statuses) {
+      if (command.status === 'failed' || command.status === 'expired') {
+        throw new Error(command.result?.error ?? `The site connector ${command.status} the switch command.`)
+      }
+      if (command.status === 'succeeded') pendingIds.delete(id)
+    }
+
+    if (!pendingIds.size) return
+    if (Date.now() >= deadline) {
+      throw new Error('The site connector did not complete the switch status request in time.')
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 2000))
+  }
 }
 
 async function fetchSession(): Promise<User> {
@@ -367,65 +413,104 @@ function AppShell({ user }: { user: User }) {
   }, [user.timezone])
 
   const navItems = [
-    { to: '/', label: 'Dashboard', icon: LayoutGrid },
+    { to: '/', label: 'Overview', icon: LayoutGrid },
+    { to: '/endpoints', label: 'Laptops', icon: MonitorSmartphone },
     { to: '/devices', label: 'Switches', icon: PlugZap },
-    { to: '/mappings', label: 'Mappings', icon: Cable },
-    { to: '/endpoints', label: 'Endpoints', icon: MonitorSmartphone },
-    { to: '/connectors', label: 'Connectors', icon: Network },
-    { to: '/events', label: 'Events', icon: Bell },
+    { to: '/mappings', label: 'Automation maps', icon: Cable },
+    { to: '/connectors', label: 'Site connectors', icon: Network },
+    { to: '/events', label: 'Activity', icon: Bell },
   ]
 
   return (
-    <div className="min-h-screen">
-      <header className="site-header dark-header">
-        <div className="site-header-inner">
-          <NavLink to="/" className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-soft dark-card-shell" aria-label="ChargePilot dashboard">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-base font-bold text-blue-700">C</span>
-            <span>
-              <span className="block text-sm font-bold tracking-tight text-slate-900">ChargePilot</span>
-              <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Battery automation</span>
-            </span>
-          </NavLink>
-          <div className="site-header-actions">
-            <div className="hidden items-center gap-2 md:flex"><span className="mini-badge live-pill">Live telemetry</span></div>
-            <ThemeToggleButton isDark={isDark} onToggle={() => setIsDark((value) => !value)} />
-            <NavLink to="/agent" className="agent-header-button">Agent setup</NavLink>
-            {user.role === 'super_admin' && <NavLink to="/account" className="header-account-link"><KeyRound size={14} className="mr-1 inline" />Account</NavLink>}
-            <NavLink to="/profile" className="header-account-link">Profile</NavLink>
-            <button type="button" className="header-account-link" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}>
-              <LogOut size={14} className="mr-1 inline" />{logoutMutation.isPending ? 'Logging out…' : 'Logout'}
-            </button>
-            <button className="nav-toggle" type="button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="mainNav" onClick={() => setMobileOpen((value) => !value)}>
-              <span className="sr-only">Open menu</span><Menu size={18} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-        {logoutMutation.error && <p className="mx-4 mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 md:mx-auto md:max-w-6xl">{logoutMutation.error.message}</p>}
-        <nav id="mainNav" className={`site-nav ${mobileOpen ? 'is-open' : ''}`} aria-label="Main navigation">
+    <div className="workspace">
+      {mobileOpen && <button type="button" className="rail-scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
+      <aside className={`workspace-rail ${mobileOpen ? 'is-open' : ''}`}>
+        <NavLink to="/" className="rail-brand" aria-label="ChargePilot overview" onClick={() => setMobileOpen(false)}>
+          <span className="rail-mark"><BatteryCharging size={21} aria-hidden="true" /></span>
+          <span><strong>ChargePilot</strong><small>Energy control</small></span>
+        </NavLink>
+        <div className="rail-tenant"><span className="rail-tenant-dot" /><span><small>Workspace</small><strong>{user.tenant_name ?? 'System'}</strong></span></div>
+        <nav id="mainNav" className="rail-nav" aria-label="Main navigation">
+          <p className="rail-caption">Monitor</p>
           {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} end={to === '/'} onClick={() => setMobileOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold transition"><Icon size={15} className="mr-1 inline" />{label}</NavLink>
+            <NavLink key={to} to={to} end={to === '/'} onClick={() => setMobileOpen(false)} className="rail-link">
+              <Icon size={17} aria-hidden="true" /><span>{label}</span>
+            </NavLink>
           ))}
-          {(user.role === 'super_admin' || user.role === 'tenant_admin' || user.role === 'manager') && (
-            <NavLink to="/users" onClick={() => setMobileOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold transition"><Users size={15} className="mr-1 inline" />Users</NavLink>
-          )}
-          {user.role === 'super_admin' && <NavLink to="/tenants" onClick={() => setMobileOpen(false)} className="rounded-xl px-3 py-2 text-sm font-semibold transition"><Building2 size={15} className="mr-1 inline" />Tenants</NavLink>}
+          <NavLink to="/agent" onClick={() => setMobileOpen(false)} className="rail-link"><Plus size={17} aria-hidden="true" /><span>Set up a laptop</span></NavLink>
+          {(user.role === 'super_admin' || user.role === 'tenant_admin' || user.role === 'manager') && <>
+            <p className="rail-caption rail-caption-spaced">Manage</p>
+            <NavLink to="/users" onClick={() => setMobileOpen(false)} className="rail-link"><Users size={17} aria-hidden="true" /><span>People & invites</span></NavLink>
+          </>}
+          {user.role === 'super_admin' && <NavLink to="/tenants" onClick={() => setMobileOpen(false)} className="rail-link"><Building2 size={17} aria-hidden="true" /><span>Tenants</span></NavLink>}
         </nav>
-      </header>
-      <main className="page-shell">
-        <div className="mb-5 text-xs text-slate-500" aria-label="Signed-in account"><ShieldCheck size={13} className="mr-1 inline" />{user.username} · {user.role.replaceAll('_', ' ')}</div>
-        <Outlet />
-      </main>
+        <div className="rail-footer">
+          <NavLink to="/profile" className="rail-profile" onClick={() => setMobileOpen(false)}>
+            <span className="profile-initial">{user.username.slice(0, 1).toUpperCase()}</span>
+            <span className="profile-copy"><strong>{user.username}</strong><small>{user.role.replaceAll('_', ' ')}</small></span>
+          </NavLink>
+          {user.role === 'super_admin' && <NavLink to="/account" className="rail-footer-link" onClick={() => setMobileOpen(false)}><KeyRound size={15} />Account security</NavLink>}
+          <button type="button" className="rail-footer-link" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}><LogOut size={15} />{logoutMutation.isPending ? 'Signing out…' : 'Sign out'}</button>
+        </div>
+      </aside>
+      <div className="workspace-body">
+        <header className="workspace-topbar">
+          <button className="nav-toggle" type="button" aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={mobileOpen} aria-controls="mainNav" onClick={() => setMobileOpen((value) => !value)}><Menu size={19} aria-hidden="true" /></button>
+          <div className="topbar-context"><span className="topbar-live"><i />Control plane</span><span>Battery automation</span></div>
+          <div className="topbar-actions">
+            <ThemeToggleButton isDark={isDark} onToggle={() => setIsDark((value) => !value)} />
+            <span className="topbar-role"><ShieldCheck size={14} aria-hidden="true" />{user.role.replaceAll('_', ' ')}</span>
+          </div>
+        </header>
+        {logoutMutation.error && <p className="workspace-error" role="alert">{logoutMutation.error.message}</p>}
+        <main className="page-shell"><Outlet /></main>
+      </div>
     </div>
+  )
+}
+
+function AuthBrandPanel() {
+  return (
+    <aside className="auth-story" aria-label="ChargePilot purpose">
+      <div className="auth-story-brand"><span className="rail-mark"><BatteryCharging size={21} aria-hidden="true" /></span><strong>ChargePilot</strong></div>
+      <div className="auth-story-copy">
+        <span className="auth-story-kicker">Local energy, under control</span>
+        <h2>Keep the battery.<br />Lose the guesswork.</h2>
+        <p>Reliable laptop monitoring, paired with switches that stay on their own network.</p>
+      </div>
+      <div className="energy-path" aria-label="Laptop telemetry flows through your site connector to your switch">
+        <div className="energy-node"><MonitorSmartphone size={18} /><span>Laptop</span></div>
+        <span className="energy-wire"><i /></span>
+        <div className="energy-node"><Network size={18} /><span>Site link</span></div>
+        <span className="energy-wire"><i /></span>
+        <div className="energy-node"><PlugZap size={18} /><span>Switch</span></div>
+      </div>
+      <p className="auth-story-foot">Battery rules run in ChargePilot. Device control stays local.</p>
+    </aside>
   )
 }
 
 function LoginPage() {
   const [searchParams] = useSearchParams()
   const [isDark, setIsDark] = useAppTheme()
+  const navigate = useNavigate()
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const loginMutation = useMutation({
+    mutationFn: () => apiFetch<{ user: User }>('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+    onSuccess: ({ user }) => {
+      queryClient.setQueryData(['session'], user)
+      navigate('/', { replace: true })
+    },
+  })
 
   return (
     <div className="auth-shell">
       <ThemeToggleButton isDark={isDark} onToggle={() => setIsDark((value) => !value)} className="auth-theme-toggle" />
+      <AuthBrandPanel />
       <section className="auth-card" aria-labelledby="login-title">
         <div className="flex items-center justify-center"><div className="brand-mark auth-brand-mark">C</div></div>
         <div className="auth-badges"><span>ChargePilot</span><span>Local-first control</span></div>
@@ -433,16 +518,17 @@ function LoginPage() {
         <p className="auth-subtle">Sign in to your tenant and manage your battery automation.</p>
         {searchParams.get('message') && <p className="alert success mt-5" role="status">{searchParams.get('message')}</p>}
         {searchParams.get('error') && <p className="alert error mt-4" role="alert">{searchParams.get('error')}</p>}
-        <form method="post" action={backendUrl('/login')} className="auth-form">
+        <form onSubmit={(event) => { event.preventDefault(); loginMutation.mutate() }} className="auth-form">
           <div className="field-group">
             <label htmlFor="username">Username</label>
-            <input id="username" name="username" type="text" autoComplete="username" required className="field" />
+            <input id="username" name="username" type="text" autoComplete="username" required className="field" value={username} onChange={(event) => setUsername(event.target.value)} />
           </div>
           <div className="field-group">
             <label htmlFor="password">Password</label>
-            <input id="password" name="password" type="password" autoComplete="current-password" required className="field" />
+            <input id="password" name="password" type="password" autoComplete="current-password" required className="field" value={password} onChange={(event) => setPassword(event.target.value)} />
           </div>
-          <button type="submit" className="primary-btn large-btn w-full"><LogIn size={16} className="mr-2" />Log in</button>
+          {loginMutation.error && <ErrorCard message={loginMutation.error.message} />}
+          <button type="submit" className="primary-btn large-btn w-full" disabled={loginMutation.isPending}><LogIn size={16} className="mr-2" />{loginMutation.isPending ? 'Signing in…' : 'Log in'}</button>
         </form>
         <div className="auth-divider" />
         <div className="auth-signup">
@@ -460,12 +546,33 @@ function LoginPage() {
 function RegisterPage() {
   const [searchParams] = useSearchParams()
   const [isDark, setIsDark] = useAppTheme()
+  const navigate = useNavigate()
   const accountType = searchParams.get('account_type') === 'tenant' ? 'tenant' : 'standard'
   const error = searchParams.get('error')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
+  const [tenantName, setTenantName] = useState('')
+  const registerMutation = useMutation({
+    mutationFn: () => apiFetch<{ user: User }>('/api/v1/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        account_type: accountType,
+        username,
+        password,
+        ...(accountType === 'standard' ? { invite_code: inviteCode } : { tenant_name: tenantName }),
+      }),
+    }),
+    onSuccess: ({ user }) => {
+      queryClient.setQueryData(['session'], user)
+      navigate('/', { replace: true })
+    },
+  })
 
   return (
     <div className="auth-shell">
       <ThemeToggleButton isDark={isDark} onToggle={() => setIsDark((value) => !value)} className="auth-theme-toggle" />
+      <AuthBrandPanel />
       <section className="auth-card auth-card-wide" aria-labelledby="register-title">
         <div className="flex items-center justify-center"><div className="brand-mark auth-brand-mark">C</div></div>
         <div className="auth-badges"><span>Create account</span><span>Secure access</span></div>
@@ -473,24 +580,26 @@ function RegisterPage() {
         {error && <p className="alert error mt-4" role="alert">{error}</p>}
         <div className="auth-choice-grid">
           <a href={frontendUrl('/register?account_type=standard')} className={`choice-card ${accountType === 'standard' ? 'active' : ''}`}>
-            <span className="choice-title">Standard user</span><span className="choice-copy">Starts with a personal tenant.</span>
+            <span className="choice-title">Standard user</span><span className="choice-copy">Join your team with a one-time invite code.</span>
           </a>
           <a href={frontendUrl('/register?account_type=tenant')} className={`choice-card ${accountType === 'tenant' ? 'active' : ''}`}>
             <span className="choice-title">Tenant admin</span><span className="choice-copy">Creates a new isolated tenant.</span>
           </a>
         </div>
-        <form method="post" action={backendUrl('/register')} className="auth-form">
-          <input type="hidden" name="account_type" value={accountType} />
+        <form onSubmit={(event) => { event.preventDefault(); registerMutation.mutate() }} className="auth-form">
           <div className="field-group">
             <label htmlFor="username">Username</label>
-            <input id="username" name="username" type="text" autoComplete="username" required className="field" />
+            <input id="username" name="username" type="text" autoComplete="username" minLength={3} maxLength={80} required className="field" value={username} onChange={(event) => setUsername(event.target.value)} />
           </div>
           <div className="field-group">
             <label htmlFor="password">Password</label>
-            <input id="password" name="password" type="password" autoComplete="new-password" required className="field" />
+            <input id="password" name="password" type="password" autoComplete="new-password" minLength={12} maxLength={72} required className="field" value={password} onChange={(event) => setPassword(event.target.value)} />
           </div>
-          {accountType === 'tenant' && <div className="field-group"><label htmlFor="tenant_name">Tenant name</label><input id="tenant_name" name="tenant_name" type="text" placeholder="My tenant" className="field" /></div>}
-          <button type="submit" className="primary-btn large-btn w-full">{accountType === 'tenant' ? 'Create tenant' : 'Create standard user'}</button>
+          {accountType === 'tenant'
+            ? <div className="field-group"><label htmlFor="tenant_name">Tenant name</label><input id="tenant_name" name="tenant_name" type="text" minLength={1} maxLength={160} placeholder="My tenant" className="field" required value={tenantName} onChange={(event) => setTenantName(event.target.value)} /></div>
+            : <div className="field-group"><label htmlFor="invite_code">One-time tenant invite code</label><input id="invite_code" name="invite_code" type="text" autoComplete="off" spellCheck={false} required className="field font-mono" value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} /><p className="mt-1 text-xs text-slate-500">Ask your tenant administrator for a code. It can be used once and expires after seven days.</p></div>}
+          {registerMutation.error && <ErrorCard message={registerMutation.error.message} />}
+          <button type="submit" className="primary-btn large-btn w-full" disabled={registerMutation.isPending}>{registerMutation.isPending ? 'Creating account…' : accountType === 'tenant' ? 'Create tenant and admin account' : 'Create standard user account'}</button>
         </form>
         <p className="auth-signin">Already have an account? <a href={frontendUrl('/login')}>Sign in</a></p>
       </section>
@@ -654,19 +763,21 @@ function DashboardPage() {
         <div className="panel-header"><h3>Endpoint activity</h3><NavLink to="/endpoints" className="secondary-btn">View endpoints</NavLink></div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Laptop</th><th>Battery</th><th>Power</th><th>Switch</th><th>State</th><th>Last seen</th></tr></thead>
+            <thead><tr><th>Laptop</th><th>Tenant</th><th>Battery</th><th>Power</th><th>Switch</th><th>Switch tenant</th><th>State</th><th>Last seen</th></tr></thead>
             <tbody>
               {endpoints.map((endpoint) => (
                 <tr key={endpoint.id}>
                   <td className="strong-cell">{endpoint.hostname}</td>
+                  <td>{endpoint.tenant_name ?? 'Unassigned'}</td>
                   <td>{endpoint.battery}%</td>
                   <td><span className={`badge ${endpoint.charging || endpoint.ac_connected ? 'success' : 'muted'}`}>{endpoint.charging ? 'Charging' : endpoint.ac_connected ? 'On AC' : 'On battery'}</span></td>
                   <td>{endpoint.mapped_device}</td>
+                  <td>{endpoint.mapped_device_tenant ?? '—'}</td>
                   <td>{endpoint.switch_state === null ? '—' : endpoint.switch_state ? 'On' : 'Off'}</td>
                   <td>{formatTimestamp(endpoint.last_seen_at)}</td>
                 </tr>
               ))}
-              {!endpoints.length && <tr><td colSpan={6} className="empty-state">No endpoint telemetry has been received yet.</td></tr>}
+              {!endpoints.length && <tr><td colSpan={8} className="empty-state">No endpoint telemetry has been received yet.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -692,15 +803,24 @@ function DevicesPage() {
   const [rememberUserCode, setRememberUserCode] = useState(false)
   const pollTimer = useRef<number | null>(null)
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error } = useQuery<DevicesPageData>({
     queryKey: ['devices'],
     queryFn: async () => {
+      const refresh = await apiFetch<DeviceStatusRefresh>('/api/v1/devices/status/refresh', {
+        method: 'POST',
+      })
+      await waitForConnectorCommands(refresh.commands, 30_000)
       const devices = await apiFetch<Device[]>('/api/v1/devices')
-      return Promise.all(devices.map(async (device) => ({
-        ...device,
-        channels: await apiFetch<DeviceChannel[]>(`/api/v1/devices/${device.id}/channels`),
-      })))
+      return {
+        devices: await Promise.all(devices.map(async (device) => ({
+          ...device,
+          channels: await apiFetch<DeviceChannel[]>(`/api/v1/devices/${device.id}/channels`),
+        }))),
+        skippedDevices: refresh.skipped_devices,
+      }
     },
+    refetchInterval: 5 * 60 * 1000,
+    refetchIntervalInBackground: false,
   })
   const { data: connectors = [] } = useQuery({
     queryKey: ['connectors'],
@@ -763,31 +883,35 @@ function DevicesPage() {
     onSuccess: (result) => setDiscovered(result.devices),
   })
   const switchMutation = useMutation({
-    mutationFn: async ({ path, deviceId, desiredState }: { path: string; deviceId: string; desiredState: boolean }) => {
-      const result = await submitLegacyAction(path)
-      return { result, deviceId, desiredState }
+    mutationFn: async ({ deviceId, channelId, desiredState }: { deviceId: string; channelId: string; desiredState: boolean }) => {
+      const result = await apiFetch<{ status: string; command_id?: string; message?: string }>(`/api/v1/devices/${deviceId}/state`, {
+        method: 'POST',
+        body: JSON.stringify({ channel_id: channelId, desired_state: desiredState }),
+      })
+      if (result.command_id) await waitForConnectorCommands([{ id: result.command_id }])
+      return result.message ?? `Switch turned ${desiredState ? 'on' : 'off'}.`
     },
-    onSuccess: ({ result }) => {
-      setStatusMessage(result)
+    onSuccess: (message) => {
+      setStatusMessage(message)
       queryClient.invalidateQueries({ queryKey: ['devices'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     },
   })
   const connectorMutation = useMutation({
-    mutationFn: ({ deviceId, connectorId }: { deviceId: string; connectorId: string }) => {
-      const body = new FormData()
-      body.set('connector_id', connectorId)
-      return submitLegacyAction(`/devices/${deviceId}/connector`, body)
-    },
-    onSuccess: (message) => {
+    mutationFn: ({ deviceId, connectorId }: { deviceId: string; connectorId: string }) =>
+      apiFetch<{ message: string }>(`/api/v1/devices/${deviceId}/connector`, {
+        method: 'PUT',
+        body: JSON.stringify({ connector_id: connectorId || null }),
+      }),
+    onSuccess: ({ message }) => {
       setStatusMessage(message)
       queryClient.invalidateQueries({ queryKey: ['devices'] })
     },
   })
   const deleteMutation = useMutation({
-    mutationFn: (deviceId: string) => submitLegacyAction(`/devices/${deviceId}/delete`),
-    onSuccess: (message) => {
-      setStatusMessage(message === 'Saved.' ? 'Switch deleted.' : message)
+    mutationFn: (deviceId: string) => apiFetch<void>(`/api/v1/devices/${deviceId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      setStatusMessage('Switch deleted.')
       queryClient.invalidateQueries({ queryKey: ['devices'] })
       queryClient.invalidateQueries({ queryKey: ['mappings'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
@@ -859,9 +983,9 @@ function DevicesPage() {
   })
 
   if (isLoading) return <LoadingCard />
-  if (error) return <ErrorCard message={error.message} />
+  if (error && !data) return <ErrorCard message={error.message} />
 
-  const channelCount = data?.reduce((total, device) => total + (device.channels?.length ?? 0), 0) ?? 0
+  const channelCount = data?.devices.reduce((total, device) => total + (device.channels?.length ?? 0), 0) ?? 0
   const canManageConnectors = user?.role === 'super_admin' || user?.role === 'tenant_admin' || user?.role === 'manager'
 
   return (
@@ -870,8 +994,8 @@ function DevicesPage() {
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div><p className="text-[11px] font-bold uppercase tracking-[0.26em] text-blue-200">Device control</p><h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Smart switches</h1></div>
           <div className="grid grid-cols-3 gap-3 text-left">
-            <MetricMini label="Total" value={String(data?.length ?? 0)} />
-            <MetricMini label="On" value={String(data?.filter((device) => device.current_state).length ?? 0)} />
+            <MetricMini label="Total" value={String(data?.devices.length ?? 0)} />
+            <MetricMini label="On" value={String(data?.devices.filter((device) => device.current_state).length ?? 0)} />
             <MetricMini label="Channels" value={String(channelCount)} />
           </div>
         </div>
@@ -907,9 +1031,9 @@ function DevicesPage() {
                   form.setValue('protocol_version', device.protocol_version || '3.5')
                   form.setValue('encrypted_local_key', '')
                   setManualOpen(true)
-                }}>{device.already_added ? 'Added' : 'Use device'}</button></div>
-                {device.already_added && <p className="mt-2 text-xs text-slate-500">This device is already configured.</p>}
-              </article>)}
+                    }}>{device.already_added ? 'Added' : 'Use device'}</button></div>
+                    {device.already_added && <p className="mt-2 text-xs text-slate-500">This device is already configured.</p>}
+                  </article>)}
             </div>}
           </section>
         )}
@@ -937,16 +1061,18 @@ function DevicesPage() {
 
       <section className="rounded-[28px] border border-slate-200 bg-white/80 p-5 sm:p-6">
         <div className="mb-5 flex items-center justify-between"><div><p className="text-[11px] font-bold uppercase tracking-[0.24em] text-slate-500">Overview</p><h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Configured switches</h2></div><span className="badge border-slate-200 bg-slate-50 text-slate-600">Live</span></div>
+        {error && <div className="mb-4"><ErrorCard message={`Could not refresh switch status: ${error.message}`} /></div>}
+        {!!data?.skippedDevices.length && <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status">{data.skippedDevices.length} switch(es) could not be checked. Assign an active, online site connector to refresh their live status.</p>}
         <div className="grid gap-4 lg:grid-cols-2">
-          {data?.map((device) => <article key={device.id} className="switch-device-card rounded-[24px] border border-slate-200 p-4" data-state={device.current_state ? 'on' : 'off'}>
+          {data?.devices.map((device) => <article key={device.id} className="switch-device-card rounded-[24px] border border-slate-200 p-4" data-state={device.current_state ? 'on' : 'off'}>
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0"><div className="flex items-center gap-3"><span className={`switch-state-light ${device.current_state ? 'is-on' : ''}`} aria-hidden="true" /><h3 className="truncate text-[22px] font-bold tracking-tight text-slate-900">{device.name}</h3><span className="switch-state-label">{device.current_state ? 'ON' : 'OFF'}</span></div>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-500"><span className="rounded-full bg-slate-100 px-2 py-1">{device.device_type || 'default'}</span><span className="rounded-full bg-slate-100 px-2 py-1">{device.ip_address || 'n/a'}</span><span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">{device.channels?.length ?? 0} channel{device.channels?.length === 1 ? '' : 's'}</span></div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-500"><span className="rounded-full bg-blue-50 px-2 py-1 font-medium text-blue-700">Tenant · {device.tenant_name ?? 'Unassigned'}</span><span className="rounded-full bg-slate-100 px-2 py-1">{device.device_type || 'default'}</span><span className="rounded-full bg-slate-100 px-2 py-1">{device.ip_address || 'n/a'}</span><span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">{device.channels?.length ?? 0} channel{device.channels?.length === 1 ? '' : 's'}</span><span className={`rounded-full px-2 py-1 ${connectors.find((connector) => connector.id === device.connector_id)?.is_online ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>{device.connector_id ? `${connectors.find((connector) => connector.id === device.connector_id)?.name ?? 'Site connector'} · ${connectors.find((connector) => connector.id === device.connector_id)?.is_online ? 'online' : 'offline'}` : 'No site connector'}</span><span className="text-xs">Checked {formatTimestamp(device.last_seen_at ?? null)}</span></div>
               </div>
             </div>
             {!!device.channels?.length && <div className="channel-panel mt-4 space-y-2">{device.channels.map((channel) => <div key={channel.id} className="switch-channel-row flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-3 py-2.5">
               <div className="flex items-center gap-3"><span className="channel-number rounded-full bg-slate-900 px-2 py-1 text-[9px] font-bold text-white">{channel.channel_index}</span><span className="text-sm font-medium text-slate-700">{channel.name}</span><span className="channel-state-label">{channel.current_state ? 'On' : 'Off'}</span></div>
-              <button type="button" className="btn-secondary px-3 py-2 text-xs" disabled={switchMutation.isPending} aria-label={`Turn ${channel.current_state ? 'off' : 'on'} ${channel.name}`} onClick={() => switchMutation.mutate({ path: `/devices/${device.id}/channels/${channel.id}/turn-${channel.current_state ? 'off' : 'on'}`, deviceId: device.id, desiredState: !channel.current_state })}>{channel.current_state ? 'Turn off' : 'Turn on'}</button>
+              <button type="button" className="btn-secondary px-3 py-2 text-xs" disabled={switchMutation.isPending} aria-label={`Turn ${channel.current_state ? 'off' : 'on'} ${channel.name}`} onClick={() => switchMutation.mutate({ deviceId: device.id, channelId: channel.id, desiredState: !channel.current_state })}>{channel.current_state ? 'Turn off' : 'Turn on'}</button>
             </div>)}</div>}
             {canManageConnectors && <form className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4" onSubmit={(event) => { event.preventDefault(); const body = new FormData(event.currentTarget); connectorMutation.mutate({ deviceId: device.id, connectorId: String(body.get('connector_id') ?? '') }) }}>
               <label className="text-xs font-semibold text-slate-600" htmlFor={`connector-${device.id}`}>Control on site</label>
@@ -955,7 +1081,7 @@ function DevicesPage() {
             </form>}
             <div className="mt-4 flex justify-end"><button type="button" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100" disabled={deleteMutation.isPending} onClick={() => { if (window.confirm('Delete this switch and all associated channels? This action cannot be undone.')) deleteMutation.mutate(device.id) }}>Delete switch</button></div>
           </article>)}
-          {!data?.length && <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center text-sm text-slate-500 lg:col-span-2">No switches configured yet. Scan your network or add a switch above to get started.</div>}
+          {!data?.devices.length && <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center text-sm text-slate-500 lg:col-span-2">No switches configured yet. Scan your network or add a switch above to get started.</div>}
         </div>
       </section>
 
@@ -1006,7 +1132,16 @@ function MappingsPage() {
     },
   })
   const selectedDeviceId = useWatch({ control: form.control, name: 'device_id' })
+  const selectedEndpointId = useWatch({ control: form.control, name: 'endpoint_id' })
   const availableChannels = devices?.find((device) => device.id === selectedDeviceId)?.channels ?? []
+  const selectedEndpoint = endpoints?.find((endpoint) => endpoint.id === selectedEndpointId)
+  const selectedDevice = devices?.find((device) => device.id === selectedDeviceId)
+  const hasMatchingDevice = Boolean(
+    selectedEndpoint && devices?.some((device) => selectedEndpoint.tenant_id === device.tenant_id),
+  )
+  const tenantsMatch = Boolean(
+    selectedEndpoint && selectedDevice && selectedEndpoint.tenant_id === selectedDevice.tenant_id,
+  )
 
   const mutation = useMutation({
     mutationFn: (values: Record<string, unknown>) =>
@@ -1044,16 +1179,23 @@ function MappingsPage() {
             <label className="label" htmlFor="mapping-endpoint">Endpoint</label>
             <select id="mapping-endpoint" required className="field" {...form.register('endpoint_id', { required: true })}>
               <option value="">Select endpoint</option>
-              {endpoints?.map((ep) => <option key={ep.id} value={ep.id}>{ep.hostname}{ep.ip_address ? ` • ${ep.ip_address}` : ''}</option>)}
+              {endpoints?.map((ep) => <option key={ep.id} value={ep.id}>{ep.hostname} · Tenant: {ep.tenant_name ?? 'Unassigned'}{ep.ip_address ? ` • ${ep.ip_address}` : ''}</option>)}
             </select>
+            {selectedEndpoint && <p className="mt-1 text-xs text-slate-500">Endpoint tenant: {selectedEndpoint.tenant_name ?? 'Unassigned'}</p>}
           </div>
           <div>
             <label className="label" htmlFor="mapping-device">Smart switch</label>
             <select id="mapping-device" required className="field" {...form.register('device_id', { required: true, onChange: () => form.setValue('channel_id', '') })}>
               <option value="">Select switch</option>
-              {devices?.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
+              {devices?.map((device) => <option key={device.id} value={device.id} disabled={Boolean(selectedEndpoint && selectedEndpoint.tenant_id !== device.tenant_id)}>{device.name} · Tenant: {device.tenant_name ?? 'Unassigned'}</option>)}
             </select>
           </div>
+          {selectedEndpoint && !hasMatchingDevice && <p className="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">
+            No switch belongs to this endpoint's tenant. Assign the endpoint to the switch tenant from the Endpoints page before creating the mapping.
+          </p>}
+          {selectedEndpoint && selectedDevice && !tenantsMatch && hasMatchingDevice && <p className="md:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">
+            The endpoint and selected switch belong to different tenants. Choose a switch from the endpoint tenant.
+          </p>}
           <div>
             <label className="label" htmlFor="mapping-channel">Channel</label>
             <select id="mapping-channel" className="field" {...form.register('channel_id')}>
@@ -1081,7 +1223,7 @@ function MappingsPage() {
           {mutation.isError && <p className="md:col-span-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{mutation.error.message}</p>}
 
           <div className="md:col-span-2">
-            <button type="submit" className="btn-primary" disabled={mutation.isPending}>
+            <button type="submit" className="btn-primary" disabled={mutation.isPending || !tenantsMatch}>
               {mutation.isPending ? 'Saving…' : 'Add mapping'}
             </button>
           </div>
@@ -1103,7 +1245,7 @@ function MappingsPage() {
                   <span className="mapping-route-arrow" aria-hidden="true">→</span>
                   <div className="mapping-entity"><span className="mapping-entity-icon switch-icon" aria-hidden="true">⌁</span><div className="min-w-0"><span className="mapping-overline">Smart switch</span><h3 className="mapping-entity-name">{device?.name ?? 'Unknown switch'}</h3></div></div>
                 </div>
-                <div className="mapping-details"><span className="mapping-detail-pill">{channel?.name ?? 'Default device state'}</span><span className="mapping-detail-pill">Turn on at <strong>{mapping.on_threshold}% or below</strong></span><span className="mapping-detail-pill">Turn off at <strong>{mapping.off_threshold}% or above</strong></span><span className="mapping-detail-pill">Minimum interval <strong>{mapping.minimum_state_change_interval} sec</strong></span></div>
+                <div className="mapping-details"><span className="mapping-detail-pill">Tenant <strong>{mapping.tenant_name ?? 'Unassigned'}</strong></span><span className="mapping-detail-pill">{channel?.name ?? 'Default device state'}</span><span className="mapping-detail-pill">Turn on at <strong>{mapping.on_threshold}% or below</strong></span><span className="mapping-detail-pill">Turn off at <strong>{mapping.off_threshold}% or above</strong></span><span className="mapping-detail-pill">Minimum interval <strong>{mapping.minimum_state_change_interval} sec</strong></span></div>
                 <p className="mapping-id">Mapping ID <span>{mapping.id}</span></p>
               </div>
               <button type="button" className="inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100" disabled={deleteMutation.isPending} onClick={() => {
@@ -1120,13 +1262,35 @@ function MappingsPage() {
 
 function EndpointsPage() {
   const queryClient = useQueryClient()
+  const { data: user } = useSession()
+  const [assignedTenantId, setAssignedTenantId] = useState('')
+  const tenantsQuery = useQuery({
+    queryKey: ['admin-tenants'],
+    queryFn: () => apiFetch<TenantInfo[]>('/api/v1/admin/tenants'),
+    enabled: user?.role === 'super_admin',
+  })
+  const [statusMessage, setStatusMessage] = useState('')
   const { data, isLoading, error } = useQuery({
     queryKey: ['endpoints'],
     queryFn: async () => apiFetch<Endpoint[]>('/api/v1/endpoints'),
   })
+  const assignTenantMutation = useMutation({
+    mutationFn: ({ endpointId, tenantId }: { endpointId: string; tenantId: string }) =>
+      apiFetch<{ tenant_id: string; tenant_name: string }>(`/api/v1/endpoints/${endpointId}/tenant`, {
+        method: 'PATCH',
+        body: JSON.stringify({ tenant_id: tenantId }),
+      }),
+    onSuccess: ({ tenant_id, tenant_name }) => {
+      setAssignedTenantId(tenant_id)
+      setStatusMessage(`Endpoint assigned to ${tenant_name}. Reconfigure its agent using that tenant's token.`)
+      queryClient.invalidateQueries({ queryKey: ['endpoints'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['mappings'] })
+    },
+  })
 
   const deleteMutation = useMutation({
-    mutationFn: (endpointId: string) => submitLegacyAction(`/endpoints/${endpointId}/delete`),
+    mutationFn: (endpointId: string) => apiFetch<void>(`/api/v1/endpoints/${endpointId}`, { method: 'DELETE' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['endpoints'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
@@ -1140,15 +1304,25 @@ function EndpointsPage() {
   return (
     <div className="space-y-6">
       <div className="page-header"><div><p className="eyebrow">Fleet</p><h1>Laptops</h1></div></div>
+      {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage} <NavLink to={assignedTenantId ? `/agent?tenant_id=${assignedTenantId}` : '/agent'} className="font-semibold underline">Open tenant agent setup</NavLink></p>}
+      {assignTenantMutation.error && <ErrorCard message={assignTenantMutation.error.message} />}
       {deleteMutation.isError && <ErrorCard message={deleteMutation.error.message} />}
       <section className="panel table-panel">
         <div className="panel-header"><h3>Tracked laptops</h3></div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Hostname</th><th>Hardware UUID</th><th>IP</th><th>Battery</th><th>Power</th><th>Last seen</th><th>Status</th><th className="align-right">Action</th></tr></thead>
+            <thead><tr><th>Hostname</th><th>Tenant</th><th>Hardware UUID</th><th>IP</th><th>Battery</th><th>Power</th><th>Last seen</th><th>Status</th><th className="align-right">Action</th></tr></thead>
             <tbody>
               {data?.map((endpoint) => <tr key={endpoint.id}>
                 <td className="strong-cell">{endpoint.hostname}</td>
+                <td>{endpoint.tenant_id ? endpoint.tenant_name ?? 'Unknown tenant' : user?.role === 'super_admin' ? <div className="flex min-w-56 flex-col gap-2"><span className="badge muted w-fit">Unassigned</span><form className="flex items-center gap-2" onSubmit={(event) => {
+                  event.preventDefault()
+                  const tenantId = String(new FormData(event.currentTarget).get('tenant_id') ?? '')
+                  if (tenantId) assignTenantMutation.mutate({ endpointId: endpoint.id, tenantId })
+                }}>
+                  <select name="tenant_id" aria-label={`Tenant for ${endpoint.hostname}`} required className="field min-w-32 py-2"><option value="">Unassigned</option>{(tenantsQuery.data ?? []).map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select>
+                  <button type="submit" className="btn-secondary px-3 py-2" disabled={assignTenantMutation.isPending}>Assign</button>
+                </form></div> : 'Unassigned'}</td>
                 <td className="font-mono text-xs" title={endpoint.hardware_uuid || undefined}>{endpoint.hardware_uuid || 'Pending agent update'}</td>
                 <td>{endpoint.ip_address || 'unknown'}</td>
                 <td>{endpoint.battery}%</td>
@@ -1159,7 +1333,7 @@ function EndpointsPage() {
                   if (window.confirm(`Delete laptop ${endpoint.hostname}? Its mappings and event history will also be removed.`)) deleteMutation.mutate(endpoint.id)
                 }}>Delete laptop</button></td>
               </tr>)}
-              {!data?.length && <tr><td colSpan={8} className="empty-state">No laptops have reported telemetry yet.</td></tr>}
+              {!data?.length && <tr><td colSpan={9} className="empty-state">No laptops have reported telemetry yet.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1330,12 +1504,11 @@ function ProfilePage() {
   const [timezone, setTimezone] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
   const mutation = useMutation({
-    mutationFn: async () => {
-      const body = new FormData()
-      body.set('timezone', timezone || user?.timezone || 'UTC')
-      return submitLegacyAction('/profile/timezone', body)
-    },
-    onSuccess: (message) => {
+    mutationFn: () => apiFetch<{ message: string }>('/api/v1/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ timezone: timezone || user?.timezone || 'UTC' }),
+    }),
+    onSuccess: ({ message }) => {
       setStatusMessage(message)
       queryClient.invalidateQueries({ queryKey: ['session'] })
     },
@@ -1366,33 +1539,82 @@ function UsersPage() {
   const { data: currentUser, isLoading: sessionLoading } = useSession()
   const usersQuery = useQuery({ queryKey: ['admin-users'], queryFn: () => apiFetch<AdminUser[]>('/api/v1/admin/users') })
   const tenantsQuery = useQuery({ queryKey: ['admin-tenants'], queryFn: () => apiFetch<TenantInfo[]>('/api/v1/admin/tenants'), enabled: currentUser?.role === 'super_admin' })
+  const invitesQuery = useQuery({ queryKey: ['admin-invites'], queryFn: () => apiFetch<TenantInviteInfo[]>('/api/v1/admin/invites') })
   const [statusMessage, setStatusMessage] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
+  const [inviteTenantId, setInviteTenantId] = useState('')
   const actionMutation = useMutation({
-    mutationFn: ({ path, body }: { path: string; body: FormData }) => submitLegacyAction(path, body),
-    onSuccess: (message) => {
-      setStatusMessage(message)
+    mutationFn: async ({ method, path, body }: { method: 'POST' | 'PATCH' | 'DELETE'; path: string; body?: Record<string, unknown> }) =>
+      apiFetch<{ message?: string } | undefined>(path, {
+        method,
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      }),
+    onSuccess: (_, variables) => {
+      setStatusMessage(variables.method === 'DELETE' ? 'User deleted.' : variables.method === 'PATCH' ? 'User updated.' : 'User created.')
       queryClient.invalidateQueries({ queryKey: ['admin-users'] })
     },
   })
+  const inviteMutation = useMutation({
+    mutationFn: () => apiFetch<{ id: string; code: string }>('/api/v1/admin/invites', {
+      method: 'POST',
+      body: JSON.stringify(isSuperAdmin ? { tenant_id: inviteTenantId } : {}),
+    }),
+    onSuccess: ({ code }) => {
+      setInviteCode(code)
+      queryClient.invalidateQueries({ queryKey: ['admin-invites'] })
+    },
+  })
+  const revokeInviteMutation = useMutation({
+    mutationFn: (inviteId: string) => apiFetch<void>(`/api/v1/admin/invites/${inviteId}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-invites'] }),
+  })
   const isSuperAdmin = currentUser?.role === 'super_admin'
-  if (sessionLoading || usersQuery.isLoading || tenantsQuery.isLoading) return <LoadingCard />
+  if (sessionLoading || usersQuery.isLoading || tenantsQuery.isLoading || invitesQuery.isLoading) return <LoadingCard />
   if (usersQuery.error) return <ErrorCard message={usersQuery.error.message} />
   if (tenantsQuery.error) return <ErrorCard message={tenantsQuery.error.message} />
+  if (invitesQuery.error) return <ErrorCard message={invitesQuery.error.message} />
   const tenants = tenantsQuery.data ?? []
   const roles = ['tenant_admin', 'manager', 'standard_user', 'viewer']
-  const submit = (event: FormEvent<HTMLFormElement>, path: string) => {
+  const submit = (event: FormEvent<HTMLFormElement>, path: string, method: 'POST' | 'PATCH' = 'POST') => {
     event.preventDefault()
-    actionMutation.mutate({ path, body: new FormData(event.currentTarget) })
+    const body = Object.fromEntries(new FormData(event.currentTarget).entries())
+    actionMutation.mutate({ path: path === '/users' ? '/api/v1/admin/users' : path, method, body })
   }
   return <div className="space-y-6">
     <PageHeader eyebrow="Administration" title="User accounts" description="Add people to your tenant and control which ChargePilot tasks they can access." />
     {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
-    {actionMutation.error && <ErrorCard message={actionMutation.error.message} />}
+    {(actionMutation.error || inviteMutation.error || revokeInviteMutation.error) && <ErrorCard message={actionMutation.error?.message ?? inviteMutation.error?.message ?? revokeInviteMutation.error?.message ?? 'The request failed.'} />}
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-bold text-slate-900">Invite a standard user</h2>
+      <p className="mt-1 max-w-2xl text-sm text-slate-600">Create a one-use code for someone joining this tenant. It expires in seven days and is shown only once.</p>
+      {inviteCode && <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <p className="text-sm font-semibold text-emerald-900">Copy this code and share it with the new user.</p>
+        <output className="mt-2 block select-all break-all font-mono text-sm text-emerald-950">{inviteCode}</output>
+        <button type="button" className="btn-secondary mt-3" onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(inviteCode)
+            setStatusMessage('Invite code copied.')
+          } catch {
+            setStatusMessage('Copy was blocked. Select the code and copy it manually.')
+          }
+        }}>Copy invite code</button>
+      </div>}
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+        {isSuperAdmin && <label className="label min-w-0 flex-1" htmlFor="invite-tenant">Tenant<select id="invite-tenant" className="field" required value={inviteTenantId} onChange={(event) => setInviteTenantId(event.target.value)}><option value="">Select a tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></label>}
+        <button type="button" className="btn-primary" disabled={inviteMutation.isPending || (isSuperAdmin && !inviteTenantId)} onClick={() => { setInviteCode(''); inviteMutation.mutate() }}>{inviteMutation.isPending ? 'Creating code…' : 'Create one-time invite'}</button>
+      </div>
+      {!!invitesQuery.data?.length && <div className="mt-4 divide-y divide-slate-100 border-t border-slate-200">
+        {invitesQuery.data.map((invite) => <div key={invite.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+          <div><span className="font-semibold">{invite.tenant_name ?? currentUser?.tenant_name ?? 'Tenant'}</span><span className="ml-2 text-slate-500">{invite.used_at ? 'Used' : invite.is_active ? `Expires ${formatTimestamp(invite.expires_at)}` : 'Expired'}</span></div>
+          {invite.is_active && <button type="button" className="text-sm font-semibold text-red-700 underline" onClick={() => revokeInviteMutation.mutate(invite.id)}>Revoke</button>}
+        </div>)}
+      </div>}
+    </section>
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="text-lg font-bold text-slate-900">Create a user</h2>
       <form className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" onSubmit={(event) => submit(event, '/users')}>
-        <label className="label" htmlFor="new-user-name">Username<input id="new-user-name" name="username" required className="field" /></label>
-        <label className="label" htmlFor="new-user-password">Password<input id="new-user-password" name="password" required type="password" autoComplete="new-password" className="field" /></label>
+        <label className="label" htmlFor="new-user-name">Username<input id="new-user-name" name="username" minLength={3} maxLength={80} required className="field" /></label>
+        <label className="label" htmlFor="new-user-password">Password<input id="new-user-password" name="password" minLength={12} maxLength={72} required type="password" autoComplete="new-password" className="field" /></label>
         <label className="label" htmlFor="new-user-role">Role<select id="new-user-role" name="role" className="field">{roles.map((role) => <option key={role} value={role}>{role.replaceAll('_', ' ')}</option>)}</select></label>
         {isSuperAdmin && <label className="label" htmlFor="new-user-tenant">Tenant<select id="new-user-tenant" name="tenant_id" required className="field"><option value="">Select a tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></label>}
         <button type="submit" className="btn-primary sm:col-span-2 xl:col-span-4" disabled={actionMutation.isPending}>Create user</button>
@@ -1406,10 +1628,10 @@ function UsersPage() {
           <tbody className="divide-y divide-slate-100">
             {(usersQuery.data ?? []).map((account) => <tr key={account.id}>
               <td className="px-4 py-3 font-semibold text-slate-900">{account.username}</td>
-              <td className="px-4 py-3">{account.role === 'super_admin' ? 'Super Admin' : <form className="flex flex-wrap gap-2" onSubmit={(event) => submit(event, `/users/${account.id}/role`)}><select name="role" aria-label={`Role for ${account.username}`} defaultValue={account.role} className="field min-w-32 py-2">{roles.map((role) => <option key={role} value={role}>{role.replaceAll('_', ' ')}</option>)}</select>{isSuperAdmin && <select name="tenant_id" aria-label={`Tenant for ${account.username}`} defaultValue={account.tenant_id ?? ''} required className="field min-w-36 py-2"><option value="">Select tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select>}<button type="submit" className="btn-secondary px-3 py-2">Save</button></form>}</td>
+              <td className="px-4 py-3">{account.role === 'super_admin' ? 'Super Admin' : <form className="flex flex-wrap gap-2" onSubmit={(event) => submit(event, `/api/v1/admin/users/${account.id}`, 'PATCH')}><select name="role" aria-label={`Role for ${account.username}`} defaultValue={account.role} className="field min-w-32 py-2">{roles.map((role) => <option key={role} value={role}>{role.replaceAll('_', ' ')}</option>)}</select>{isSuperAdmin && <select name="tenant_id" aria-label={`Tenant for ${account.username}`} defaultValue={account.tenant_id ?? ''} required className="field min-w-36 py-2"><option value="">Select tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select>}<button type="submit" className="btn-secondary px-3 py-2">Save</button></form>}</td>
               {isSuperAdmin && <td className="px-4 py-3">{account.tenant_name ?? 'Unassigned'}</td>}
               <td className="px-4 py-3 text-slate-500">{formatTimestamp(account.created_at)}</td>
-              <td className="px-4 py-3">{account.id !== currentUser?.id && account.role !== 'super_admin' ? <button type="button" className="btn-secondary border-red-200 px-3 py-2 text-red-700" onClick={() => { if (window.confirm('Delete this user?')) actionMutation.mutate({ path: `/users/${account.id}/delete`, body: new FormData() }) }}>Delete</button> : <span className="text-xs text-slate-400">Current</span>}</td>
+              <td className="px-4 py-3">{account.id !== currentUser?.id && account.role !== 'super_admin' ? <button type="button" className="btn-secondary border-red-200 px-3 py-2 text-red-700" onClick={() => { if (window.confirm('Delete this user?')) actionMutation.mutate({ path: `/api/v1/admin/users/${account.id}`, method: 'DELETE' }) }}>Delete</button> : <span className="text-xs text-slate-400">Current</span>}</td>
             </tr>)}
             {!usersQuery.data?.length && <tr><td colSpan={isSuperAdmin ? 5 : 4} className="px-4 py-8 text-center text-slate-500">No users found.</td></tr>}
           </tbody>
@@ -1424,17 +1646,22 @@ function TenantsPage() {
   const tenantsQuery = useQuery({ queryKey: ['admin-tenants'], queryFn: () => apiFetch<TenantInfo[]>('/api/v1/admin/tenants') })
   const [statusMessage, setStatusMessage] = useState('')
   const actionMutation = useMutation({
-    mutationFn: ({ path, body }: { path: string; body: FormData }) => submitLegacyAction(path, body),
-    onSuccess: (message) => {
-      setStatusMessage(message)
+    mutationFn: async ({ path, method, body }: { path: string; method: 'POST' | 'DELETE'; body?: Record<string, unknown> }) =>
+      apiFetch<{ message?: string } | undefined>(path, {
+        method,
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      }),
+    onSuccess: (_, variables) => {
+      setStatusMessage(variables.method === 'DELETE' ? 'Tenant deleted.' : variables.path.includes('rotate-agent-token') ? 'Agent token rotated.' : 'Tenant created.')
       queryClient.invalidateQueries({ queryKey: ['admin-tenants'] })
     },
   })
   if (tenantsQuery.isLoading) return <LoadingCard />
   if (tenantsQuery.error) return <ErrorCard message={tenantsQuery.error.message} />
-  const submit = (event: FormEvent<HTMLFormElement>, path: string) => {
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    actionMutation.mutate({ path, body: new FormData(event.currentTarget) })
+    const tenantName = String(new FormData(event.currentTarget).get('tenant_name') ?? '')
+    actionMutation.mutate({ path: '/api/v1/admin/tenants', method: 'POST', body: { name: tenantName } })
   }
   return <div className="space-y-6">
     <PageHeader eyebrow="Super Admin" title="Tenants" description="Create and manage isolated customer environments and their agent credentials." />
@@ -1442,7 +1669,7 @@ function TenantsPage() {
     {actionMutation.error && <ErrorCard message={actionMutation.error.message} />}
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="text-lg font-bold text-slate-900">Create a tenant</h2>
-      <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={(event) => submit(event, '/tenants')}><label className="label min-w-0 flex-1" htmlFor="tenant-name">Tenant name<input id="tenant-name" name="tenant_name" required className="field" /></label><button type="submit" className="btn-primary self-end" disabled={actionMutation.isPending}>Create tenant</button></form>
+      <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={submit}><label className="label min-w-0 flex-1" htmlFor="tenant-name">Tenant name<input id="tenant-name" name="tenant_name" required maxLength={160} className="field" /></label><button type="submit" className="btn-primary self-end" disabled={actionMutation.isPending}>Create tenant</button></form>
     </section>
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-bold text-slate-900">Tenant directory</h2></div>
@@ -1450,7 +1677,7 @@ function TenantsPage() {
         <thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="px-4 py-3">Name</th><th className="px-4 py-3">Slug</th><th className="px-4 py-3">Agent token</th><th className="px-4 py-3">Created</th><th className="px-4 py-3">Actions</th></tr></thead>
         <tbody className="divide-y divide-slate-100">{(tenantsQuery.data ?? []).map((tenant) => <tr key={tenant.id}>
           <td className="px-4 py-3 font-semibold text-slate-900">{tenant.name}</td><td className="px-4 py-3 text-slate-600">{tenant.slug}</td><td className="px-4 py-3"><code className="break-all font-mono text-xs">{tenant.agent_token}</code></td><td className="px-4 py-3 text-slate-500">{formatTimestamp(tenant.created_at)}</td>
-          <td className="space-y-2 px-4 py-3"><button type="button" className="btn-secondary px-3 py-2" onClick={() => actionMutation.mutate({ path: `/tenants/${tenant.id}/rotate-agent-token`, body: new FormData() })}>Rotate token</button><button type="button" className="btn-secondary border-red-200 px-3 py-2 text-red-700" onClick={() => { if (window.confirm('Delete this tenant and all of its tenant data?')) actionMutation.mutate({ path: `/tenants/${tenant.id}/delete`, body: new FormData() }) }}>Delete</button></td>
+          <td className="space-y-2 px-4 py-3"><button type="button" className="btn-secondary px-3 py-2" onClick={() => actionMutation.mutate({ path: `/api/v1/admin/tenants/${tenant.id}/rotate-agent-token`, method: 'POST' })}>Rotate token</button><button type="button" className="btn-secondary border-red-200 px-3 py-2 text-red-700" onClick={() => { if (window.confirm('Delete this tenant and all of its tenant data?')) actionMutation.mutate({ path: `/api/v1/admin/tenants/${tenant.id}`, method: 'DELETE' }) }}>Delete</button></td>
         </tr>)}
         {!tenantsQuery.data?.length && <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">No tenants have been created yet.</td></tr>}</tbody>
       </table></div>
@@ -1460,12 +1687,24 @@ function TenantsPage() {
 
 function AgentSetupPage() {
   const queryClient = useQueryClient()
-  const setupQuery = useQuery({ queryKey: ['agent-setup'], queryFn: () => apiFetch<AgentSetup>('/api/v1/agent/setup') })
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tenantId = searchParams.get('tenant_id') ?? ''
+  const { data: user } = useSession()
+  const tenantsQuery = useQuery({
+    queryKey: ['admin-tenants'],
+    queryFn: () => apiFetch<TenantInfo[]>('/api/v1/admin/tenants'),
+    enabled: user?.role === 'super_admin',
+  })
+  const setupQuery = useQuery({
+    queryKey: ['agent-setup', tenantId],
+    queryFn: () => apiFetch<AgentSetup>(`/api/v1/agent/setup${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''}`),
+  })
   const [statusMessage, setStatusMessage] = useState('')
   const [copyStatus, setCopyStatus] = useState('')
   const mutation = useMutation({
-    mutationFn: async ({ path, body }: { path: string; body: FormData }) => submitLegacyAction(path, body),
-    onSuccess: (message) => {
+    mutationFn: async ({ path, body }: { path: string; body: Record<string, unknown> }) =>
+      apiFetch<{ message: string }>(path, { method: 'PUT', body: JSON.stringify(body) }),
+    onSuccess: ({ message }) => {
       setStatusMessage(message)
       return queryClient.invalidateQueries({ queryKey: ['agent-setup'] })
     },
@@ -1478,8 +1717,22 @@ function AgentSetupPage() {
     {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
     {mutation.error && <ErrorCard message={mutation.error.message} />}
     {data?.is_super_admin && <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold text-slate-900">Global agent token</h2><p className="mt-1 text-sm text-slate-600">Regenerating this token stops agents configured with the previous value.</p></div><button type="button" className="btn-secondary" onClick={() => { if (window.confirm('Regenerate the global agent token? Existing agents using it will stop authenticating.')) { const body = new FormData(); body.set('action', 'regenerate'); mutation.mutate({ path: '/agent/global-token', body }) } }}>Regenerate token</button></div>
-      <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={(event) => { event.preventDefault(); const body = new FormData(); body.set('action', 'save'); body.set('token', String(new FormData(event.currentTarget).get('token') ?? '')); mutation.mutate({ path: '/agent/global-token', body }) }}><input name="token" defaultValue={data?.token} required minLength={16} maxLength={512} autoComplete="off" spellCheck={false} className="field min-w-0 flex-1 font-mono" aria-label="Global agent token" /><button type="submit" className="btn-primary">Save token</button></form>
+      <h2 className="font-bold text-slate-900">Choose endpoint tenant</h2>
+      <p className="mt-1 text-sm text-slate-600">Use the tenant-specific agent token for laptops assigned to a tenant. The global token only registers unassigned endpoints.</p>
+      {tenantsQuery.error && <div className="mt-3"><ErrorCard message={tenantsQuery.error.message} /></div>}
+      <label className="label mt-4" htmlFor="agent-tenant">Agent token scope
+        <select id="agent-tenant" className="field" value={tenantId} onChange={(event) => {
+          const value = event.target.value
+          setSearchParams(value ? { tenant_id: value } : {})
+        }}>
+          <option value="">System-wide unassigned endpoints</option>
+          {(tenantsQuery.data ?? []).map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
+        </select>
+      </label>
+    </section>}
+    {data?.is_super_admin && <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold text-slate-900">Global agent token</h2><p className="mt-1 text-sm text-slate-600">This token registers unassigned endpoints. Use tenant-specific tokens for assigned laptops. Regenerating stops agents using the previous value.</p></div><button type="button" className="btn-secondary" onClick={() => { if (window.confirm('Regenerate the global agent token? Existing agents using it will stop authenticating.')) mutation.mutate({ path: '/api/v1/admin/global-agent-token', body: { action: 'regenerate' } }) }}>Regenerate token</button></div>
+      <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={(event) => { event.preventDefault(); mutation.mutate({ path: '/api/v1/admin/global-agent-token', body: { action: 'save', token: String(new FormData(event.currentTarget).get('token') ?? '') } }) }}><input name="token" defaultValue={data?.global_token ?? ''} required minLength={16} maxLength={512} autoComplete="off" spellCheck={false} className="field min-w-0 flex-1 font-mono" aria-label="Global agent token" /><button type="submit" className="btn-primary">Save token</button></form>
     </section>}
     <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
       <div className="grid lg:grid-cols-[0.9fr_1.1fr]">
@@ -1491,7 +1744,7 @@ function AgentSetupPage() {
           } catch {
             setCopyStatus('Copy was blocked. Select the command and copy it manually.')
           }
-        }}>Copy command</button><p className="mt-2 min-h-4 text-xs text-slate-500" role="status">{copyStatus}</p><div className="mt-6 border-t border-slate-200 pt-5"><p className="text-xs font-bold text-slate-500">{data?.token_scope}</p><p className="mt-1 text-xs text-slate-500">Keep this private. Regenerating it stops agents using the previous token.</p><code className="mt-3 block break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm text-slate-800">{data?.token}</code>{data?.can_rotate_tenant_token && <button type="button" className="btn-secondary mt-3" onClick={() => { if (window.confirm('Regenerate this tenant token? Agents using the old token will stop authenticating.')) mutation.mutate({ path: '/tenant/rotate-agent-token', body: new FormData() }) }}>Regenerate tenant token</button>}</div></div>
+        }}>Copy command</button><p className="mt-2 min-h-4 text-xs text-slate-500" role="status">{copyStatus}</p><div className="mt-6 border-t border-slate-200 pt-5"><p className="text-xs font-bold text-slate-500">{data?.token_scope}</p><p className="mt-1 text-xs text-slate-500">Keep this private. Regenerating it stops agents using the previous token.</p><code className="mt-3 block break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm text-slate-800">{data?.token}</code>{data?.can_rotate_tenant_token && <button type="button" className="btn-secondary mt-3" onClick={() => { if (window.confirm('Regenerate this tenant token? Agents using the old token will stop authenticating.')) mutation.mutate({ path: '/api/v1/admin/tenant-agent-token', body: {} }) }}>Regenerate tenant token</button>}</div></div>
       </div>
     </section>
     <p className="text-sm text-slate-500">After the first report, the laptop appears on the <NavLink to="/endpoints" className="font-semibold text-blue-700 underline">Endpoints</NavLink> page.</p>
@@ -1579,10 +1832,13 @@ function MetricCard({
 
 function PageHeader({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
   return (
-    <div className="panel p-5 sm:p-6">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">{eyebrow}</p>
-      <h2 className="mt-2 text-2xl font-bold text-slate-900">{title}</h2>
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{description}</p>
+    <div className="page-heading">
+      <div className="page-heading-marker" aria-hidden="true" />
+      <div>
+        <p className="page-context">{eyebrow}</p>
+        <h2>{title}</h2>
+        <p className="page-description">{description}</p>
+      </div>
     </div>
   )
 }

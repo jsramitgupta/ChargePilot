@@ -51,18 +51,21 @@ def queue_device_command(
     if connector is None:
         raise ValueError("The assigned site connector is not enrolled or active.")
 
-    if operation == "set_state":
+    if operation in {"set_state", "get_status"}:
         outstanding = (
             db.query(DeviceCommand)
             .filter(
                 DeviceCommand.device_id == device.id,
                 DeviceCommand.channel_id == channel_id,
+                DeviceCommand.operation == operation,
                 DeviceCommand.status.in_(("queued", "leased")),
                 DeviceCommand.expires_at > datetime.now(UTC),
             )
             .first()
         )
         if outstanding is not None:
+            if operation == "get_status":
+                return outstanding
             if outstanding.desired_state == desired_state:
                 return outstanding
             raise ValueError("A different switch command is already pending for this channel.")
@@ -282,7 +285,12 @@ def finalize_command(
         state = result["state"]
         if channel is not None:
             channel.current_state = state
-        device.current_state = state
+            device.current_state = any(
+                item.current_state
+                for item in db.query(DeviceChannel).filter(DeviceChannel.device_id == device.id).all()
+            )
+        else:
+            device.current_state = state
         device.last_seen_at = now
         device.updated_at = now
 

@@ -31,3 +31,4 @@ class MappingUpdate(BaseModel):
 
 class MappingRead(MappingBase):
     id: UUID
+    tenant_name: str | None = None

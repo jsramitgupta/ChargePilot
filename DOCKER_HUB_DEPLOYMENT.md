@@ -40,7 +40,7 @@ files change on `main`.
 The k3s manifests are in `deploy/k3s/`; the ArgoCD Application is
 `deploy/argocd/chargepilot.yaml`. The deployment uses
 `app.endusercompute.in` for the frontend and `api.endusercompute.in` for the
-API, Windows agent, and server-rendered pages. Before applying the ArgoCD
+JSON API, Windows agent, and downloads. Before applying the ArgoCD
 Application:
 
 1. Merge the CI/CD and deployment changes to `main`, then wait for CI, image

@@ -14,7 +14,6 @@ ChargePilot is a cloud-capable, local-first battery automation platform for Wind
 - TinyTuya
 - HTTPS-polling site connector with PostgreSQL-backed durable commands
 - tuya-device-sharing-sdk
-- Jinja2 templates remain in use for workflows that have not moved to React
 - qrcode
 - pytest
 
@@ -23,38 +22,42 @@ The frontend is a Vite-built React application in `frontend/`. It currently
 provides sign-in/registration, dashboard, switches, mappings, endpoints,
 events, connector administration, profile, user/tenant administration, agent
 setup, and super-admin account pages. Authenticated in-app navigation stays
-within React Router, with the dev server serving the SPA for direct page loads;
-API-host downloads remain resource links rather than page navigation. React
-admin pages use authenticated, tenant-scoped API data and preserve the existing
-server-side authorization and business rules. The frontend shares the original
-`app/static/style.css` design tokens and theme behavior; the authenticated top
-navigation is left aligned. FastAPI continues to serve Jinja pages for the
-remaining operational/admin workflows. Keep the React and Jinja experiences
-consistent and avoid replacing real API behavior with fabricated frontend
-state.
+within React Router, with the dev server serving the SPA for direct page loads.
+FastAPI serves JSON APIs and authenticated ZIP downloads; the built React app
+is the only browser UI. Legacy page GETs redirect to the matching React route.
+React admin pages use authenticated, tenant-scoped API data and preserve
+server-side authorization and business rules. The UI has responsive
+left-rail navigation and light/dark theme parity.
 
 ## Current primary workflows
 1. PowerShell agent posts its hardware UUID, current hostname, and battery
-   telemetry to `/api/v1/telemetry`.
+   telemetry to `/api/v1/telemetry` using the token for the endpoint's tenant.
 2. API validates endpoint token, hardware UUID, and timestamp, then upserts the
    endpoint by hardware UUID and atomically stores its snapshot plus a
    transactional outbox event in PostgreSQL. Existing UUID-less endpoints are
    retained and linked to a UUID on matching tenant-scoped telemetry.
+   The global Super Admin token registers unassigned endpoints only. A Super
+   Admin can assign an unassigned endpoint to a tenant; that laptop must then
+   use the tenant-specific agent token.
 3. The outbox relay publishes events to Kafka in endpoint-key order.
 4. Automation consumers evaluate active mappings using battery hysteresis and
    cooldown rules; connector commands remain durable in PostgreSQL.
 5. The assigned site connector controls the switch locally and acknowledges;
    resulting events/state are exposed in the UI.
+   Endpoint and switch ownership must match before a mapping can be created.
+   The dashboard, endpoint list, switch list, and mapping workflow show tenant
+   ownership; the Super Admin can assign unassigned endpoints from Endpoints.
 6. Users can discover LAN devices through a connector and pair them through SmartLife/Tuya QR login.
 7. SmartLife linked devices can be matched to connector discovery results to fill IP and local key fields.
 8. The React frontend consumes the API and keeps session cookies; browser-facing
    API/frontend origins are provided by runtime `CHARGEPILOT_API_URL` and
-   `CHARGEPILOT_FRONTEND_URL` configuration. Login and registration screens are
-   served by the frontend; API-host `/login` and `/register` GET requests redirect
-   to the frontend. Authenticated navigation and connector, profile, account,
-   user, tenant, and agent setup workflows are React routes. Super admins can
-   change their own password from the React account page using the authenticated
-   auth API.
+   `CHARGEPILOT_FRONTEND_URL` configuration. JSON login and registration APIs
+   establish the browser session. Standard-user signup requires a
+   tenant-admin/manager-issued one-time invite code that expires after seven
+   days; tenant signup creates the tenant and its first admin. Authenticated
+   navigation and connector, profile, account, user, tenant, and agent setup
+   workflows are React routes. Super admins can change their own password from
+   the React account page using the authenticated auth API.
 
 ## Current important service modules
 - app/services/rule_engine.py — threshold logic and hysteresis
@@ -118,9 +121,9 @@ The full connector design, operational contract, and deployment plan is
 documented in [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md).
 
 ## Persistent implementation guidance
-- Preserve the ChargePilot product terminology, business rules, existing HTML
-  templates, and shared stylesheet when extending the UI. Keep React pages
-  responsive and aligned in both light and dark themes.
+- Preserve ChargePilot product terminology and business rules. Keep React as
+  the only browser UI; add JSON API operations before changing user-facing
+  workflows. Keep pages responsive and aligned in both light and dark themes.
 - Prefer concrete, repository-grounded changes with working backend
   integration; do not add mock data, dead-end controls, unrelated features, or
   a separate replacement backend.

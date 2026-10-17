@@ -1,130 +1,207 @@
-body.theme-dark .site-nav {
-  justify-content: flex-start;
-  text-align: left;
+body.theme-dark {
+  --ink: #e3eee8;
+  --forest: #173f39;
+  --leaf: #9bc8aa;
+  --copper: #e0a456;
+  --paper: #101c19;
+  --surface: #192824;
+  --line: #32443d;
+  --muted: #a1b3aa;
+  color: var(--ink);
+  background: var(--paper);
 }
 
-body.theme-dark .site-nav a {
-  justify-content: flex-start;
+body.theme-dark .workspace-body {
+  color: var(--ink);
+  background: var(--paper);
 }
 
-.auth-theme-toggle {
-  position: fixed;
-  top: 1rem;
-  right: 1rem;
-  z-index: 50;
+body.theme-dark .workspace-topbar {
+  border-color: #293a33;
+  background: rgba(16, 28, 25, 0.94);
 }
 
-@media (min-width: 861px) {
-  .site-nav {
-    justify-content: flex-start;
-    text-align: left;
-  }
-
-  .site-nav a {
-    justify-content: flex-start;
-  }
+body.theme-dark .workspace-topbar .inline-flex {
+  border-color: #40544a;
+  color: #e1ece5;
+  background: #1b2a24;
 }
 
-body.theme-dark .page-shell [class~="bg-white/90"] {
-  background-color: var(--panel) !important;
+body.theme-dark .topbar-context,
+body.theme-dark .topbar-role {
+  color: #a2b5aa;
 }
 
-body.theme-dark .page-shell [class~="bg-white/80"] {
-  background-color: var(--panel-2) !important;
+body.theme-dark .page-shell .panel,
+body.theme-dark .page-shell .bg-white,
+body.theme-dark .page-shell [class~="bg-white/90"],
+body.theme-dark .page-shell [class~="bg-white/80"],
+body.theme-dark .switch-device-card,
+body.theme-dark .mapping-card,
+body.theme-dark .metric-card,
+body.theme-dark .stat-card {
+  border-color: #32443d !important;
+  color: #dce9e1;
+  background-color: var(--surface) !important;
+  box-shadow: none;
 }
 
-body.theme-dark .page-shell .panel.bg-red-50 {
-  background-color: rgba(127, 29, 29, 0.38) !important;
-  border-color: rgba(248, 113, 113, 0.32) !important;
+body.theme-dark .page-shell .bg-slate-50,
+body.theme-dark .page-shell .bg-slate-100,
+body.theme-dark .page-shell .mapping-detail-pill {
+  background-color: #21312b !important;
 }
 
+body.theme-dark .page-shell .text-slate-900,
+body.theme-dark .page-shell .text-slate-800,
+body.theme-dark .page-shell .text-slate-700 {
+  color: #e1ece5 !important;
+}
+
+body.theme-dark .page-shell .text-slate-600,
+body.theme-dark .page-shell .text-slate-500,
+body.theme-dark .page-shell .text-slate-400 {
+  color: #a4b5ac !important;
+}
+
+body.theme-dark .page-description,
+body.theme-dark .page-header .eyebrow {
+  color: #a4b5ac;
+}
+
+body.theme-dark .page-shell .border-slate-100,
+body.theme-dark .page-shell .border-slate-200,
+body.theme-dark .page-shell .border-slate-300,
+body.theme-dark .page-shell .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+body.theme-dark .panel-header,
+body.theme-dark .table-wrap td {
+  border-color: #34463e !important;
+}
+
+body.theme-dark .page-shell .bg-blue-50,
+body.theme-dark .page-shell .bg-blue-100,
+body.theme-dark .page-shell .bg-teal-50,
 body.theme-dark .page-shell .bg-emerald-50,
-body.theme-dark .page-shell .bg-green-50,
-body.theme-dark .page-shell .bg-teal-50 {
-  background-color: rgba(6, 78, 59, 0.38) !important;
+body.theme-dark .page-shell .bg-green-50 {
+  background-color: rgba(56, 100, 76, 0.28) !important;
 }
 
-body.theme-dark .page-shell .border-emerald-100,
-body.theme-dark .page-shell .border-green-100,
-body.theme-dark .page-shell .border-teal-100 {
-  border-color: rgba(52, 211, 153, 0.24) !important;
-}
-
-body.theme-dark .page-shell .border-emerald-200,
-body.theme-dark .page-shell .border-green-200,
-body.theme-dark .page-shell .border-teal-200 {
-  border-color: rgba(52, 211, 153, 0.34) !important;
-}
-
-body.theme-dark .page-shell .text-emerald-800,
-body.theme-dark .page-shell .text-emerald-700,
-body.theme-dark .page-shell .text-emerald-600,
-body.theme-dark .page-shell .text-green-800,
-body.theme-dark .page-shell .text-green-700,
-body.theme-dark .page-shell .text-green-600,
-body.theme-dark .page-shell .text-teal-800,
+body.theme-dark .page-shell .text-blue-700,
+body.theme-dark .page-shell .text-blue-800,
 body.theme-dark .page-shell .text-teal-700,
-body.theme-dark .page-shell .text-teal-600 {
-  color: #a7f3d0 !important;
+body.theme-dark .page-shell .text-emerald-700,
+body.theme-dark .page-shell .text-green-700 {
+  color: #a7d4b3 !important;
+}
+
+body.theme-dark .page-shell .border-blue-200,
+body.theme-dark .page-shell .border-emerald-200,
+body.theme-dark .page-shell .border-green-200 {
+  border-color: rgba(142, 192, 151, 0.35) !important;
 }
 
 body.theme-dark .page-shell .bg-amber-50,
 body.theme-dark .page-shell .bg-yellow-50 {
-  background-color: rgba(120, 53, 15, 0.38) !important;
+  background-color: rgba(135, 86, 37, 0.25) !important;
+}
+
+body.theme-dark .page-shell .text-amber-900,
+body.theme-dark .page-shell .text-amber-800,
+body.theme-dark .page-shell .text-amber-700,
+body.theme-dark .page-shell .text-yellow-800 {
+  color: #efc98f !important;
 }
 
 body.theme-dark .page-shell .border-amber-200,
 body.theme-dark .page-shell .border-yellow-200 {
-  border-color: rgba(251, 191, 36, 0.34) !important;
+  border-color: rgba(222, 169, 93, 0.37) !important;
 }
 
-body.theme-dark .page-shell .text-amber-800,
-body.theme-dark .page-shell .text-amber-700,
-body.theme-dark .page-shell .text-amber-600,
-body.theme-dark .page-shell .text-yellow-800,
-body.theme-dark .page-shell .text-yellow-700,
-body.theme-dark .page-shell .text-yellow-600 {
-  color: #fde68a !important;
+body.theme-dark .page-shell .bg-red-50,
+body.theme-dark .page-shell .bg-red-100 {
+  background-color: rgba(126, 52, 43, 0.25) !important;
 }
 
-body.theme-dark .page-shell .bg-violet-50,
-body.theme-dark .page-shell .bg-purple-50 {
-  background-color: rgba(76, 29, 149, 0.34) !important;
+body.theme-dark .page-shell .text-red-700,
+body.theme-dark .page-shell .text-red-800 {
+  color: #e6a89a !important;
 }
 
-body.theme-dark .page-shell .border-violet-200,
-body.theme-dark .page-shell .border-purple-200 {
-  border-color: rgba(196, 181, 253, 0.32) !important;
+body.theme-dark .page-shell .border-red-200 {
+  border-color: rgba(214, 134, 116, 0.34) !important;
 }
 
-body.theme-dark .page-shell .text-violet-700,
-body.theme-dark .page-shell .text-purple-700 {
-  color: #ddd6fe !important;
+body.theme-dark .page-shell input,
+body.theme-dark .page-shell select,
+body.theme-dark .page-shell textarea,
+body.theme-dark .btn-secondary {
+  border-color: #40544a !important;
+  color: #e1ece5 !important;
+  background-color: #1b2a24 !important;
 }
 
-body.theme-dark .page-shell input[type="checkbox"],
-body.theme-dark .page-shell input[type="radio"] {
-  accent-color: #60a5fa;
-  background-color: transparent !important;
+body.theme-dark .page-shell input::placeholder {
+  color: #93a69b;
 }
 
-body.theme-dark .mapping-card,
-body.theme-dark .mapping-detail-pill {
-  background-color: var(--panel-2);
+body.theme-dark .table-wrap th {
+  color: #a9b9b0;
+  background: #202f29;
 }
 
-body.theme-dark .mapping-card .mapping-overline,
-body.theme-dark .mapping-card .mapping-id {
-  color: var(--muted);
+body.theme-dark .table-wrap tbody tr:hover {
+  background: #1d2c26;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+body.theme-dark .auth-shell {
+  background: #101c19;
+}
+
+body.theme-dark .auth-card {
+  color: #dce9e1;
+}
+
+body.theme-dark .auth-card h1 {
+  color: #e3eee8;
+}
+
+body.theme-dark .auth-subtle,
+body.theme-dark .auth-signup > p,
+body.theme-dark .auth-signin,
+body.theme-dark .choice-copy {
+  color: #a4b5ac;
+}
+
+body.theme-dark .auth-divider {
+  background: #34463e;
+}
+
+body.theme-dark .auth-card .field {
+  border-color: #40544a;
+  color: #e3eee8;
+  background: #192824;
+}
+
+body.theme-dark .choice-card {
+  border-color: #40544a;
+  color: #dce9e1;
+}
+
+body.theme-dark .choice-card.active {
+  border-color: #6f9a7a;
+  background: #22372c;
+}
+
+.auth-theme-toggle {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  z-index: 5;
+}
+
+@media (max-width: 720px) {
+  .auth-theme-toggle {
+    top: 18px;
+    right: 17px;
   }
 }

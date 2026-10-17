@@ -105,12 +105,10 @@ stores and all local data.
 `/health` reports process liveness. `/ready` executes a database query and returns HTTP 503 while PostgreSQL is unavailable.
 
 The API image serves FastAPI on container port `8000` and the built React
-frontend on `5173`. Compose publishes both ports. Configure the reverse proxy to route the frontend hostname to
-`5173` and the API hostname to `8000`; API calls, downloads, form submissions,
-and server-rendered operational pages that remain in use must reach FastAPI.
-Authenticated app navigation uses React routes on the frontend origin. Login
-and registration pages are served only by the frontend; API `GET /login` and
-`GET /register` redirect to the configured frontend origin.
+frontend on `5173`. Compose publishes both ports. Configure the reverse proxy
+to route the frontend hostname to `5173` and JSON API calls and authenticated
+downloads to `8000`. React is the only browser UI; legacy page GETs redirect to
+the configured frontend origin.
 Set the public origins in `.env`; the
 frontend configuration is injected when the container starts, so changing
 these values does not require rebuilding the image:
@@ -136,8 +134,8 @@ completion before considering telemetry fully processed.
 
 The GitOps manifests live in `deploy/k3s/`; `deploy/argocd/chargepilot.yaml`
 defines the ArgoCD Application. The deployment exposes the UI at
-`https://app.endusercompute.in` and the API, agent endpoint, and server-rendered
-pages at `https://api.endusercompute.in`. Istio redirects HTTP to HTTPS and
+`https://app.endusercompute.in` and the JSON API and downloads at
+`https://api.endusercompute.in`. Istio redirects HTTP to HTTPS and
 terminates TLS on the existing ingress gateway using the
 `chargepilot-ingress-tls` Secret in `istio-system`.
 
@@ -452,7 +450,7 @@ powershell -ExecutionPolicy Bypass -File .\agent\BatteryAgent.ps1 -ServerUrl "ht
 
 Use `agent/CreateAgentScheduledTask.ps1` to register the recurring Windows task. The agent sends hostname, IP address, battery percentage, charging/AC state, switch state, timestamp, and agent version.
 
-Agent tokens are generated randomly for new installations and can be viewed or rotated from the authenticated **Install Agent** page. Existing deployments initialized with the historical `test-endpoint-token` should rotate it after upgrading.
+Agent tokens are generated randomly for new installations and can be viewed or rotated from the authenticated **Install Agent** page. The global Super Admin token registers unassigned endpoints only; tenant-assigned endpoints must use their tenant-specific token. Super Admins can select a tenant on the Install Agent page to generate the matching command. Existing deployments initialized with the historical `test-endpoint-token` should rotate it after upgrading.
 
 ## 9. Device and mapping workflow
 
@@ -460,8 +458,12 @@ Agent tokens are generated randomly for new installations and can be viewed or r
 2. Discover the device through that connector, or add it manually.
 3. Save its device ID, local key, IP, protocol version, and device type.
 4. Assign the device to the correct connector.
-5. Create the endpoint and mapping records.
-6. Ensure the mapping points to the intended device and channel.
+5. Register laptops using the tenant's agent token. If a laptop was registered
+   with the global token, assign it to the tenant from the Super Admin
+   Endpoints page, then re-run its installer using the tenant-specific command.
+6. Create a mapping only when the endpoint and switch belong to the same tenant.
+   Tenant ownership is visible on the dashboard, endpoint/switch lists, and
+   mapping form.
 7. Confirm the channel index and thresholds before enabling automation.
 
 The default thresholds are `on_threshold = 79`, `off_threshold = 99`, and `minimum_state_change_interval = 300` seconds.

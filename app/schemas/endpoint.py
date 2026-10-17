@@ -25,3 +25,7 @@ class EndpointCreate(EndpointBase):
 class EndpointRead(EndpointBase):
     id: UUID
     last_seen_at: datetime | None = None
+
+
+class EndpointTenantAssignment(BaseModel):
+    tenant_id: UUID

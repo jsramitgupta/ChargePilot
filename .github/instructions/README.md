@@ -29,7 +29,7 @@ The project is a cloud-capable, local-first battery automation platform for Wind
 ## Current implementation facts captured from the repo
 
 - Runtime stack: Python 3.12, FastAPI, SQLAlchemy 2.x, PostgreSQL, Kafka/aiokafka,
-  TinyTuya, tuya-device-sharing-sdk, Jinja2, pytest.
+  TinyTuya, tuya-device-sharing-sdk, pytest.
 - App entrypoint: `app/main.py` renders HTML dashboard pages and also hosts the wizard flow for SmartLife integration.
 - Settings prefix: `CHARGEPILOT_` via `app/core/config.py`.
 - Database bootstrap: `create_db_and_tables()` runs on startup and ensures missing columns are added.
@@ -45,7 +45,7 @@ The project is a cloud-capable, local-first battery automation platform for Wind
 - Rule defaults: `on_threshold=79`, `off_threshold=99`, `minimum_state_change_interval=300`.
 - Device discovery: the wizard can scan on the ChargePilot server network or delegate discovery to an online site connector; both paths omit local keys.
 - Connector deployment: the downloadable package includes Python and Docker Compose instructions, and the standalone Docker image targets Linux amd64 and arm64.
-- UI pattern: the app uses Jinja templates plus some AJAX and toast-based interactions rather than a separate frontend framework.
+- UI pattern: React, TypeScript, and Tailwind provide the full browser UI; FastAPI exposes JSON APIs and file downloads.
 
 ## File map relevant to AI understanding
 
@@ -56,8 +56,8 @@ app/core/*.py              # settings, DB session, auth helpers
 app/models/*.py            # ORM schema
 app/services/*.py          # device logic, rule processing, SmartLife flow, SSE
 app/workers.py              # outbox relay and Kafka automation consumer
-app/templates/*.html       # dashboard and wizard pages
-app/static/*.css           # styling
+frontend/src/*.tsx         # React routes and UI
+frontend/src/*.css         # shared responsive themes
 agent/BatteryAgent.ps1     # telemetry sender
 agentv2/                  # alternate agent flow or future version
 docker-compose.yml         # runtime config

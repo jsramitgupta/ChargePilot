@@ -5,15 +5,15 @@ export default {
     extend: {
       colors: {
         brand: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
+          50: '#eff5f0',
+          100: '#dcebe0',
+          500: '#5d9771',
+          600: '#397a61',
+          700: '#285d49',
         },
       },
       boxShadow: {
-        soft: '0 18px 45px -24px rgba(37, 99, 235, 0.45)',
+        soft: '0 3px 12px rgba(23, 63, 57, 0.05)',
       },
       borderRadius: {
         app: '1.5rem',
@@ -22,4 +22,3 @@ export default {
   },
   plugins: [],
 }
-

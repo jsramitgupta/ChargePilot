@@ -29,11 +29,38 @@ Example:
 Authorization: Bearer <YOUR_AGENT_TOKEN>
 ```
 
-The validation logic lives in `app/services/endpoint_service.py`. It accepts a tenant's configured agent token or the system-wide global token, which is generated randomly when the database is first initialized.
+The validation logic lives in `app/services/endpoint_service.py`. It accepts a tenant's configured agent token or the system-wide global token, which is generated randomly when the database is first initialized. Tenant tokens register and update endpoints for that tenant. The global token is for unassigned endpoints; use the tenant-specific token after assigning an endpoint to a tenant.
 
-Browser sign-in uses the session cookie set by `POST /login`. The API-host
-`GET /login` and `GET /register` routes redirect to the configured frontend;
-the login and registration screens are served by the React frontend.
+Browser authentication uses session cookies set by JSON requests to
+`POST /api/v1/auth/login` and `POST /api/v1/auth/register`. The React frontend
+is the only browser UI; legacy page GETs redirect to the configured frontend.
+Standard-user signup requires a valid one-time tenant invite.
+
+### 2.0 POST /api/v1/auth/login
+
+Accepts JSON `{ "username": "...", "password": "..." }`, verifies the account,
+sets the session cookie, and returns the signed-in user. Invalid credentials
+return HTTP 401.
+
+### 2.0.1 POST /api/v1/auth/register
+
+Tenant creation request:
+
+```json
+{"account_type":"tenant","username":"owner","password":"a-long-password","tenant_name":"Operations"}
+```
+
+Creates a tenant and its first tenant-admin account, then signs the user in.
+Standard-user request:
+
+```json
+{"account_type":"standard","username":"operator","password":"a-long-password","invite_code":"one-time-code"}
+```
+
+Standard registration requires a tenant admin/manager generated code. The
+database stores only its hash; the invite is consumed in the account-creation
+transaction, can be used once, and expires after seven days. The raw code is
+returned only when created.
 
 ### 2.1 PUT /api/v1/auth/password
 
@@ -71,11 +98,31 @@ Lists tenants for Super Admin workflows. The response includes each tenant's
 agent token, matching the existing Super Admin tenant-management screen. The
 response is marked `private, no-store`.
 
-### 2.5 GET /api/v1/agent/setup
+### 2.5 Tenant invitations and administration
+
+- `POST /api/v1/admin/invites` creates a seven-day, single-use tenant invite.
+  Tenant admins/managers can issue codes for their tenant; Super Admins must
+  select the tenant. The raw code is returned once.
+- `GET /api/v1/admin/invites` lists status and expiry without code values.
+- `DELETE /api/v1/admin/invites/{invite_id}` revokes an unused invite.
+- `POST /api/v1/admin/users`, `PATCH /api/v1/admin/users/{user_id}`, and
+  `DELETE /api/v1/admin/users/{user_id}` provide scoped account management
+  while retaining at least one tenant administrator.
+- `POST /api/v1/admin/tenants` creates a tenant; `DELETE
+  /api/v1/admin/tenants/{tenant_id}` removes its tenant-scoped records.
+- Tenant telemetry credentials can be rotated with
+  `POST /api/v1/admin/tenants/{tenant_id}/rotate-agent-token` (Super Admin) or
+  `PUT /api/v1/admin/tenant-agent-token` (tenant admin/manager).
+- `PUT /api/v1/admin/global-agent-token` saves or regenerates the Super Admin
+  global endpoint token.
+
+### 2.6 GET /api/v1/agent/setup
 
 Returns the authenticated user's agent install command and token for the React
-agent setup page. Requires an assigned tenant, except for the Super Admin. The
-response is marked `private, no-store`.
+agent setup page. Requires an assigned tenant, except for the Super Admin. A
+Super Admin may pass `tenant_id` to select that tenant's token; the response
+includes the system-wide token separately as `global_token`. The response is
+marked `private, no-store`.
 
 ## 3. Endpoint reference
 
@@ -178,7 +225,8 @@ Kafka-specific service settings use the `CHARGEPILOT_` prefix.
 
 ### 3.4 GET /api/v1/endpoints
 
-Lists endpoint records with battery and online/offline status.
+Lists visible endpoint records with tenant ID/name, battery, and online/offline
+status. Tenant names are `null` for unassigned endpoints.
 
 Example response:
 
@@ -188,6 +236,8 @@ Example response:
     "id": "...",
     "hostname": "LAPTOP-01",
     "hardware_uuid": "4b4b2b91-6c32-4d5b-8a9f-2a73b8e94d11",
+    "tenant_id": "...",
+    "tenant_name": "Operations",
     "ip_address": "192.168.1.20",
     "battery": 82,
     "status": "online",
@@ -200,11 +250,35 @@ Example response:
 upgrade. A current agent fills the value on its first matching telemetry
 request, keeping the existing endpoint ID and mappings.
 
+### 3.5 PATCH /api/v1/endpoints/{endpoint_id}/tenant
+
+Assigns an unassigned endpoint to an existing tenant. Super Admin only.
+Endpoints already assigned to another tenant cannot be transferred through
+this operation, and an endpoint with mappings cannot be assigned. After
+assignment, reconfigure the laptop agent with the tenant-specific token.
+
+`DELETE /api/v1/endpoints/{endpoint_id}` removes an endpoint and its mappings.
+
+```json
+{"tenant_id": "<tenant-uuid>"}
+```
+
 ## 4. Device API
+
+Authenticated JSON device operations:
+
+- `POST /api/v1/devices/{device_id}/state` accepts `desired_state` and an
+  optional `channel_id`. Connector-routed commands are queued durably; local
+  devices retain direct LAN control.
+- `PUT /api/v1/devices/{device_id}/connector` accepts a connector ID or `null`;
+  only tenant administrators/managers can change assignments.
+- `DELETE /api/v1/devices/{device_id}` removes the switch and its mappings and
+  channels.
 
 ### 4.1 GET /api/v1/devices
 
-Returns all devices ordered by creation time.
+Returns visible devices ordered by creation time, including `tenant_id` and
+`tenant_name`.
 
 ### 4.2 POST /api/v1/devices
 
@@ -375,7 +449,8 @@ Returns all endpoint-to-device mappings.
 
 ### 5.2 POST /api/v1/mappings
 
-Creates a mapping.
+Creates a mapping only when the endpoint and switch belong to the same
+tenant. `GET /api/v1/mappings` includes the mapping's tenant name.
 
 Example body:
 

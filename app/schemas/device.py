@@ -53,6 +53,9 @@ class DeviceChannelUpdate(BaseModel):
 
 class DeviceRead(DeviceBase):
     id: UUID
+    connector_id: UUID | None = None
+    tenant_id: UUID | None = None
+    tenant_name: str | None = None
     last_seen_at: datetime | None = None
 
 

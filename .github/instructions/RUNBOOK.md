@@ -178,8 +178,8 @@ uvicorn app.main:app --host 127.0.0.1 --port 8010
 - The existing endpoint auth check is separate from connector credentials and
   should not be treated as a substitute for connector-specific authorization.
 - Local keys and device secrets must stay out of source control.
-- The React frontend and retained Jinja pages share backend sessions; keep
-  their authentication redirects and API origins aligned.
+- The React frontend uses backend session cookies; keep its API origins and
+  credentialed CORS configuration aligned.
 - Incorrect channel mapping can look like a successful API call while the wrong relay is switched.
 - Connector-assigned cloud devices use confirmed stored state for rule
   evaluation; devices without a connector retain the direct local-host path.

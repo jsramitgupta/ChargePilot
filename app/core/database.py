@@ -24,6 +24,7 @@ from app.models.user import User  # noqa: F401,E402
 from app.models.system_setting import SystemSetting  # noqa: F401,E402
 from app.models.connector import SiteConnector, DeviceCommand  # noqa: F401,E402
 from app.models.messaging import TelemetryAutomationCursor, TelemetryOutbox  # noqa: F401,E402
+from app.models.tenant_invite import TenantInvite  # noqa: F401,E402
 from app.services.local_key_service import decrypt_local_key, encrypt_local_key  # noqa: E402
 
 

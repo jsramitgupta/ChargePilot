@@ -53,7 +53,8 @@ Populate only the local key; device details and IP come from LAN scan
 The HTTP API modules are in `app/api/`:
 
 - `health.py` — liveness and database readiness
-- `auth.py` — authenticated-user profile and super-admin password API
+- `auth.py` — JSON login/registration, profile, session, and super-admin password API
+- `admin.py` — tenant/user administration and one-time tenant invitations
 - `telemetry.py` — telemetry intake, rule execution, and SSE stream
 - `devices.py` — device/channel CRUD and device control
 - `onboarding.py` — LAN discovery and SmartLife pairing
@@ -62,18 +63,16 @@ The HTTP API modules are in `app/api/`:
 - `mappings.py` — mapping CRUD
 - `endpoints.py` — endpoint management, agent config, and readings
 
-`app/main.py` retains server-rendered operational and administrative routes not
-yet represented in React, along with form-based sign-in and onboarding
-workflows. The authenticated React shell owns its dashboard, switch, mapping,
+The React frontend is the only browser UI and owns dashboard, switch, mapping,
 endpoint, event, connector, profile, user, tenant, agent setup, and account
-navigation. API-host GET routes for login and registration redirect to the
-configured frontend origin.
+navigation. `app/main.py` bootstraps FastAPI and serves authenticated downloads;
+legacy page paths redirect to React, and form-based mutations use JSON APIs.
 
 ### 3.2 Core layer
 
 Key runtime modules:
 
-- `app/main.py` — app startup, template rendering, wizard routes, and UI handlers
+- `app/main.py` — app startup, JSON router registration, frontend redirects, and downloads
 - `app/core/config.py` — environment-backed settings using `CHARGEPILOT_`
 - `app/core/database.py` — engine and schema creation
 - `app/core/security.py` — security helpers for auth and token handling
@@ -83,7 +82,8 @@ Key runtime modules:
 The model set in `app/models/` includes:
 
 - `Endpoint` — laptop telemetry source, uniquely identified by its hardware
-  UUID; hostname is captured separately and may change
+  UUID; hostname is captured separately and may change. An unassigned endpoint
+  can be assigned once to a tenant by the Super Admin.
 - `Device` — local smart switch metadata and current state
 - `DeviceChannel` — channel-specific state
 - `Mapping` — endpoint-to-device threshold mapping
@@ -110,6 +110,10 @@ Current services include:
 2. `receive_telemetry()` validates the bearer token, hardware UUID, and timestamp freshness.
 3. The API upserts by hardware UUID; a UUID-less legacy endpoint can be matched
    by tenant and hostname once to preserve its existing ID and mappings.
+   Global-token telemetry can only register/update unassigned endpoints.
+   Tenant-assigned laptops use that tenant's token. Mapping creation requires
+   endpoint and device tenant IDs to match; the UI exposes ownership and lets
+   the Super Admin assign an unassigned endpoint without weakening isolation.
 4. Endpoint snapshot and telemetry outbox event commit in one transaction.
 5. One or more outbox relays publish records to Kafka, retaining per-endpoint
    ordering and allowing safe relay concurrency across distinct endpoints.
@@ -222,10 +226,9 @@ The SmartLife bridge handles:
 - preserve battery thresholds and event logging as core product behavior
 - keep the SmartLife flow isolated from core automation logic
 - keep the product local-first and the backend authoritative for business rules
-- extend the existing React/TypeScript/Tailwind frontend for its supported
-  pages, while preserving the Jinja workflows that are not yet migrated
-- reuse `app/static/style.css` semantic tokens and retain coherent light/dark
-  themes and the left-aligned authenticated top navigation
+- keep React/TypeScript/Tailwind as the only browser UI; implement JSON API
+  operations before changing a user-facing workflow
+- retain coherent light/dark themes and left-aligned authenticated navigation
 
 ### Distributed runtime and capacity limits
 
@@ -246,13 +249,11 @@ measured read-path bottleneck and explicit invalidation/security design.
 
 ### Shared UI theme and regression coverage
 
-The web UI uses the semantic color tokens in `app/static/style.css` as its
-source of truth. Light and dark themes must define the same semantic tokens
-(`--bg`, `--panel`, `--soft`, `--muted`, `--line`, and `--primary`) so page
-surfaces, text, borders, and controls change together. Use the shared
-`.ui-page-hero`, `.ui-accent-surface`, and `.ui-modal-heading` classes for page
-hero panels, highlighted sections, and wizard/modal headers. Blue is the
-product accent; green, amber, and red are reserved for state and feedback.
+The React web UI uses the shared tokens in `frontend/src/index.css` and
+`frontend/src/theme.css`. Keep light and dark surfaces, text, borders, and
+controls readable together. The visual language is a mineral-green operational
+workspace with copper reserved for focused power cues; status colors retain
+their distinct operational meaning.
 
 When changing shared colors or adding a page/wizard surface, keep both themes
 readable and add/update coverage in `tests/unit/test_ui_theme.py`. Avoid broad

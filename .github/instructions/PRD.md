@@ -96,7 +96,7 @@ A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch 
 
 ### 5.6 Operational visibility
 
-- A dashboard plus Jinja pages show devices, endpoints, mappings, and events.
+- The React dashboard shows devices, endpoints, mappings, and events.
 - Event logs capture decision reasons and success/failure status.
 - SSE streaming is available for real-time update pushes to UI clients.
 - The Connectors page exposes enrollment and heartbeat health; switch cards
