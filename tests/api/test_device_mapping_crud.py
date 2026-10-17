@@ -511,6 +511,10 @@ def test_mappings_page_exposes_editable_threshold_controls():
             "encrypted_local_key": "threshold-key",
         },
     ).json()
+    channel = client.post(
+        f"/api/v1/devices/{device['id']}/channels",
+        json={"channel_index": 1, "name": "Output 1"},
+    ).json()
     endpoint = client.post(
         "/api/v1/endpoints",
         json={
@@ -527,7 +531,7 @@ def test_mappings_page_exposes_editable_threshold_controls():
         json={
             "endpoint_id": endpoint["id"],
             "device_id": device["id"],
-            "channel_id": None,
+            "channel_id": channel["id"],
             "enabled": True,
             "on_threshold": 35,
             "off_threshold": 90,
@@ -546,6 +550,12 @@ def test_mappings_page_exposes_editable_threshold_controls():
     assert updated.json()["on_threshold"] == 40
     assert updated.json()["off_threshold"] == 85
     assert updated.json()["minimum_state_change_interval"] == 420
+    cleared_channel = client.put(
+        f"/api/v1/mappings/{mapping['id']}",
+        json={"channel_id": None},
+    )
+    assert cleared_channel.status_code == 200, cleared_channel.text
+    assert cleared_channel.json()["channel_id"] is None
     assert client.get("/mappings", follow_redirects=False).status_code == 307
 
 

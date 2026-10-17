@@ -1729,6 +1729,36 @@ button, a {
   border-top: 1px solid var(--line);
 }
 
+.mapping-footer-navigation,
+.mapping-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mapping-cancel-edit,
+.mapping-edit-button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.mapping-cancel-edit:hover,
+.mapping-edit-button:hover {
+  border-color: var(--leaf);
+  background: var(--surface-muted);
+}
+
 .mapping-wizard-footer .btn-primary,
 .mapping-wizard-footer .btn-secondary {
   gap: 7px;
@@ -1772,6 +1802,14 @@ button, a {
   min-width: 0;
   flex: 1;
   gap: 12px;
+}
+
+.mapping-card-actions {
+  flex: 0 0 auto;
+}
+
+.mapping-card-actions .mapping-delete-button {
+  min-height: 38px;
 }
 
 .mapping-route {
@@ -2336,8 +2374,17 @@ button, a {
   }
 
   .mapping-card {
+    flex-wrap: wrap;
     align-items: flex-start;
     padding: 13px;
+  }
+
+  .mapping-card-main {
+    flex-basis: 100%;
+  }
+
+  .mapping-card-actions {
+    margin-left: auto;
   }
 
   .mapping-rules {

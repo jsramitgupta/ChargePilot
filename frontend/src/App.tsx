@@ -18,6 +18,7 @@ import {
   Moon,
   MonitorSmartphone,
   Network,
+  Pencil,
   PlugZap,
   Plus,
   Search,
@@ -184,6 +185,16 @@ type Mapping = {
   endpoint_id: string
   device_id: string
   channel_id?: string | null
+  on_threshold: number
+  off_threshold: number
+  minimum_state_change_interval: number
+  enabled: boolean
+}
+
+type MappingFormValues = {
+  endpoint_id: string
+  device_id: string
+  channel_id: string
   on_threshold: number
   off_threshold: number
   minimum_state_change_interval: number
@@ -1207,6 +1218,7 @@ function DevicesPage() {
 function MappingsPage() {
   const queryClient = useQueryClient()
   const [step, setStep] = useState(1)
+  const [editingMappingId, setEditingMappingId] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
   const { data: mappings, isLoading: mappingsLoading } = useQuery<Mapping[]>({
     queryKey: ['mappings'],
@@ -1227,7 +1239,7 @@ function MappingsPage() {
     },
   })
 
-  const form = useForm({
+  const form = useForm<MappingFormValues>({
     defaultValues: {
       endpoint_id: '',
       device_id: '',
@@ -1253,24 +1265,26 @@ function MappingsPage() {
   )
 
   const mutation = useMutation({
-    mutationFn: (values: Record<string, unknown>) =>
-      apiFetch<Mapping>('/api/v1/mappings', {
-        method: 'POST',
+    mutationFn: ({ mappingId, values }: { mappingId: string | null; values: MappingFormValues }) =>
+      apiFetch<Mapping>(mappingId ? `/api/v1/mappings/${mappingId}` : '/api/v1/mappings', {
+        method: mappingId ? 'PUT' : 'POST',
         body: JSON.stringify({ ...values, channel_id: values.channel_id || null }),
       }),
-    onSuccess: () => {
+    onSuccess: (_, { mappingId }) => {
       queryClient.invalidateQueries({ queryKey: ['mappings'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       form.reset()
+      setEditingMappingId(null)
       setStep(1)
-      setStatusMessage('Laptop and switch are now linked.')
+      setStatusMessage(mappingId ? 'Mapping changes saved.' : 'Laptop and switch are now linked.')
     },
   })
   const deleteMutation = useMutation({
     mutationFn: (mappingId: string) => apiFetch<void>(`/api/v1/mappings/${mappingId}`, { method: 'DELETE' }),
-    onSuccess: () => {
+    onSuccess: (_, mappingId) => {
       queryClient.invalidateQueries({ queryKey: ['mappings'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      if (editingMappingId === mappingId) cancelEditing()
     },
   })
 
@@ -1284,7 +1298,36 @@ function MappingsPage() {
     const valid = await form.trigger(fieldsByStep[step as 1 | 2])
     if (!valid) return
     if (step === 1 && matchingDevices.length === 0) return
+    setStatusMessage('')
     setStep((current) => Math.min(current + 1, 3))
+  }
+
+  function editMapping(mapping: Mapping) {
+    mutation.reset()
+    setStatusMessage('')
+    setEditingMappingId(mapping.id)
+    form.reset({
+      endpoint_id: mapping.endpoint_id,
+      device_id: mapping.device_id,
+      channel_id: mapping.channel_id ?? '',
+      on_threshold: mapping.on_threshold,
+      off_threshold: mapping.off_threshold,
+      minimum_state_change_interval: mapping.minimum_state_change_interval,
+      enabled: mapping.enabled,
+    })
+    setStep(3)
+    document.getElementById('mapping-builder-title')?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+      block: 'start',
+    })
+  }
+
+  function cancelEditing() {
+    mutation.reset()
+    setEditingMappingId(null)
+    setStatusMessage('')
+    form.reset()
+    setStep(1)
   }
 
   return (
@@ -1298,8 +1341,8 @@ function MappingsPage() {
       <section className="mapping-builder" aria-labelledby="mapping-builder-title">
         <div className="mapping-builder-heading">
           <div>
-            <h2 id="mapping-builder-title">Create a mapping</h2>
-            <p>Choose what should be connected, then set how the battery should control it.</p>
+            <h2 id="mapping-builder-title">{editingMappingId ? 'Edit mapping' : 'Create a mapping'}</h2>
+            <p>{editingMappingId ? 'Review the linked laptop and switch, then adjust the automation rules.' : 'Choose what should be connected, then set how the battery should control it.'}</p>
           </div>
           <span className="mapping-step-count">Step {step} of 3</span>
         </div>
@@ -1324,18 +1367,7 @@ function MappingsPage() {
           ))}
         </ol>
 
-        <form
-          onKeyDown={(event) => {
-            if (
-              event.key === 'Enter'
-              && event.target instanceof HTMLInputElement
-              && event.target.type === 'number'
-            ) {
-              event.preventDefault()
-            }
-          }}
-          onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
-        >
+        <div className="mapping-wizard-content">
           {step === 1 && <div className="mapping-step-content">
             <div className="mapping-step-copy">
               <span className="mapping-step-kicker">01 / Laptop</span>
@@ -1426,8 +1458,8 @@ function MappingsPage() {
           {step === 3 && <div className="mapping-step-content">
             <div className="mapping-step-copy">
               <span className="mapping-step-kicker">03 / Battery rules</span>
-              <h3>When should the switch change?</h3>
-              <p>Separate thresholds create hysteresis and prevent rapid toggling around one battery level.</p>
+              <h3>{editingMappingId ? 'Review and adjust the battery rules' : 'Set when the switch should change'}</h3>
+              <p>These values are only applied when you save. Separate thresholds prevent rapid toggling around one battery level.</p>
             </div>
             <div className="mapping-rule-layout">
               <div className="mapping-rule-fields">
@@ -1461,18 +1493,26 @@ function MappingsPage() {
           {mutation.isError && <ErrorCard message={mutation.error.message} />}
           {statusMessage && <p className="mapping-success-message" role="status"><CheckCircle2 size={17} />{statusMessage}</p>}
           <div className="mapping-wizard-footer">
-            {step > 1 ? <button type="button" className="btn-secondary" onClick={() => setStep((current) => current - 1)}><ChevronLeft size={16} />Back</button> : <span />}
+            <div className="mapping-footer-navigation">
+              {step > 1 ? <button type="button" className="btn-secondary" onClick={() => setStep((current) => current - 1)}><ChevronLeft size={16} />Back</button> : <span />}
+              {editingMappingId && <button type="button" className="mapping-cancel-edit" onClick={cancelEditing}>Cancel edit</button>}
+            </div>
             {step < 3 ? (
               <button type="button" className="btn-primary" onClick={() => void advanceStep()} disabled={(step === 1 && !selectedEndpointId) || (step === 2 && !tenantsMatch)}>
                 Continue <ChevronRight size={16} />
               </button>
             ) : (
-              <button type="submit" className="btn-primary" disabled={mutation.isPending || !tenantsMatch || offThreshold <= onThreshold}>
-                {mutation.isPending ? 'Saving mapping…' : 'Save mapping'}
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={mutation.isPending || !tenantsMatch || offThreshold <= onThreshold}
+                onClick={() => void form.handleSubmit((values) => mutation.mutate({ mappingId: editingMappingId, values }))()}
+              >
+                {mutation.isPending ? 'Saving…' : editingMappingId ? 'Save changes' : 'Create mapping'}
               </button>
             )}
           </div>
-        </form>
+        </div>
       </section>
 
       {deleteMutation.isError && <ErrorCard message={deleteMutation.error.message} />}
@@ -1508,9 +1548,12 @@ function MappingsPage() {
                 </div>
                 <details className="mapping-id"><summary>Mapping details</summary><code>{mapping.id}</code></details>
               </div>
-              <button type="button" className="mapping-delete-button" disabled={deleteMutation.isPending} onClick={() => {
-                if (window.confirm('Delete this battery mapping?')) deleteMutation.mutate(mapping.id)
-              }}>Delete</button>
+              <div className="mapping-card-actions">
+                <button type="button" className="mapping-edit-button" onClick={() => editMapping(mapping)}><Pencil size={14} aria-hidden="true" />Edit</button>
+                <button type="button" className="mapping-delete-button" disabled={deleteMutation.isPending} onClick={() => {
+                  if (window.confirm('Delete this battery mapping?')) deleteMutation.mutate(mapping.id)
+                }}>Delete</button>
+              </div>
             </article>
           })}
           {!mappings?.length && <div className="mapping-empty-state"><Cable size={22} aria-hidden="true" /><h3>No mappings yet</h3><p>Use the three steps above to connect a laptop with a switch.</p></div>}

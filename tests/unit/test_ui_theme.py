@@ -129,11 +129,18 @@ def test_mapping_rule_inputs_do_not_submit_until_explicit_save():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     mappings_page = app.split("function MappingsPage()", 1)[1].split("\nfunction ", 1)[0]
 
-    assert "event.key === 'Enter'" in mappings_page
-    assert "event.target.type === 'number'" in mappings_page
-    assert "event.preventDefault()" in mappings_page
-    assert 'onSubmit={form.handleSubmit((values) => mutation.mutate(values))}' in mappings_page
-    assert 'type="submit" className="btn-primary"' in mappings_page
+    assert "<form" not in mappings_page
+    assert "onSubmit=" not in mappings_page
+    assert "type=\"submit\"" not in mappings_page
+    assert "form.handleSubmit((values) => mutation.mutate({ mappingId: editingMappingId, values }))()" in mappings_page
+    assert "'Create mapping'" in mappings_page
+    assert "'Save changes'" in mappings_page
+    assert "function editMapping(mapping: Mapping)" in mappings_page
+    assert "method: mappingId ? 'PUT' : 'POST'" in mappings_page
+    assert "className=\"mapping-edit-button\"" in mappings_page
+    assert "className=\"mapping-delete-button\"" in mappings_page
+    advance_step = mappings_page.split("async function advanceStep()", 1)[1].split("\n  function ", 1)[0]
+    assert "mutation.mutate" not in advance_step
 
 
 def test_dark_tables_and_mapping_number_inputs_have_readable_theme_colors():

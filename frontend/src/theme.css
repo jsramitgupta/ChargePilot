@@ -276,6 +276,19 @@ body.theme-dark .switch-device-card {
   box-shadow: none;
 }
 
+body.theme-dark .mapping-cancel-edit,
+body.theme-dark .mapping-edit-button {
+  border-color: #40544a;
+  color: #dce9e1;
+  background: #1b2a24;
+}
+
+body.theme-dark .mapping-cancel-edit:hover,
+body.theme-dark .mapping-edit-button:hover {
+  border-color: #83b18e;
+  background: #25362e;
+}
+
 body.theme-dark .mapping-step-count,
 body.theme-dark .mapping-total,
 body.theme-dark .switch-inventory-count,

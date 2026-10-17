@@ -134,18 +134,24 @@ async def update_mapping(
     db: Session = Depends(get_db),
 ):
     mapping = _get_mapping(db, str(mapping_id), user)
-    endpoint_id = str(payload.endpoint_id) if payload.endpoint_id is not None else mapping.endpoint_id
-    device_id = str(payload.device_id) if payload.device_id is not None else mapping.device_id
-    channel_id = str(payload.channel_id) if payload.channel_id is not None else mapping.channel_id
+    updates = payload.model_dump(exclude_unset=True)
+    endpoint_value = updates.get("endpoint_id", mapping.endpoint_id)
+    device_value = updates.get("device_id", mapping.device_id)
+    channel_value = updates.get("channel_id", mapping.channel_id)
+    endpoint_id = str(endpoint_value) if endpoint_value is not None else mapping.endpoint_id
+    device_id = str(device_value) if device_value is not None else mapping.device_id
+    channel_id = str(channel_value) if channel_value is not None else None
     endpoint, _, _ = _get_mapping_resources(db, user, endpoint_id, device_id, channel_id)
     _ensure_unique_mapping(db, endpoint_id, device_id, str(mapping_id))
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
-        if value is not None:
-            if field in {"endpoint_id", "device_id", "channel_id"}:
+    for field, value in updates.items():
+        if field == "channel_id":
+            mapping.channel_id = str(value) if value is not None else None
+        elif field in {"endpoint_id", "device_id"}:
+            if value is not None:
                 setattr(mapping, field, str(value))
-            else:
-                setattr(mapping, field, value)
+        else:
+            setattr(mapping, field, value)
     mapping.tenant_id = endpoint.tenant_id
     db.commit()
     db.refresh(mapping)

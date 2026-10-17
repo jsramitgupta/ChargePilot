@@ -28,10 +28,12 @@ is the only browser UI. Legacy page GETs redirect to the matching React route.
 React admin pages use authenticated, tenant-scoped API data and preserve
 server-side authorization and business rules. The UI has responsive
 left-rail navigation and light/dark theme parity.
-Battery-rule edits in the mapping wizard only create a mapping after explicit
-submission; Enter in a numeric rule field does not implicitly save the form.
-Table text, emphasized cells, and status badges retain readable contrast in
-dark mode.
+The mapping wizard has no form submission side effect: Continue only advances
+the setup, and creating or editing a mapping requires its explicit save button.
+Step 3 reviews the selected laptop and switch alongside editable battery rules.
+Existing mappings can be edited or deleted; clearing a channel during an edit
+restores whole-switch control. Table text, emphasized cells, and status badges
+retain readable contrast in dark mode.
 
 ## Current primary workflows
 1. PowerShell agent posts its hardware UUID, current hostname, and battery

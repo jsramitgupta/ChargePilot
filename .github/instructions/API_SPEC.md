@@ -486,7 +486,8 @@ Gets one mapping.
 
 ### 5.4 PUT /api/v1/mappings/{mapping_id}
 
-Updates one mapping.
+Updates one mapping. `channel_id` may be set to a channel belonging to the
+selected switch, or to `null` to target the whole switch.
 
 ### 5.5 DELETE /api/v1/mappings/{mapping_id}
 
