@@ -34,6 +34,9 @@ Step 3 reviews the selected laptop and switch alongside editable battery rules.
 Existing mappings can be edited or deleted; clearing a channel during an edit
 restores whole-switch control. Table text, emphasized cells, and status badges
 retain readable contrast in dark mode.
+The Site Connectors page presents Docker Compose for Linux hosts and a native
+Python process for Windows, Linux, or macOS, with a LAN-aware enrollment and
+startup walkthrough.
 
 ## Current primary workflows
 1. PowerShell agent posts its hardware UUID, current hostname, and battery

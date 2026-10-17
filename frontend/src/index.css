@@ -710,6 +710,198 @@ button, a {
   background: #fdf0e9;
 }
 
+.connector-deploy-guide {
+  padding: clamp(18px, 2.6vw, 27px);
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: var(--surface);
+}
+
+.connector-deploy-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.connector-deploy-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 19px;
+  font-weight: 720;
+  letter-spacing: -.025em;
+}
+
+.connector-deploy-heading p,
+.connector-deploy-step p,
+.connector-finish-note {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.connector-network-path {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--forest);
+  background: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.connector-network-path svg {
+  color: var(--copper);
+}
+
+.connector-prerequisite {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 17px 0;
+  padding: 11px 13px;
+  border-left: 3px solid var(--copper);
+  color: var(--ink);
+  background: var(--surface-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.connector-prerequisite svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--leaf);
+}
+
+.connector-method-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.connector-method-option {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--muted);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, background-color .16s ease;
+}
+
+.connector-method-option:hover,
+.connector-method-option:focus-visible {
+  border-color: var(--leaf);
+}
+
+.connector-method-option.is-selected {
+  border-color: var(--leaf);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface) 87%, var(--leaf));
+  box-shadow: inset 3px 0 0 var(--leaf);
+}
+
+.connector-method-name {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.connector-method-option > span:last-child {
+  font-size: 10px;
+}
+
+.connector-deploy-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 19px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.connector-deploy-step {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-content: start;
+  gap: 9px;
+}
+
+.connector-step-number {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--copper) 55%, var(--line));
+  border-radius: 8px;
+  color: var(--forest);
+  background: color-mix(in srgb, var(--surface) 80%, var(--copper));
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.connector-deploy-step h3 {
+  margin: 2px 0 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.connector-download-link,
+.connector-step-link {
+  display: inline-flex;
+  margin-top: 9px;
+  color: var(--leaf);
+  font-size: 11px;
+  font-weight: 720;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--leaf) 45%, transparent);
+  text-underline-offset: 3px;
+}
+
+.connector-command {
+  overflow-x: auto;
+  margin: 9px 0 0;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  background: var(--surface-muted);
+  font-size: 10px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.connector-deploy-step code {
+  color: var(--forest);
+  font-size: .95em;
+  font-weight: 700;
+}
+
+.connector-step-note {
+  margin-top: 7px !important;
+  font-size: 10px !important;
+}
+
+.connector-finish-note {
+  margin-top: 15px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+#connector-enrollment-form {
+  scroll-margin-top: 24px;
+}
+
 .field-group {
   display: grid;
   gap: 6px;
@@ -2328,6 +2520,11 @@ button, a {
     grid-template-columns: 1fr;
   }
 
+  .connector-deploy-steps {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+
   .is-list-card {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
@@ -2338,6 +2535,23 @@ button, a {
 }
 
 @media (max-width: 600px) {
+  .connector-deploy-heading {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .connector-network-path {
+    align-self: flex-start;
+  }
+
+  .connector-method-options {
+    grid-template-columns: 1fr;
+  }
+
+  .connector-deploy-guide {
+    padding: 16px;
+  }
+
   .mapping-builder,
   .mapping-list-panel,
   .switch-inventory {

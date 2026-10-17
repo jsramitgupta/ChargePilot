@@ -411,27 +411,32 @@ publishes `DOCKERHUB_USERNAME/chargepilot-connector` for `linux/amd64` and
 manual runs. Configure the repository secrets `DOCKERHUB_USERNAME` and
 `DOCKERHUB_TOKEN`.
 
-The downloadable connector ZIP includes the Compose file and `.env.example`.
-On the Linux host, set the Docker image, ChargePilot HTTPS URL, enrollment-code
-file path, and persistent data path in `.env`. Create the enrollment code file
-using the one-time code generated in ChargePilot. Before starting Compose,
-restrict the code file so only the container's unprivileged UID can read it.
-Then create the persistent data directory and grant it to the same UID:
+The downloadable connector ZIP includes the Compose file, `.env.example`, and
+README. Docker Compose supports a local image build from the package or the
+published immutable image digest. For a local build, set
+`CHARGEPILOT_CONNECTOR_IMAGE=chargepilot-connector:local` in `.env`; for a
+published image, use the digest reported by the successful connector image
+workflow. In both cases set the ChargePilot HTTPS URL, enrollment-code file
+path, and persistent data path. Create the enrollment code file using the
+one-time code generated in ChargePilot. Before starting Compose, restrict the
+code file so only the container's unprivileged UID can read it. Then create
+the persistent data directory and grant it to the same UID:
 
 ```bash
 sudo chown 10001:10001 enrollment-code.txt
 sudo chmod 0400 enrollment-code.txt
 mkdir -p connector-data
 sudo chown 10001:10001 connector-data
+docker build -f connector/Dockerfile -t chargepilot-connector:local .
 docker compose up -d
 ```
 
 Compose uses `network_mode: host` for Linux LAN discovery and persists the
 connector credential under `/data`. The one-time enrollment code is mounted
-as a Compose secret and read only if no connector credential exists yet.
-Set `CHARGEPILOT_CONNECTOR_IMAGE` to the digest reported by the successful
-connector image workflow before pulling and restarting. The image reference is
-immutable; deployments do not silently follow a moving `latest` tag.
+as a Compose secret and read only if no connector credential exists yet. For a
+published image, run `docker compose pull` before `docker compose up -d`; the
+digest reference is immutable and does not silently follow a moving `latest`
+tag.
 
 The Switches page can also scan directly from the ChargePilot app's network
 without a connector. This scans from the app runtime itself: for Docker

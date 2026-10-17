@@ -1705,6 +1705,7 @@ function EventsPage() {
 function ConnectorsPage() {
   const queryClient = useQueryClient()
   const { data: user } = useSession()
+  const [deploymentMethod, setDeploymentMethod] = useState<'docker' | 'python'>('docker')
   const [name, setName] = useState('')
   const [tenantId, setTenantId] = useState('')
   const [enrollmentCode, setEnrollmentCode] = useState('')
@@ -1747,15 +1748,62 @@ function ConnectorsPage() {
   const tenants = tenantsQuery.data ?? []
   const actionError = createMutation.error ?? revokeMutation.error ?? deleteMutation.error
   const canManageConnectors = user?.role === 'super_admin' || user?.role === 'tenant_admin' || user?.role === 'manager'
+  const connectorServerUrl = API_BASE_URL || window.location.origin
 
   return (
     <div className="space-y-6">
       <PageHeader eyebrow="Remote device networks" title="Site connectors" description="Connect a computer on the same local network as your Tuya switches. It securely polls ChargePilot over HTTPS and performs discovery and control on site." />
       {actionError && <ErrorCard message={actionError.message} />}
+      <section className="connector-deploy-guide" aria-labelledby="connector-deploy-title">
+        <div className="connector-deploy-heading">
+          <div>
+            <h2 id="connector-deploy-title">Choose how to run your site connector</h2>
+            <p>One small service on the switch's LAN keeps discovery and control local.</p>
+          </div>
+          <div className="connector-network-path" aria-label="Connector network path">
+            <span>Tuya LAN</span><ChevronRight size={15} aria-hidden="true" /><span>Connector</span><ChevronRight size={15} aria-hidden="true" /><span>HTTPS</span>
+          </div>
+        </div>
+        <p className="connector-prerequisite"><ShieldCheck size={16} aria-hidden="true" /><span>Use an always-on computer on the same network as your switches. It needs outbound HTTPS and local Tuya traffic; no inbound Internet port is required.</span></p>
+        <div className="connector-method-options" role="group" aria-label="Connector deployment method">
+          <button type="button" className={`connector-method-option ${deploymentMethod === 'docker' ? 'is-selected' : ''}`} aria-pressed={deploymentMethod === 'docker'} onClick={() => setDeploymentMethod('docker')}>
+            <span className="connector-method-name">Docker Compose</span><span>Linux server, NAS, or Raspberry Pi</span>
+          </button>
+          <button type="button" className={`connector-method-option ${deploymentMethod === 'python' ? 'is-selected' : ''}`} aria-pressed={deploymentMethod === 'python'} onClick={() => setDeploymentMethod('python')}>
+            <span className="connector-method-name">Python process</span><span>Windows, Linux, or macOS</span>
+          </button>
+        </div>
+        <div className="connector-deploy-steps" aria-live="polite">
+          <article className="connector-deploy-step">
+            <span className="connector-step-number">1</span>
+            <div><h3>Get the connector files</h3><p>Download and extract the package on the computer that can reach the switches.</p><a href={backendUrl('/connectors/download')} className="connector-download-link">Download connector package</a></div>
+          </article>
+          <article className="connector-deploy-step">
+            <span className="connector-step-number">2</span>
+            <div><h3>Create its one-time code</h3><p>Name this network and generate a code below. It expires after 15 minutes and can be used once.</p>{canManageConnectors && <a href="#connector-enrollment-form" className="connector-step-link">Create enrollment code</a>}</div>
+          </article>
+          <article className="connector-deploy-step">
+            <span className="connector-step-number">3</span>
+            <div>
+              <h3>{deploymentMethod === 'docker' ? 'Build and start with Docker' : 'Install and start Python'}</h3>
+              {deploymentMethod === 'docker' ? <>
+                <p>Copy <code>.env.example</code> to <code>.env</code> and set <code>CHARGEPILOT_CONNECTOR_SERVER_URL</code>, <code>CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE</code>, and <code>CHARGEPILOT_CONNECTOR_DATA_DIR</code>. Use the local image name shown below.</p>
+                <pre className="connector-command"><code>CHARGEPILOT_CONNECTOR_IMAGE=chargepilot-connector:local{"\n"}docker build -f connector/Dockerfile -t chargepilot-connector:local .{"\n"}docker compose up -d</code></pre>
+                <p className="connector-step-note">Put the one-time code in the configured file first. Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668). The package README covers file permissions and logs.</p>
+              </> : <>
+                <p>Install Python 3.12+, then run these commands from the extracted folder. Enter the one-time code when prompted.</p>
+                <pre className="connector-command"><code>python -m pip install -r requirements.txt{"\n"}python -m connector.chargepilot_connector --server-url "{connectorServerUrl}"</code></pre>
+                <p className="connector-step-note">Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668). Keep it running with your operating system's service manager to start it at boot.</p>
+              </>}
+            </div>
+          </article>
+        </div>
+        <p className="connector-finish-note">When it reports online here, use the Switches page to scan this LAN and assign discovered switches to the connector.</p>
+      </section>
       {enrollmentCode && (
         <section className="rounded-2xl border border-amber-300 bg-amber-50 p-5" aria-labelledby="enrollment-code-title">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div><h2 id="enrollment-code-title" className="text-lg font-bold text-amber-950">One-time enrollment code</h2><p className="mt-1 text-sm text-amber-900">Enter it on the connector computer within 15 minutes. This code is shown only once.</p></div>
+            <div><h2 id="enrollment-code-title" className="text-lg font-bold text-amber-950">One-time enrollment code</h2><p className="mt-1 text-sm text-amber-900">Use it on the connector computer within 15 minutes. It is shown only once; do not share or commit it.</p></div>
             <button type="button" className="btn-secondary" onClick={async () => {
               try {
                 await navigator.clipboard.writeText(enrollmentCode)
@@ -1771,9 +1819,8 @@ function ConnectorsPage() {
       )}
       <div className="grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         {canManageConnectors && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-900">Add a connector</h2>
-          <p className="mt-1 text-sm text-slate-600">Download the package, then create a single-use enrollment code.</p>
-          <a href={backendUrl('/connectors/download')} className="mt-4 inline-flex rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100">Download connector package</a>
+          <h2 className="text-lg font-bold text-slate-900" id="connector-enrollment-form">Create enrollment code</h2>
+          <p className="mt-1 text-sm text-slate-600">Choose a name that identifies the physical switch network.</p>
           <form className="mt-4 space-y-3" onSubmit={(event) => { event.preventDefault(); createMutation.mutate() }}>
             <label className="label" htmlFor="connector-name">Name<input id="connector-name" required maxLength={160} className="field" value={name} onChange={(event) => setName(event.target.value)} placeholder="Main office LAN" /></label>
             {user?.role === 'super_admin' && <label className="label" htmlFor="connector-tenant">Tenant<select id="connector-tenant" required className="field" value={tenantId} onChange={(event) => setTenantId(event.target.value)}><option value="">Select a tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></label>}

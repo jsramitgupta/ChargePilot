@@ -158,3 +158,24 @@ def test_dark_tables_and_mapping_number_inputs_have_readable_theme_colors():
     assert contrast_ratio("#bdcdc4", "#192824") >= 4.5
     assert contrast_ratio("#e3eee8", "#192824") >= 4.5
     assert contrast_ratio("#b8e0c0", "#22392f") >= 4.5
+
+
+def test_connector_page_explains_supported_deployments_and_local_network_needs():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    connectors_page = app.split("function ConnectorsPage()", 1)[1].split("\nfunction ", 1)[0]
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    dark = DARK_THEME.read_text(encoding="utf-8")
+    connector_readme = (PROJECT_ROOT / "connector" / "README.md").read_text(encoding="utf-8")
+
+    assert "Docker Compose" in connectors_page
+    assert "Python process" in connectors_page
+    assert "Windows, Linux, or macOS" in connectors_page
+    assert "Linux server, NAS, or Raspberry Pi" in connectors_page
+    assert "no inbound Internet port is required" in connectors_page
+    assert "Create enrollment code" in connectors_page
+    assert "docker build -f connector/Dockerfile" in connectors_page
+    assert "python -m connector.chargepilot_connector --server-url" in connectors_page
+    assert "same local network" in connectors_page
+    assert ".connector-deploy-guide" in light
+    assert "body.theme-dark .connector-deploy-guide" in dark
+    assert "chargepilot-connector:local" in connector_readme

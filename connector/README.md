@@ -12,10 +12,11 @@ automatically.
 
 1. Download and extract the connector package from **Connectors** in
    ChargePilot.
-2. Copy `.env.example` to `.env`. Set `CHARGEPILOT_CONNECTOR_IMAGE` to the
-   digest reference reported in the successful connector image workflow
-   summary, then set the HTTPS ChargePilot URL, enrollment-code file path, and
-   persistent data directory as needed.
+2. Copy `.env.example` to `.env`. For a local build, set
+   `CHARGEPILOT_CONNECTOR_IMAGE=chargepilot-connector:local`; also set the
+   HTTPS ChargePilot URL, enrollment-code file path, and persistent data
+   directory. To use a published image instead, set the image to the immutable
+   digest reference reported in the successful connector image workflow.
 3. Create the enrollment code file at the path set in
    `CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE`. Paste the one-time code from
    the ChargePilot **Connectors** page into it. The connector runs as UID
@@ -35,11 +36,19 @@ automatically.
    sudo chown 10001:10001 connector-data
    ```
 
-5. Start the connector:
+5. For a local build, build the image and start the connector:
 
    ```sh
+   docker build -f connector/Dockerfile -t chargepilot-connector:local .
    docker compose up -d
    docker compose logs -f chargepilot-connector
+   ```
+
+   If using a published image, pull its configured digest before starting:
+
+   ```sh
+   docker compose pull
+   docker compose up -d
    ```
 
    The connector exchanges the one-time code for its permanent credential and
@@ -53,8 +62,8 @@ reaches the local LAN. Permit outbound HTTPS to ChargePilot and local Tuya
 traffic (commonly UDP 6666, 6667, 7000 and TCP 6668). Do not publish the
 enrollment code, permanent credential, or data directory.
 
-To deploy a newer connector build, update the image digest in `.env` to the
-reference reported by the successful GitHub Actions workflow, then run:
+To deploy a newer published connector build, update the image digest in `.env`
+to the reference reported by the successful GitHub Actions workflow, then run:
 
 ```sh
 docker compose pull
