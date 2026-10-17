@@ -337,6 +337,27 @@ On a genuinely empty database, startup uses SQLAlchemy `Base.metadata.create_all
 
 The repository does not currently contain Alembic revision files. `create_all()` is not a versioned migration system and does not safely upgrade arbitrary existing schemas. Back up existing data and plan a dedicated schema migration before deploying schema-changing updates to an existing installation.
 
+Laptop endpoints are identified by the Windows
+`Win32_ComputerSystemProduct.UUID`; hostname remains mutable display and
+diagnostic data. The endpoint `hardware_uuid` column is nullable for existing
+rows, and a unique index permits those unassigned legacy rows while preventing
+duplicate hardware identities. Startup adds the nullable column and index.
+For a large PostgreSQL database, apply the additive change before rollout to
+avoid building the unique index during API startup:
+
+```sql
+ALTER TABLE endpoints ADD COLUMN IF NOT EXISTS hardware_uuid VARCHAR(36);
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ix_endpoints_hardware_uuid
+    ON endpoints (hardware_uuid);
+```
+
+`CREATE INDEX CONCURRENTLY` must run outside a transaction. Existing endpoint
+rows keep their IDs and mappings; the first UUID-bearing telemetry from the
+same tenant and hostname attaches the UUID to an unassigned legacy row. No
+hardware identity is guessed during migration. New endpoint registrations
+require an updated agent that sends a valid hardware UUID. Install the current
+agent package after upgrading the API.
+
 The telemetry lookup path now uses the composite
 `ix_endpoints_tenant_hostname` index. `create_all()` creates it for a new
 database, but does not add it to an already-existing `endpoints` table. For

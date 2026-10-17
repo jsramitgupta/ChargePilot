@@ -19,6 +19,7 @@
       <thead>
         <tr>
           <th>Hostname</th>
+          <th>Hardware UUID</th>
           <th>IP</th>
           <th>Battery</th>
           <th>Power</th>
@@ -31,6 +32,7 @@
         {% for row in rows %}
           <tr>
             <td class="strong-cell">{{ row.hostname }}</td>
+            <td class="font-mono text-xs" title="{{ row.hardware_uuid or '' }}">{{ row.hardware_uuid or 'Pending agent update' }}</td>
             <td>{{ row.ip_address }}</td>
             <td>{{ row.battery }}%</td>
             <td>
@@ -58,7 +60,7 @@
           </tr>
         {% else %}
           <tr>
-            <td colspan="7" class="empty-state">No laptops have reported telemetry yet.</td>
+            <td colspan="8" class="empty-state">No laptops have reported telemetry yet.</td>
           </tr>
         {% endfor %}
       </tbody>

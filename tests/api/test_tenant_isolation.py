@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -213,6 +214,57 @@ def test_tenant_agent_token_cannot_fetch_another_tenants_agent_config():
         headers={"Authorization": "Bearer " + token_a},
     )
     assert response.status_code == 404
+
+
+def test_hardware_uuid_is_unique_across_tenants_and_config_remains_scoped():
+    hardware_uuid = "a19f1d84-0a2c-4a34-bf95-a61ff3231c4a"
+    with SessionLocal() as db:
+        tenant_a, user_a = _create_tenant_account(db, "hardware-a")
+        tenant_b, user_b = _create_tenant_account(db, "hardware-b")
+        token_a = tenant_a.agent_token
+        token_b = tenant_b.agent_token
+        username_a = user_a.username
+        username_b = user_b.username
+        db.commit()
+
+    payload = {
+        "hostname": "HARDWARE-A-LAPTOP",
+        "hardware_uuid": hardware_uuid,
+        "ip_address": "192.168.1.20",
+        "battery_percentage": 51,
+        "charging": False,
+        "ac_connected": False,
+        "timestamp": datetime.now(UTC).isoformat(),
+        "agent_version": "2.0.0",
+    }
+    register = TestClient(app).post(
+        "/api/v1/telemetry",
+        json=payload,
+        headers={"Authorization": "Bearer " + token_a},
+    )
+    assert register.status_code == 200, register.text
+
+    forbidden_config = TestClient(app).get(
+        "/api/v1/endpoints/agent-config",
+        params={"hardware_uuid": hardware_uuid, "hostname": payload["hostname"]},
+        headers={"Authorization": "Bearer " + token_b},
+    )
+    assert forbidden_config.status_code == 404
+
+    cross_tenant_registration = TestClient(app).post(
+        "/api/v1/telemetry",
+        json={**payload, "hostname": "HARDWARE-B-LAPTOP"},
+        headers={"Authorization": "Bearer " + token_b},
+    )
+    assert cross_tenant_registration.status_code == 409
+
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter(Endpoint.hardware_uuid == hardware_uuid).one()
+        assert endpoint.hostname == payload["hostname"]
+        assert endpoint.tenant_id is not None
+
+    assert _login(username_a).get("/api/v1/endpoints").json()[0]["hostname"] == payload["hostname"]
+    assert _login(username_b).get("/api/v1/endpoints").json() == []
 
 
 def test_data_apis_require_a_user_session():

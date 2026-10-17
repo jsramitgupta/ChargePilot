@@ -75,6 +75,7 @@ def test_authenticated_agent_setup_page_shows_tenant_token_command_and_download(
     assert "no-store" in download.headers["cache-control"]
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
         assert set(archive.namelist()) == {"BatteryAgent.ps1", "CreateAgentScheduledTask.ps1"}
+        assert b"hardware_uuid = $hardwareUuid" in archive.read("BatteryAgent.ps1")
         assert token.encode() not in archive.read("CreateAgentScheduledTask.ps1")
 
 

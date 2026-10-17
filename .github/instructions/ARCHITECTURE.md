@@ -82,7 +82,8 @@ Key runtime modules:
 
 The model set in `app/models/` includes:
 
-- `Endpoint` — laptop telemetry source
+- `Endpoint` — laptop telemetry source, uniquely identified by its hardware
+  UUID; hostname is captured separately and may change
 - `Device` — local smart switch metadata and current state
 - `DeviceChannel` — channel-specific state
 - `Mapping` — endpoint-to-device threshold mapping
@@ -105,18 +106,20 @@ Current services include:
 
 ### Telemetry request flow
 
-1. The PowerShell agent posts battery and connection telemetry to `/api/v1/telemetry`.
-2. `receive_telemetry()` validates the bearer token and timestamp freshness.
-3. Endpoint snapshot and telemetry outbox event commit in one transaction.
-4. One or more outbox relays publish records to Kafka, retaining per-endpoint
+1. The PowerShell agent posts hardware UUID, hostname, battery, and connection telemetry to `/api/v1/telemetry`.
+2. `receive_telemetry()` validates the bearer token, hardware UUID, and timestamp freshness.
+3. The API upserts by hardware UUID; a UUID-less legacy endpoint can be matched
+   by tenant and hostname once to preserve its existing ID and mappings.
+4. Endpoint snapshot and telemetry outbox event commit in one transaction.
+5. One or more outbox relays publish records to Kafka, retaining per-endpoint
    ordering and allowing safe relay concurrency across distinct endpoints.
-5. A consumer group processes the event, checks its idempotency record, loads
+6. A consumer group processes the event, checks its idempotency record, loads
    mappings, and applies battery hysteresis/cooldown.
-6. Connector-assigned switches receive durable desired-state commands;
+7. Connector-assigned switches receive durable desired-state commands;
    unassigned local devices use the existing direct TinyTuya path.
-7. The processor records state and audit outcomes. Kafka acknowledgements
+8. The processor records state and audit outcomes. Kafka acknowledgements
    follow database processing; repeated delivery is guarded by event ID.
-8. The UI reads updated state through the API and receives SSE where subscribed.
+9. The UI reads updated state through the API and receives SSE where subscribed.
 
 ### Device wizard flow
 

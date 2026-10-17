@@ -9,6 +9,7 @@ class EndpointBase(BaseModel):
 
     name: str | None = None
     hostname: str
+    hardware_uuid: UUID | None = None
     ip_address: str | None = None
     battery_percentage: int = 0
     charging: bool = False

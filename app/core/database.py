@@ -55,6 +55,7 @@ def _ensure_table_columns() -> None:
         "endpoints": {
             "owner_id": "VARCHAR(36)",
             "tenant_id": "VARCHAR(36)",
+            "hardware_uuid": "VARCHAR(36)",
             "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
         },
         "mappings": {
@@ -121,6 +122,16 @@ def _ensure_cascade_foreign_keys() -> None:
                 ADD CONSTRAINT device_channels_device_id_fkey
                     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE;
         """))
+
+
+def _ensure_endpoint_hardware_uuid_index() -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_endpoints_hardware_uuid "
+                "ON endpoints (hardware_uuid)"
+            )
+        )
 
 
 def _backfill_tenant_ownership() -> None:
@@ -269,6 +280,7 @@ def create_db_and_tables() -> None:
         if lock_connection is not None:
             lock_connection.commit()
         _ensure_table_columns()
+        _ensure_endpoint_hardware_uuid_index()
         with SessionLocal() as db:
             for device in db.query(Device).all():
                 if not device.encrypted_local_key.startswith("gAAAA"):

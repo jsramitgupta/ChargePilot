@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -54,6 +55,7 @@ async def list_endpoints(
             {
                 "id": endpoint.id,
                 "hostname": endpoint.hostname,
+                "hardware_uuid": endpoint.hardware_uuid,
                 "ip_address": endpoint.ip_address,
                 "battery": endpoint.battery_percentage,
                 "charging": endpoint.charging,
@@ -73,11 +75,21 @@ async def create_endpoint(
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
 ):
+    hardware_uuid = str(payload.hardware_uuid) if payload.hardware_uuid else None
+    if hardware_uuid and db.query(Endpoint.id).filter(
+        Endpoint.hardware_uuid == hardware_uuid
+    ).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This hardware UUID is already registered.",
+        )
+
     endpoint = Endpoint(
         owner_id=user.id,
         tenant_id=user.tenant_id,
         name=payload.name or payload.hostname,
         hostname=payload.hostname,
+        hardware_uuid=hardware_uuid,
         ip_address=payload.ip_address,
         battery_percentage=payload.battery_percentage,
         charging=payload.charging,
@@ -101,6 +113,7 @@ def _serialize_agent_config(endpoint: Endpoint, db: Session) -> dict[str, object
     return {
         "endpoint_id": endpoint.id,
         "hostname": endpoint.hostname,
+        "hardware_uuid": endpoint.hardware_uuid,
         "mappings": [
             {
                 "id": mapping.id,
@@ -120,6 +133,7 @@ def _serialize_agent_config(endpoint: Endpoint, db: Session) -> dict[str, object
 @router.get("/agent-config")
 async def get_endpoint_agent_config_by_hostname(
     hostname: str | None = None,
+    hardware_uuid: UUID | None = None,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
 ):
@@ -127,13 +141,41 @@ async def get_endpoint_agent_config_by_hostname(
     if not is_valid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing endpoint token.")
 
-    if not hostname:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="hostname query parameter is required.")
+    if not hostname and not hardware_uuid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="hardware_uuid or hostname query parameter is required.",
+        )
 
-    endpoint_query = db.query(Endpoint).filter(Endpoint.hostname == hostname)
+    endpoint_query = db.query(Endpoint)
     if tenant is not None:
         endpoint_query = endpoint_query.filter(Endpoint.tenant_id == tenant.id)
-    endpoint = endpoint_query.first()
+    else:
+        endpoint_query = endpoint_query.filter(Endpoint.tenant_id.is_(None))
+
+    endpoint = None
+    if hardware_uuid:
+        any_tenant_endpoint = db.query(Endpoint).filter(
+            Endpoint.hardware_uuid == str(hardware_uuid)
+        ).first()
+        if any_tenant_endpoint is not None:
+            if any_tenant_endpoint.tenant_id != (tenant.id if tenant else None):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Endpoint not found.",
+                )
+            endpoint = any_tenant_endpoint
+    if endpoint is None and hostname:
+        legacy_matches = endpoint_query.filter(
+            Endpoint.hostname == hostname,
+            Endpoint.hardware_uuid.is_(None),
+        ).all()
+        if len(legacy_matches) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Multiple legacy endpoints share this hostname; use the hardware UUID.",
+            )
+        endpoint = legacy_matches[0] if legacy_matches else None
     if endpoint is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found.")
 

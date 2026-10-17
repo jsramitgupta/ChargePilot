@@ -101,6 +101,24 @@ function Get-IpAddress {
     return "0.0.0.0"
 }
 
+function Get-HardwareUuid {
+    try {
+        $hardware = Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction Stop |
+            Select-Object -First 1
+        $uuid = [guid]$hardware.UUID
+    }
+    catch {
+        throw "Unable to read the laptop hardware UUID from Win32_ComputerSystemProduct."
+    }
+
+    $normalized = $uuid.ToString("D").ToLowerInvariant()
+    if ($uuid -eq [guid]::Empty -or $normalized -eq "ffffffff-ffff-ffff-ffff-ffffffffffff") {
+        throw "The laptop firmware does not provide a usable hardware UUID."
+    }
+
+    return $normalized
+}
+
 function Get-BatteryStatus {
     $battery = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $battery) {
@@ -176,7 +194,8 @@ function Get-LatestAgentConfig {
     param(
         [string]$ServerUrl,
         [string]$EndpointToken,
-        [string]$Hostname
+        [string]$Hostname,
+        [string]$HardwareUuid
     )
 
     if ([string]::IsNullOrWhiteSpace($ServerUrl) -or [string]::IsNullOrWhiteSpace($EndpointToken)) {
@@ -184,7 +203,8 @@ function Get-LatestAgentConfig {
     }
 
     $encodedHostname = [uri]::EscapeDataString($Hostname)
-    $uri = "$ServerUrl/api/v1/endpoints/agent-config?hostname=$encodedHostname"
+    $encodedHardwareUuid = [uri]::EscapeDataString($HardwareUuid)
+    $uri = "$ServerUrl/api/v1/endpoints/agent-config?hardware_uuid=$encodedHardwareUuid&hostname=$encodedHostname"
     $headers = @{
         Authorization = "Bearer $EndpointToken"
         "Content-Type" = "application/json"
@@ -195,7 +215,23 @@ function Get-LatestAgentConfig {
         return $response
     }
     catch {
-        Write-Warning "Unable to refresh agent config from $uri. Falling back to local defaults."
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+
+        if ($statusCode -eq 404) {
+            Write-Host "Laptop is not registered yet; sending its first telemetry now."
+        }
+        elseif ($statusCode -eq 401) {
+            Write-Warning "ChargePilot rejected the agent token (HTTP 401). Download a fresh installer from Agent setup."
+        }
+        elseif ($statusCode) {
+            Write-Warning "Unable to refresh agent configuration (HTTP $statusCode)."
+        }
+        else {
+            Write-Warning "Unable to refresh agent configuration: $($_.Exception.Message)"
+        }
         return $null
     }
 }
@@ -206,13 +242,14 @@ $EndpointToken = $config.EndpointToken
 $AgentVersion = $config.AgentVersion
 
 $hostname = $env:COMPUTERNAME
+$hardwareUuid = Get-HardwareUuid
 $ipAddress = Get-IpAddress
 $status = Get-BatteryStatus
 $batteryPercentage = $status.BatteryPercentage
 $charging = $status.Charging
 $acConnected = $status.AcConnected
 $lastState = Get-LastSwitchState
-$remoteConfig = Get-LatestAgentConfig -ServerUrl $ServerUrl -EndpointToken $EndpointToken -Hostname $hostname
+$remoteConfig = Get-LatestAgentConfig -ServerUrl $ServerUrl -EndpointToken $EndpointToken -Hostname $hostname -HardwareUuid $hardwareUuid
 
 $onThreshold = 30
 $offThreshold = 90
@@ -229,6 +266,7 @@ Save-SwitchState -State $switchState
 
 $payload = [ordered]@{
     hostname = $hostname
+    hardware_uuid = $hardwareUuid
     ip_address = $ipAddress
     battery_percentage = $batteryPercentage
     charging = $charging
@@ -253,6 +291,18 @@ try {
 }
 catch {
     $message = $_.Exception.Message
-    Write-Warning "Failed to send telemetry: $message"
-    exit 0
+    $statusCode = $null
+    if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+        $statusCode = [int]$_.Exception.Response.StatusCode
+    }
+    if ($statusCode -eq 401) {
+        Write-Warning "ChargePilot rejected the agent token (HTTP 401). Download a fresh installer from Agent setup."
+    }
+    elseif ($statusCode) {
+        Write-Warning "Failed to send telemetry (HTTP $statusCode): $message"
+    }
+    else {
+        Write-Warning "Failed to send telemetry: $message"
+    }
+    exit 1
 }

@@ -9,11 +9,15 @@ from app.core.database import Base
 
 class Endpoint(Base):
     __tablename__ = "endpoints"
-    __table_args__ = (Index("ix_endpoints_tenant_hostname", "tenant_id", "hostname"),)
+    __table_args__ = (
+        Index("ix_endpoints_tenant_hostname", "tenant_id", "hostname"),
+        Index("ix_endpoints_hardware_uuid", "hardware_uuid", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    hardware_uuid: Mapped[str | None] = mapped_column(String(36), nullable=True)
     name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     hostname: Mapped[str] = mapped_column(String(160), nullable=False)
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)

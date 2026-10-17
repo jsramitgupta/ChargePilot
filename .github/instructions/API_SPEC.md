@@ -109,6 +109,7 @@ Request schema (`app/schemas/telemetry.py`):
 
 ```json
 {
+  "hardware_uuid": "4b4b2b91-6c32-4d5b-8a9f-2a73b8e94d11",
   "hostname": "LAPTOP-01",
   "ip_address": "192.168.1.20",
   "battery_percentage": 82,
@@ -122,6 +123,9 @@ Request schema (`app/schemas/telemetry.py`):
 
 Validation rules:
 
+- `hardware_uuid`: required to create a new endpoint; normalized as a UUID and
+  unique across the installation. Existing legacy endpoints may omit it while
+  matching their previously registered hostname.
 - `hostname`: 1-160 chars
 - `ip_address`: 7-64 chars
 - `battery_percentage`: integer in range 0-100
@@ -134,6 +138,7 @@ Success response:
 {
   "status": "accepted",
   "hostname": "LAPTOP-01",
+  "hardware_uuid": "4b4b2b91-6c32-4d5b-8a9f-2a73b8e94d11",
   "battery_percentage": 82,
   "message": "Telemetry accepted for asynchronous automation processing."
 }
@@ -145,6 +150,12 @@ Behavior:
 - rejects telemetry older than seven days
 - atomically updates or creates the endpoint snapshot and `TelemetryOutbox`
   record; a successful response means this transaction committed
+- identifies an endpoint by `hardware_uuid`, while capturing the current
+  hostname as mutable display metadata; a hostname change updates the existing
+  hardware record rather than creating another laptop
+- links a legacy endpoint without a hardware UUID to its UUID on the first
+  matching telemetry for that tenant and hostname; existing endpoint IDs,
+  mappings, and history are preserved
 - relays the event to the `chargepilot.telemetry.v1` Kafka topic using a
   tenant/endpoint ordering key
 - automation workers evaluate active mappings with the existing threshold,
@@ -161,7 +172,8 @@ not infer that rule evaluation or device control completed from the HTTP
 acceptance response. Monitor outbox age, Kafka consumer lag, dead-letter volume,
 and command completion.
 
-The PowerShell telemetry payload and endpoint token flow are unchanged.
+The PowerShell telemetry payload now includes `hardware_uuid`; its bearer-token
+flow is unchanged.
 Kafka-specific service settings use the `CHARGEPILOT_` prefix.
 
 ### 3.4 GET /api/v1/endpoints
@@ -175,6 +187,7 @@ Example response:
   {
     "id": "...",
     "hostname": "LAPTOP-01",
+    "hardware_uuid": "4b4b2b91-6c32-4d5b-8a9f-2a73b8e94d11",
     "ip_address": "192.168.1.20",
     "battery": 82,
     "status": "online",
@@ -182,6 +195,10 @@ Example response:
   }
 ]
 ```
+
+`hardware_uuid` is nullable for endpoints created before the hardware-identity
+upgrade. A current agent fills the value on its first matching telemetry
+request, keeping the existing endpoint ID and mappings.
 
 ## 4. Device API
 

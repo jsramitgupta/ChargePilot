@@ -58,6 +58,7 @@ type User = {
 type Endpoint = {
   id: string
   hostname: string
+  hardware_uuid: string | null
   ip_address: string | null
   battery: number
   charging: boolean
@@ -1144,10 +1145,11 @@ function EndpointsPage() {
         <div className="panel-header"><h3>Tracked laptops</h3></div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Hostname</th><th>IP</th><th>Battery</th><th>Power</th><th>Last seen</th><th>Status</th><th className="align-right">Action</th></tr></thead>
+            <thead><tr><th>Hostname</th><th>Hardware UUID</th><th>IP</th><th>Battery</th><th>Power</th><th>Last seen</th><th>Status</th><th className="align-right">Action</th></tr></thead>
             <tbody>
               {data?.map((endpoint) => <tr key={endpoint.id}>
                 <td className="strong-cell">{endpoint.hostname}</td>
+                <td className="font-mono text-xs" title={endpoint.hardware_uuid || undefined}>{endpoint.hardware_uuid || 'Pending agent update'}</td>
                 <td>{endpoint.ip_address || 'unknown'}</td>
                 <td>{endpoint.battery}%</td>
                 <td><span className={`badge ${endpoint.charging || endpoint.ac_connected ? 'success' : 'muted'}`}>{endpoint.charging ? 'Charging' : endpoint.ac_connected ? 'On AC' : 'On battery'}</span></td>
@@ -1157,7 +1159,7 @@ function EndpointsPage() {
                   if (window.confirm(`Delete laptop ${endpoint.hostname}? Its mappings and event history will also be removed.`)) deleteMutation.mutate(endpoint.id)
                 }}>Delete laptop</button></td>
               </tr>)}
-              {!data?.length && <tr><td colSpan={7} className="empty-state">No laptops have reported telemetry yet.</td></tr>}
+              {!data?.length && <tr><td colSpan={8} className="empty-state">No laptops have reported telemetry yet.</td></tr>}
             </tbody>
           </table>
         </div>

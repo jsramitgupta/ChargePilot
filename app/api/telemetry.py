@@ -82,15 +82,53 @@ async def receive_telemetry(
             detail="Telemetry timestamp is too old.",
         )
 
-    endpoint_query = db.query(Endpoint).filter(Endpoint.hostname == payload.hostname)
-    if tenant is not None:
+    endpoint_query = db.query(Endpoint)
+    if tenant is None:
+        endpoint_query = endpoint_query.filter(Endpoint.tenant_id.is_(None))
+    else:
         endpoint_query = endpoint_query.filter(Endpoint.tenant_id == tenant.id)
-    endpoint = endpoint_query.first()
+
+    hardware_uuid = str(payload.hardware_uuid) if payload.hardware_uuid else None
+    endpoint = None
+    if hardware_uuid is not None:
+        endpoint = (
+            db.query(Endpoint)
+            .filter(Endpoint.hardware_uuid == hardware_uuid)
+            .first()
+        )
+        if endpoint is not None and endpoint.tenant_id != (tenant.id if tenant else None):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This hardware UUID is already registered to another tenant.",
+            )
+
+    if endpoint is None:
+        hostname_matches = endpoint_query.filter(
+            Endpoint.hostname == payload.hostname,
+        ).all()
+        if hardware_uuid is not None:
+            hostname_matches = [
+                match for match in hostname_matches if match.hardware_uuid is None
+            ]
+        if len(hostname_matches) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Multiple endpoints share this hostname; send the hardware UUID to identify this laptop.",
+            )
+        endpoint = hostname_matches[0] if hostname_matches else None
+
+    if endpoint is None and hardware_uuid is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="hardware_uuid is required to register a new laptop. Update the ChargePilot agent and retry.",
+        )
+
     if endpoint is None:
         endpoint = Endpoint(
             name=payload.hostname,
             hostname=payload.hostname,
             tenant_id=tenant.id if tenant is not None else None,
+            hardware_uuid=hardware_uuid,
             ip_address=payload.ip_address,
             battery_percentage=payload.battery_percentage,
             charging=payload.charging,
@@ -102,6 +140,9 @@ async def receive_telemetry(
         db.add(endpoint)
     else:
         endpoint.name = payload.hostname
+        endpoint.hostname = payload.hostname
+        if hardware_uuid is not None:
+            endpoint.hardware_uuid = hardware_uuid
         endpoint.ip_address = payload.ip_address
         endpoint.battery_percentage = payload.battery_percentage
         endpoint.charging = payload.charging
@@ -128,6 +169,7 @@ async def receive_telemetry(
     return TelemetryResponse(
         status="accepted",
         hostname=payload.hostname,
+        hardware_uuid=payload.hardware_uuid,
         battery_percentage=payload.battery_percentage,
         message="Telemetry accepted for asynchronous automation processing.",
     )

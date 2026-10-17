@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect, text
 
-from app.core.database import Base, _ensure_table_columns, engine
+from app.core.database import (
+    Base,
+    SessionLocal,
+    _ensure_endpoint_hardware_uuid_index,
+    _ensure_table_columns,
+    engine,
+)
 from app.main import app
 
 
@@ -101,6 +107,35 @@ def test_ensure_table_columns_adds_missing_device_channel_state_column():
     assert "current_state" in columns
 
     Base.metadata.create_all(bind=engine)
+
+
+def test_endpoint_uuid_migration_keeps_existing_rows_and_adds_unique_index():
+    from app.models.endpoint import Endpoint
+
+    with SessionLocal() as db:
+        db.add(Endpoint(hostname="legacy-hardware-uuid-migration"))
+        db.commit()
+
+    with engine.begin() as conn:
+        conn.execute(text("DROP INDEX ix_endpoints_hardware_uuid"))
+        conn.execute(text("ALTER TABLE endpoints DROP COLUMN hardware_uuid"))
+
+    _ensure_table_columns()
+    _ensure_endpoint_hardware_uuid_index()
+
+    columns = {column["name"] for column in inspect(engine).get_columns("endpoints")}
+    uuid_index = next(
+        index
+        for index in inspect(engine).get_indexes("endpoints")
+        if index["name"] == "ix_endpoints_hardware_uuid"
+    )
+    assert "hardware_uuid" in columns
+    assert uuid_index["unique"] == 1
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter(
+            Endpoint.hostname == "legacy-hardware-uuid-migration"
+        ).one()
+        assert endpoint.hardware_uuid is None
 
 
 def test_device_and_mapping_crud_flow():
@@ -795,6 +830,7 @@ def test_dashboard_shows_live_endpoint_telemetry():
         headers={"Authorization": "Bearer test-endpoint-token"},
         json={
             "hostname": "LIVE-LAPTOP",
+            "hardware_uuid": "c19f1d84-0a2c-4a34-bf95-a61ff3231c46",
             "ip_address": "192.168.0.77",
             "battery_percentage": 42,
             "charging": True,
@@ -861,6 +897,7 @@ def test_telemetry_does_not_override_mapping_thresholds_with_agent_switch_state(
         headers={"Authorization": "Bearer test-endpoint-token"},
         json={
             "hostname": "AGENT-CONTROLLED-ENDPOINT",
+            "hardware_uuid": "c19f1d84-0a2c-4a34-bf95-a61ff3231c47",
             "ip_address": "192.168.0.94",
             "battery_percentage": 64,
             "charging": False,
@@ -925,6 +962,7 @@ def test_endpoints_and_events_pages_do_not_render_scaffold_data():
         headers={"Authorization": "Bearer test-endpoint-token"},
         json={
             "hostname": "REAL-ENDPOINT",
+            "hardware_uuid": "c19f1d84-0a2c-4a34-bf95-a61ff3231c48",
             "ip_address": "192.168.0.88",
             "battery_percentage": 77,
             "charging": False,
@@ -939,6 +977,7 @@ def test_endpoints_and_events_pages_do_not_render_scaffold_data():
     assert endpoints_response.status_code == 200
     endpoints_body = endpoints_response.text
     assert "REAL-ENDPOINT" in endpoints_body
+    assert "c19f1d84-0a2c-4a34-bf95-a61ff3231c48" in endpoints_body
     assert "LAPTOP-001" not in endpoints_body
 
     events_response = client.get("/events")
@@ -984,6 +1023,7 @@ def test_telemetry_turns_off_mapped_device_when_battery_exceeds_off_threshold(mo
         headers={"Authorization": "Bearer test-endpoint-token"},
         json={
             "hostname": "AUTO-OFF-ENDPOINT",
+            "hardware_uuid": "c19f1d84-0a2c-4a34-bf95-a61ff3231c49",
             "ip_address": "192.168.0.81",
             "battery_percentage": 99,
             "charging": True,
@@ -1087,6 +1127,7 @@ def test_telemetry_uses_live_device_status_when_db_state_is_stale(monkeypatch):
         headers={"Authorization": "Bearer test-endpoint-token"},
         json={
             "hostname": "LIVE-STATE-ENDPOINT",
+            "hardware_uuid": "c19f1d84-0a2c-4a34-bf95-a61ff3231c4b",
             "ip_address": "192.168.0.91",
             "battery_percentage": 99,
             "charging": True,

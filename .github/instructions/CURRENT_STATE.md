@@ -34,9 +34,12 @@ consistent and avoid replacing real API behavior with fabricated frontend
 state.
 
 ## Current primary workflows
-1. PowerShell agent posts telemetry to `/api/v1/telemetry`.
-2. API validates endpoint token and timestamp, then atomically stores the
-   endpoint snapshot and a transactional outbox event in PostgreSQL.
+1. PowerShell agent posts its hardware UUID, current hostname, and battery
+   telemetry to `/api/v1/telemetry`.
+2. API validates endpoint token, hardware UUID, and timestamp, then upserts the
+   endpoint by hardware UUID and atomically stores its snapshot plus a
+   transactional outbox event in PostgreSQL. Existing UUID-less endpoints are
+   retained and linked to a UUID on matching tenant-scoped telemetry.
 3. The outbox relay publishes events to Kafka in endpoint-key order.
 4. Automation consumers evaluate active mappings using battery hysteresis and
    cooldown rules; connector commands remain durable in PostgreSQL.

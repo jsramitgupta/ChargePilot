@@ -574,6 +574,7 @@ async def endpoints_view(request: Request, db: Session = Depends(get_db)):
             {
                 "id": endpoint.id,
                 "hostname": endpoint.hostname,
+                "hardware_uuid": endpoint.hardware_uuid,
                 "ip_address": endpoint.ip_address or "unknown",
                 "battery": endpoint.battery_percentage,
                 "charging": endpoint.charging,
