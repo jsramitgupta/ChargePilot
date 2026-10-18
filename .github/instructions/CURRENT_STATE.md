@@ -28,6 +28,10 @@ is the only browser UI. Legacy page GETs redirect to the matching React route.
 React admin pages use authenticated, tenant-scoped API data and preserve
 server-side authorization and business rules. The UI has responsive
 left-rail navigation and light/dark theme parity.
+The canonical route inventory, typography scale, color tokens, theme behavior,
+responsive decisions, and UI change checklist are in
+`.github/instructions/FRONTEND_DESIGN.md`; update that reference with UI
+behavior changes so future agents can follow the established design.
 The mapping wizard has no form submission side effect: Continue only advances
 the setup, and creating or editing a mapping requires its explicit save button.
 Step 3 reviews the selected laptop and switch alongside editable battery rules.

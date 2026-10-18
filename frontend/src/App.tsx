@@ -423,7 +423,7 @@ function useAppTheme() {
 
   useEffect(() => {
     document.body.classList.toggle('theme-dark', isDark)
-    document.body.classList.add('bg-slate-50')
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark ? '#101c19' : '#eef3f0')
     window.localStorage.setItem('chargepilot-theme', isDark ? 'dark' : 'light')
   }, [isDark])
 
@@ -435,8 +435,9 @@ function ThemeToggleButton({ isDark, onToggle, className = '' }: { isDark: boole
     <button
       type="button"
       onClick={onToggle}
-      className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark-card-shell ${className}`}
+      className={`theme-toggle ${className}`}
       aria-label={isDark ? 'Use light theme' : 'Use dark theme'}
+      aria-pressed={isDark}
     >
       {isDark ? <Sun size={18} aria-hidden="true" /> : <Moon size={18} aria-hidden="true" />}
     </button>
@@ -744,11 +745,11 @@ function RegisterPage() {
           <div className="field-group">
             <label htmlFor="email">Email address</label>
             <input id="email" name="email" type="email" autoComplete="email" maxLength={254} required className="field" value={email} onChange={(event) => setEmail(event.target.value)} />
-            <p className="mt-1 text-xs text-slate-500">We’ll send a verification link that expires in 30 minutes.</p>
+            <p className="auth-helper">We’ll send a verification link that expires in 30 minutes.</p>
           </div>
           {accountType === 'tenant'
             ? <div className="field-group"><label htmlFor="tenant_name">Tenant name</label><input id="tenant_name" name="tenant_name" type="text" minLength={1} maxLength={160} placeholder="My tenant" className="field" required value={tenantName} onChange={(event) => setTenantName(event.target.value)} /></div>
-            : <div className="field-group"><label htmlFor="invite_code">One-time tenant invite code</label><input id="invite_code" name="invite_code" type="text" autoComplete="off" spellCheck={false} required className="field font-mono" value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} /><p className="mt-1 text-xs text-slate-500">Ask your tenant administrator for a code. It can be used once and expires after seven days.</p></div>}
+            : <div className="field-group"><label htmlFor="invite_code">One-time tenant invite code</label><input id="invite_code" name="invite_code" type="text" autoComplete="off" spellCheck={false} required className="field font-mono" value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} /><p className="auth-helper">Ask your tenant administrator for a code. It can be used once and expires after seven days.</p></div>}
           <div className="field-group">
             <span>Human verification</span>
             <TurnstileChallenge key={`${accountType}-${challengeReset}`} onToken={setTurnstileToken} />
@@ -1102,10 +1103,10 @@ function DashboardPage() {
       </section>
 
       <div className="stats-grid">
-        <MetricCard label="Total endpoints" value={String(endpoints.length)} hint="laptops reporting" icon={MonitorSmartphone} tone="blue" />
-        <MetricCard label="Online endpoints" value={String(onlineCount)} hint="seen in the last 10 minutes" icon={CheckCircle2} tone="emerald" />
-        <MetricCard label="Offline endpoints" value={String(endpoints.length - onlineCount)} hint="not recently reporting" icon={CircleDashed} tone="amber" />
-        <MetricCard label="Smart switches" value={String(devices.length)} hint="configured devices" icon={PlugZap} tone="violet" />
+        <MetricCard label="Total endpoints" value={String(endpoints.length)} hint="laptops reporting" icon={MonitorSmartphone} />
+        <MetricCard label="Online endpoints" value={String(onlineCount)} hint="seen in the last 10 minutes" icon={CheckCircle2} />
+        <MetricCard label="Offline endpoints" value={String(endpoints.length - onlineCount)} hint="not recently reporting" icon={CircleDashed} />
+        <MetricCard label="Smart switches" value={String(devices.length)} hint="configured devices" icon={PlugZap} />
       </div>
 
       <section className="panel table-panel">
@@ -2479,7 +2480,7 @@ function LoadingCard() {
 }
 
 function ErrorCard({ message }: { message: string }) {
-  return <div className="panel border-red-200 bg-red-50 p-5 text-sm text-red-700">{message}</div>
+  return <div className="alert error" role="alert">{message}</div>
 }
 
 function MetricCard({
@@ -2487,21 +2488,12 @@ function MetricCard({
   value,
   hint,
   icon: Icon,
-  tone,
 }: {
   label: string
   value: string
   hint: string
   icon: typeof BatteryCharging
-  tone: 'blue' | 'emerald' | 'violet' | 'amber'
 }) {
-  const tones = {
-    blue: 'bg-blue-50 text-blue-700',
-    emerald: 'bg-emerald-50 text-emerald-700',
-    violet: 'bg-violet-50 text-violet-700',
-    amber: 'bg-amber-50 text-amber-700',
-  }
-
   return (
     <div className="panel p-4">
       <div className="flex items-center justify-between">
@@ -2510,7 +2502,7 @@ function MetricCard({
           <p className="mt-3 text-3xl font-bold text-slate-900">{value}</p>
           <p className="mt-1 text-sm text-slate-500">{hint}</p>
         </div>
-        <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${tones[tone]}`}>
+        <div className="metric-icon">
           <Icon size={22} />
         </div>
       </div>

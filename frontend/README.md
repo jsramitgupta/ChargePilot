@@ -1,32 +1,35 @@
-# React + TypeScript + Vite
+# ChargePilot frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The browser UI is a React 19 and TypeScript single-page application built with
+Vite and Tailwind CSS. `src/App.tsx` owns the React Router routes, session-aware
+navigation, and page workflows. The frontend calls the FastAPI JSON API and
+uses the authenticated browser session; FastAPI remains responsible for
+authorization, tenant isolation, battery rules, and device operations.
 
-Currently, two official plugins are available:
+## Design references
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+The canonical route inventory, visual decisions, typography guidance, theme
+behavior, and UI change checklist are in
+[`.github/instructions/FRONTEND_DESIGN.md`](../.github/instructions/FRONTEND_DESIGN.md).
+The short project-wide status is in
+[`.github/instructions/CURRENT_STATE.md`](../.github/instructions/CURRENT_STATE.md).
 
-## React Compiler
+Shared light-theme tokens, layout, and components are in `src/index.css`.
+`src/theme.css` defines dark-theme tokens and focused dark-mode adjustments.
+Keep both themes aligned when changing a shared component, including its
+interactive and status states.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Development
 
-## Expanding the Oxlint configuration
+Install dependencies with `npm ci`, then run the frontend from this directory:
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+npm run dev
+npm run lint
+npm run build
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`npm run build` runs the TypeScript project build before creating the Vite
+production bundle. The backend serves the built application and provides
+runtime API/frontend origins; do not hardcode deployment URLs or credentials
+in frontend source.

@@ -7,6 +7,7 @@ FRONTEND = PROJECT_ROOT / "frontend" / "src"
 APP_COMPONENT = FRONTEND / "App.tsx"
 LIGHT_THEME = FRONTEND / "index.css"
 DARK_THEME = FRONTEND / "theme.css"
+HTML_ENTRY = PROJECT_ROOT / "frontend" / "index.html"
 
 
 def css_rule(stylesheet: str, selector: str) -> str:
@@ -123,6 +124,46 @@ def test_shared_controls_and_surfaces_use_theme_tokens():
     assert "display: flex;" in actions
     assert "gap: 10px;" in actions
     assert "flex-wrap: wrap;" in actions
+
+
+def test_auth_controls_and_semantic_statuses_follow_both_themes():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    dark = DARK_THEME.read_text(encoding="utf-8")
+    html = HTML_ENTRY.read_text(encoding="utf-8")
+
+    assert "className={`theme-toggle ${className}`}" in app
+    assert 'aria-pressed={isDark}' in app
+    assert "meta[name=\"theme-color\"]" in app
+    assert 'isDark ? \'#101c19\' : \'#eef3f0\'' in app
+    assert '<meta name="theme-color" content="#eef3f0"' in html
+    assert 'className="metric-icon"' in app
+    assert "bg-violet-50" not in app
+    assert "role=\"alert\"" in app
+    assert "document.body.classList.add('bg-slate-50')" not in app
+
+    theme_toggle = css_rule(light, ".theme-toggle")
+    field_group = css_rule(light, ".field-group")
+    error_alert = css_rule(light, ".alert.error")
+    success_alert = css_rule(light, ".alert.success")
+    metric_icon = css_rule(light, ".metric-icon")
+    auth_helper = css_rule(light, ".auth-helper")
+    dark_tokens = css_rule(dark, "body.theme-dark")
+
+    assert "color: var(--ink);" in theme_toggle
+    assert "background: var(--surface);" in theme_toggle
+    assert "color: var(--ink);" in field_group
+    assert "color: var(--danger-ink);" in error_alert
+    assert "background: var(--danger-surface);" in error_alert
+    assert "color: var(--success-ink);" in success_alert
+    assert "color: var(--leaf);" in metric_icon
+    assert "background: color-mix(in srgb, var(--surface) 82%, var(--leaf));" in metric_icon
+    assert "color: var(--muted);" in auth_helper
+    assert "--danger-ink: #f0b5a6;" in dark_tokens
+    assert "--danger-surface: #38221e;" in dark_tokens
+    assert "--success-ink: #b8e0c0;" in dark_tokens
+    assert contrast_ratio("#f0b5a6", "#38221e") >= 4.5
+    assert contrast_ratio("#b8e0c0", "#21382b") >= 4.5
 
 
 def test_mapping_rule_inputs_do_not_submit_until_explicit_save():

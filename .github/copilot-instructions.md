@@ -20,6 +20,9 @@ behavior.
 - Preserve ChargePilot's local-first behavior, responsive layout, light/dark
   theme parity, and left-aligned authenticated navigation. Do not introduce
   mock data or dead-end controls.
+- Treat `.github/instructions/FRONTEND_DESIGN.md` as the canonical reference
+  for frontend routes, typography, design decisions, and light/dark theme
+  behavior; keep it aligned when changing the UI.
 
 ## Deployment and secrets
 

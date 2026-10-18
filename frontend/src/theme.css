@@ -8,6 +8,13 @@ body.theme-dark {
   --surface-muted: #21312b;
   --line: #32443d;
   --muted: #a1b3aa;
+  --danger-ink: #f0b5a6;
+  --danger-surface: #38221e;
+  --danger-line: #78453b;
+  --danger-hover: #49302a;
+  --success-ink: #b8e0c0;
+  --success-surface: #21382b;
+  --success-line: #47644f;
   color: var(--ink);
   background: var(--paper);
 }
@@ -57,12 +64,6 @@ body.theme-dark .panel .secondary-btn:hover,
 body.theme-dark .table-panel .secondary-btn:hover {
   border-color: #83b18e;
   background: #25362e;
-}
-
-body.theme-dark .workspace-topbar .inline-flex {
-  border-color: #40544a;
-  color: #e1ece5;
-  background: #1b2a24;
 }
 
 body.theme-dark .topbar-context,

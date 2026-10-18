@@ -266,6 +266,8 @@ semantic components so utility text colors and status colors remain legible.
 Configured switch cards and channel rows use the same panel surfaces in both
 power states; show the live state with its indicator, label, and accent border
 rather than changing the whole card background.
+The route inventory, palette, typography, responsive behavior, and theme
+decisions are maintained in [FRONTEND_DESIGN.md](FRONTEND_DESIGN.md).
 
 ## 9. Risks and operational concerns
 

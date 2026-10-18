@@ -6,6 +6,7 @@ This directory captures the current implementation state of the ChargePilot repo
 
 - [CURRENT_STATE.md](CURRENT_STATE.md) — current implementation and persistent project guidance.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — architecture, runtime boundaries, and current module layout.
+- [FRONTEND_DESIGN.md](FRONTEND_DESIGN.md) — browser routes, visual decisions, typography, theme behavior, and UI change checklist.
 - [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md) — canonical cloud-to-site control architecture and rollout design.
 - [PRD.md](PRD.md) — product intent, user goals, functional requirements, and current scope.
 - [TLD.md](TLD.md) — technical design for service roles, event flows, data, and scale-test boundaries.
@@ -30,7 +31,7 @@ The project is a cloud-capable, local-first battery automation platform for Wind
 
 - Runtime stack: Python 3.12, FastAPI, SQLAlchemy 2.x, PostgreSQL, Kafka/aiokafka,
   TinyTuya, tuya-device-sharing-sdk, pytest.
-- App entrypoint: `app/main.py` renders HTML dashboard pages and also hosts the wizard flow for SmartLife integration.
+- App entrypoint: `app/main.py` registers JSON APIs, serves authenticated downloads, and redirects legacy page paths to React routes.
 - Settings prefix: `CHARGEPILOT_` via `app/core/config.py`.
 - Database bootstrap: `create_db_and_tables()` runs on startup and ensures missing columns are added.
 - Telemetry auth: bearer token validation is still kept simple and should be
@@ -45,12 +46,12 @@ The project is a cloud-capable, local-first battery automation platform for Wind
 - Rule defaults: `on_threshold=79`, `off_threshold=99`, `minimum_state_change_interval=300`.
 - Device discovery: the wizard can scan on the ChargePilot server network or delegate discovery to an online site connector; both paths omit local keys.
 - Connector deployment: the downloadable package includes Python and Docker Compose instructions, and the standalone Docker image targets Linux amd64 and arm64.
-- UI pattern: React, TypeScript, and Tailwind provide the full browser UI; FastAPI exposes JSON APIs and file downloads.
+- UI pattern: React, TypeScript, and Tailwind provide the full browser UI; FastAPI exposes JSON APIs and file downloads. Frontend design and theme decisions are documented in [FRONTEND_DESIGN.md](FRONTEND_DESIGN.md).
 
 ## File map relevant to AI understanding
 
 ```text
-app/main.py                 # app bootstrap, HTML pages, wizard routes
+app/main.py                 # app bootstrap, JSON routers, React redirects, downloads
 app/api/*.py               # routers for telemetry, devices, events, and mappings
 app/core/*.py              # settings, DB session, auth helpers
 app/models/*.py            # ORM schema
@@ -91,6 +92,6 @@ If this project has to be rebuilt from scratch, the safe order is:
 5. add a site connector for local Tuya discovery and control
 6. add battery rules and automation event logging
 7. add SmartLife QR onboarding and local-key matching flow
-8. add template-based UI and SSE for operational visibility
+8. add the React UI and SSE for operational visibility; follow FRONTEND_DESIGN.md for route, typography, and theme decisions
 
 This order preserves the system's practical local-first architecture and minimizes unnecessary churn.

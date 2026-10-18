@@ -3,7 +3,8 @@
 @tailwind utilities;
 
 :root {
-  font-family: "Aptos", "Segoe UI", sans-serif;
+  --font-ui: "Aptos", "Segoe UI", sans-serif;
+  font-family: var(--font-ui);
   line-height: 1.5;
   font-weight: 400;
   color: #193833;
@@ -22,6 +23,13 @@
   --surface-muted: #f5f8f6;
   --line: #d7e2dc;
   --muted: #71827b;
+  --danger-ink: #934c37;
+  --danger-surface: #fff9f6;
+  --danger-line: #e7c4b7;
+  --danger-hover: #fdf0e9;
+  --success-ink: #38684e;
+  --success-surface: #edf7ef;
+  --success-line: #c6dfcf;
 }
 
 html {
@@ -122,6 +130,26 @@ button, a {
   .badge {
     @apply inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold;
   }
+}
+
+.theme-toggle {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(23, 63, 57, 0.06);
+  cursor: pointer;
+  transition: border-color 130ms ease, background-color 130ms ease;
+}
+
+.theme-toggle:hover {
+  border-color: var(--leaf);
+  background: var(--surface-muted);
 }
 
 .workspace {
@@ -700,14 +728,14 @@ button, a {
 }
 
 .danger-btn {
-  border: 1px solid #e7c4b7;
-  color: #934c37;
-  background: #fff9f6;
+  border: 1px solid var(--danger-line);
+  color: var(--danger-ink);
+  background: var(--danger-surface);
   cursor: pointer;
 }
 
 .danger-btn:hover {
-  background: #fdf0e9;
+  background: var(--danger-hover);
 }
 
 .connector-deploy-guide {
@@ -905,7 +933,7 @@ button, a {
 .field-group {
   display: grid;
   gap: 6px;
-  color: #425a50;
+  color: var(--ink);
   font-size: 13px;
   font-weight: 600;
 }
@@ -1077,6 +1105,13 @@ button, a {
   line-height: 1.6;
 }
 
+.auth-helper {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .auth-form {
   display: grid;
   gap: 16px;
@@ -1172,8 +1207,8 @@ button, a {
   height: 38px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  color: var(--forest);
-  background: #fff;
+  color: var(--ink);
+  background: var(--surface);
   cursor: pointer;
 }
 
@@ -1184,10 +1219,10 @@ button, a {
 .workspace-error {
   margin: 16px clamp(20px, 4vw, 56px) 0;
   padding: 11px 14px;
-  border: 1px solid #e7c4b7;
+  border: 1px solid var(--danger-line);
   border-radius: 9px;
-  color: #934c37;
-  background: #fff9f6;
+  color: var(--danger-ink);
+  background: var(--danger-surface);
   font-size: 12px;
 }
 
@@ -1241,6 +1276,18 @@ button, a {
   box-shadow: none;
 }
 
+.metric-icon {
+  display: flex;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  color: var(--leaf);
+  background: color-mix(in srgb, var(--surface) 82%, var(--leaf));
+}
+
 .alert {
   padding: 10px 12px;
   border-radius: 8px;
@@ -1248,15 +1295,15 @@ button, a {
 }
 
 .alert.error {
-  border: 1px solid #e6c3b6;
-  color: #8f4b37;
-  background: #fff5f0;
+  border: 1px solid var(--danger-line);
+  color: var(--danger-ink);
+  background: var(--danger-surface);
 }
 
 .alert.success {
-  border: 1px solid #c6dfcf;
-  color: #38684e;
-  background: #edf7ef;
+  border: 1px solid var(--success-line);
+  color: var(--success-ink);
+  background: var(--success-surface);
 }
 
 @media (max-width: 900px) {
