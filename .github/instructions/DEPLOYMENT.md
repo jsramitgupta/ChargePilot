@@ -502,13 +502,14 @@ installer on Linux/macOS. Both use the k3s API URL by default:
 
 ### Docker Compose on Linux
 
-Save this as `docker-compose.yml` beside `enrollment-code.txt`. The image is
-published for amd64 and arm64; Compose pulls it when starting.
+Save this as `docker-compose.yml`. The image is published for amd64 and arm64;
+Compose pulls it when starting and creates a persistent Docker-managed volume
+for the connector credential.
 
 ```yaml
 services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:sha-6c647c97e88c1b0078bf9a7c000e36f76a52e86b
+    image: endusercompute/chargepilot-connector:sha-1207f34e13246072fe9f4e384ab14e1c95a6760f
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped
@@ -521,27 +522,28 @@ services:
       - no-new-privileges:true
     environment:
       CHARGEPILOT_CONNECTOR_SERVER_URL: https://api-chargepilot.endusercompute.in
-      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE: /run/secrets/enrollment_code
+      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE: ${CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE:-}
       CHARGEPILOT_CONNECTOR_CONFIG: /data/connector-config.json
-    secrets:
-      - enrollment_code
     volumes:
-      - ./connector-data:/data
+      - connector-data:/data
 
-secrets:
-  enrollment_code:
-    file: ./enrollment-code.txt
+volumes:
+  connector-data:
 ```
 
-Put the one-time code in `enrollment-code.txt`, then run:
+Pass the one-time code as an environment variable when starting it for the
+first time:
 
 ```sh
-sudo chown 10001:10001 enrollment-code.txt
-sudo chmod 0400 enrollment-code.txt
-mkdir -p connector-data
-sudo chown 10001:10001 connector-data
-docker compose up -d
+read -rsp 'One-time ChargePilot code: ' CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE && echo && export CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE && docker compose up -d && unset CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE
 ```
+
+This prompts without recording the code in shell history. It is still visible
+in Docker container metadata while configured. Once the connector is online,
+run `docker compose up -d --force-recreate` without setting the variable to
+remove the code from the container; the permanent credential remains in the
+Docker-managed volume. No `connector-data` directory, enrollment-code file, or
+ownership commands are needed.
 
 ### Python on Linux or macOS
 

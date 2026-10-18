@@ -5,14 +5,14 @@ switches. It uses outbound HTTPS; no inbound firewall rule is needed.
 
 ## Docker Compose (Linux)
 
-Create a one-time enrollment code in ChargePilot, then save it in
-`enrollment-code.txt` beside this Compose file. The published image and API
-URL are already configured:
+Create a one-time enrollment code in ChargePilot. The published image and API
+URL are already configured; the Docker-managed volume stores the permanent
+connector credential on the local Docker host:
 
 ```yaml
 services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:sha-6c647c97e88c1b0078bf9a7c000e36f76a52e86b
+    image: endusercompute/chargepilot-connector:sha-1207f34e13246072fe9f4e384ab14e1c95a6760f
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped
@@ -25,33 +25,30 @@ services:
       - no-new-privileges:true
     environment:
       CHARGEPILOT_CONNECTOR_SERVER_URL: https://api-chargepilot.endusercompute.in
-      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE: /run/secrets/enrollment_code
+      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE: ${CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE:-}
       CHARGEPILOT_CONNECTOR_CONFIG: /data/connector-config.json
-    secrets:
-      - enrollment_code
     volumes:
-      - ./connector-data:/data
+      - connector-data:/data
 
-secrets:
-  enrollment_code:
-    file: ./enrollment-code.txt
+volumes:
+  connector-data:
 ```
 
-Restrict the code file, prepare persistent storage, and start the published
-image:
+Pass the code only for first enrollment and start the published image:
 
 ```sh
-sudo chown 10001:10001 enrollment-code.txt
-sudo chmod 0400 enrollment-code.txt
-mkdir -p connector-data
-sudo chown 10001:10001 connector-data
-docker compose up -d
+read -rsp 'One-time ChargePilot code: ' CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE && echo && export CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE && docker compose up -d && unset CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE
 ```
 
-Compose uses host networking for LAN discovery and saves the permanent
-connector credential under `connector-data`. Keep that directory private.
-Permit outbound HTTPS and local Tuya traffic (UDP 6666, 6667, 7000 and TCP
-6668).
+Compose uses host networking for LAN discovery and stores the permanent
+connector credential in its automatically created `connector-data` volume;
+no host directory or ownership setup is required. The one-time code is
+not included in shell history, but is available in Docker container metadata
+while configured. After the connector is online, you can remove it from the
+container configuration with `docker compose up -d --force-recreate` (without
+setting the environment variable); the saved connector credential remains in
+the volume. Permit outbound HTTPS and local Tuya traffic (UDP 6666, 6667, 7000
+and TCP 6668).
 
 ## Python (Linux or macOS)
 

@@ -1,3 +1,6 @@
+import asyncio
+import sys
+
 import pytest
 
 from connector import chargepilot_connector
@@ -8,6 +11,49 @@ def test_config_path_uses_explicit_container_mount(monkeypatch, tmp_path):
     monkeypatch.setenv("CHARGEPILOT_CONNECTOR_CONFIG", str(configured_path))
 
     assert chargepilot_connector._config_path() == configured_path
+
+
+def test_main_reads_enrollment_code_from_environment(monkeypatch, tmp_path):
+    captured = {}
+    monkeypatch.setattr(
+        chargepilot_connector,
+        "run_connector",
+        lambda server_url, enrollment_code, config_path: captured.update(
+            server_url=server_url, enrollment_code=enrollment_code, config_path=config_path
+        ),
+    )
+    monkeypatch.setattr(asyncio, "run", lambda coroutine: coroutine)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "chargepilot-connector",
+            "--server-url",
+            "https://chargepilot.example",
+            "--config",
+            str(tmp_path / "config.json"),
+        ],
+    )
+    monkeypatch.setenv("CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE", "one-time-code")
+
+    chargepilot_connector.main()
+
+    assert captured["enrollment_code"] == "one-time-code"
+    assert captured["config_path"] == tmp_path / "config.json"
+    assert "CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE" not in chargepilot_connector.os.environ
+
+
+def test_first_enrollment_without_environment_or_tty_fails_clearly(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    with pytest.raises(ValueError, match="CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE"):
+        asyncio.run(
+            chargepilot_connector.run_connector(
+                "https://chargepilot.example",
+                None,
+                tmp_path / "config.json",
+            )
+        )
 
 
 class _FakeDevice:

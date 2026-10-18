@@ -48,9 +48,12 @@ threshold. Existing mappings can be edited or deleted; clearing a channel
 during an edit restores whole-switch control. Table text, emphasized cells,
 and status badges retain readable contrast in dark mode.
 The Site Connectors page presents a prebuilt Docker Compose deployment for
-Linux hosts and a one-line Python installer for Linux/macOS. The Python
-installer prompts for the one-time enrollment code and saves its credential
-locally. The source archive remains public for manual installation.
+Linux hosts and a one-line Python installer for Linux/macOS. Docker Compose
+accepts the one-time enrollment code through
+`CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE` and persists the connector credential
+in a Docker-managed volume without host-directory setup. The Python installer
+prompts for the code and saves its credential locally. The source archive
+remains public for manual installation.
 
 ## Current primary workflows
 1. PowerShell agent posts its hardware UUID, current hostname, and battery

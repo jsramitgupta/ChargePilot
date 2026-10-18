@@ -2198,7 +2198,7 @@ function ConnectorsPage() {
   const pythonInstallCommand = `curl -fsSL ${connectorServerUrl}/connectors/install.sh | sh`
   const composeYaml = `services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:sha-6c647c97e88c1b0078bf9a7c000e36f76a52e86b
+    image: endusercompute/chargepilot-connector:sha-1207f34e13246072fe9f4e384ab14e1c95a6760f
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped
@@ -2211,16 +2211,13 @@ function ConnectorsPage() {
       - no-new-privileges:true
     environment:
       CHARGEPILOT_CONNECTOR_SERVER_URL: ${connectorServerUrl}
-      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE: /run/secrets/enrollment_code
+      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE: \${CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE:-}
       CHARGEPILOT_CONNECTOR_CONFIG: /data/connector-config.json
-    secrets:
-      - enrollment_code
     volumes:
-      - ./connector-data:/data
+      - connector-data:/data
 
-secrets:
-  enrollment_code:
-    file: ./enrollment-code.txt`
+volumes:
+  connector-data:`
 
   return (
     <div className="space-y-6">
@@ -2259,7 +2256,7 @@ secrets:
             <div>
               <h3>{deploymentMethod === 'docker' ? 'Start the published Docker image' : 'Install and start Python'}</h3>
               {deploymentMethod === 'docker' ? <>
-                <p>Save this as <code>docker-compose.yml</code> beside <code>enrollment-code.txt</code>, containing the one-time code. It uses the published image and this ChargePilot API URL; no image build or environment file is needed.</p>
+                <p>Save this as <code>docker-compose.yml</code>. It uses the published image and this ChargePilot API URL, and Docker creates persistent storage automatically.</p>
                 <pre className="connector-command"><code>{composeYaml}</code></pre>
                 <button type="button" className="btn-secondary mt-2" onClick={async () => {
                   try {
@@ -2270,7 +2267,7 @@ secrets:
                   }
                 }}>Copy Compose YAML</button>
                 <p className="mt-1 text-xs text-slate-500" role="status">{copyStatus}</p>
-                <p className="connector-step-note">Before starting, run <code>mkdir -p connector-data &amp;&amp; sudo chown 10001:10001 enrollment-code.txt connector-data &amp;&amp; sudo chmod 0400 enrollment-code.txt</code>, then <code>docker compose up -d</code>. Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668).</p>
+                <p className="connector-step-note">Run this in Bash beside the Compose file: <code>read -rsp 'One-time ChargePilot code: ' CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE &amp;&amp; echo &amp;&amp; export CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE &amp;&amp; docker compose up -d &amp;&amp; unset CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE</code>. The code is not added to shell history, but remains visible in Docker metadata until enrollment completes and the container is recreated without it. The saved credential remains in the Docker-managed volume. Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668).</p>
               </> : <>
                 <p>On Linux or macOS, install Python 3.12+, <code>curl</code>, and <code>unzip</code>. Run this command on the switch LAN and enter only the one-time enrollment code when prompted. Windows users can download the source package for manual Python setup.</p>
                 <pre className="connector-command"><code>{pythonInstallCommand}</code></pre>

@@ -179,13 +179,13 @@ published Docker image and Python installer use the k3s API URL by default:
 
 ### Docker Compose on Linux
 
-Save this `docker-compose.yml` beside `enrollment-code.txt` containing the
-one-time code:
+Save this `docker-compose.yml`. Compose creates a persistent Docker-managed
+volume for the connector credential; no host data directory is needed.
 
 ```yaml
 services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:sha-6c647c97e88c1b0078bf9a7c000e36f76a52e86b
+    image: endusercompute/chargepilot-connector:sha-1207f34e13246072fe9f4e384ab14e1c95a6760f
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped
@@ -198,26 +198,20 @@ services:
       - no-new-privileges:true
     environment:
       CHARGEPILOT_CONNECTOR_SERVER_URL: https://api-chargepilot.endusercompute.in
-      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE: /run/secrets/enrollment_code
+      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE: ${CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE:-}
       CHARGEPILOT_CONNECTOR_CONFIG: /data/connector-config.json
-    secrets:
-      - enrollment_code
     volumes:
-      - ./connector-data:/data
+      - connector-data:/data
 
-secrets:
-  enrollment_code:
-    file: ./enrollment-code.txt
+volumes:
+  connector-data:
 ```
 
-Then start it on an always-on Linux host on the switch LAN:
+Start it on an always-on Linux host on the switch LAN, passing the one-time
+enrollment code for first enrollment:
 
 ```sh
-sudo chown 10001:10001 enrollment-code.txt
-sudo chmod 0400 enrollment-code.txt
-mkdir -p connector-data
-sudo chown 10001:10001 connector-data
-docker compose up -d
+read -rsp 'One-time ChargePilot code: ' CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE && echo && export CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE && docker compose up -d && unset CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE
 ```
 
 ### Python on Linux or macOS

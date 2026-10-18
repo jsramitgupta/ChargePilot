@@ -48,9 +48,10 @@ the backend; presentation must not become an authorization or rule boundary.
 The Install Agent page provides a one-line PowerShell `iex` command from its
 authenticated setup API; it links to public source downloads but never embeds
 the agent token in those archives. The Connectors page supports a published
-Docker Compose image and a one-line Python installer that prompts locally for
-the enrollment code. Connector and agent source downloads are public; code
-creation and credential management remain authenticated.
+Docker Compose image with environment-based one-time enrollment and
+Docker-managed persistent storage, and a one-line Python installer that
+prompts locally for the enrollment code. Connector and agent source downloads
+are public; code creation and credential management remain authenticated.
 Mapping setup advances only on an explicit user action and saves only from its
 explicit create/save action.
 The mapping rule editor can disable automatic turn-on independently from the

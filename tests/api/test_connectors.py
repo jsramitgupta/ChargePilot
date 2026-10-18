@@ -133,14 +133,19 @@ def test_connector_download_contains_runtime_and_pinned_requirements():
         assert "connector/Dockerfile" in package.namelist()
         assert "docker-compose.yml" in package.namelist()
         assert ".env.example" in package.namelist()
-        assert "CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE" in package.read("docker-compose.yml").decode()
-        assert "network_mode: host" in package.read("docker-compose.yml").decode()
-        assert "endusercompute/chargepilot-connector:sha-" in package.read("docker-compose.yml").decode()
+        compose = package.read("docker-compose.yml").decode()
+        assert "CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE:" in compose
+        assert "connector-data:/data" in compose
+        assert "ENROLLMENT_CODE_FILE" not in compose
+        assert "enrollment-code.txt" not in compose
+        assert "network_mode: host" in compose
+        assert "endusercompute/chargepilot-connector:sha-1207f34e13246072fe9f4e384ab14e1c95a6760f" in compose
         assert "httpx==0.27.0" in package.read("requirements.txt").decode()
         readme = package.read("README.md").decode()
         assert "Docker Compose (Linux)" in readme
         assert "docker compose up -d" in readme
         assert "permanent credential" in readme
+        assert "no host directory" in readme
 
 
 def test_connector_installer_is_public_and_uses_configured_api_url(monkeypatch):

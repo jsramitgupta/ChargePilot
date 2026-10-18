@@ -213,7 +213,15 @@ async def run_connector(server_url: str | None, enrollment_code: str | None, con
             if not server_url:
                 raise ValueError("--server-url is required for first-time enrollment.")
             server_url = _validate_server_url(server_url)
-            code = enrollment_code or getpass.getpass("One-time ChargePilot enrollment code: ")
+            if enrollment_code:
+                code = enrollment_code
+            elif sys.stdin.isatty():
+                code = getpass.getpass("One-time ChargePilot enrollment code: ")
+            else:
+                raise ValueError(
+                    "First-time enrollment requires CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE "
+                    "when running without an interactive terminal."
+                )
             config = await _enroll(client, server_url, code, config_path)
         base_url = config["serverUrl"]
         headers = {"Authorization": f"Bearer {config['token']}"}
@@ -274,14 +282,14 @@ def main() -> None:
     parser.add_argument(
         "--enrollment-code-file",
         default=os.environ.get("CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE"),
-        help="Read the one-time enrollment code from a file, e.g. a Docker secret.",
+        help="Read the one-time enrollment code from a file (legacy option).",
     )
     parser.add_argument("--config", type=Path, default=_config_path(), help="Connector configuration path.")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
         enrollment_code = args.enrollment_code or os.environ.pop("CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE", None)
-        if args.enrollment_code_file and not args.config.exists():
+        if args.enrollment_code_file and not args.config.exists() and not enrollment_code:
             enrollment_code = Path(args.enrollment_code_file).read_text(encoding="utf-8").strip()
             if not enrollment_code:
                 raise ValueError("The enrollment code file is empty.")
