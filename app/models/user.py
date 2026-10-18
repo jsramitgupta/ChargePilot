@@ -13,6 +13,8 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    email: Mapped[str | None] = mapped_column(String(254), unique=True, nullable=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     role: Mapped[str] = mapped_column(String(40), default="standard_user")

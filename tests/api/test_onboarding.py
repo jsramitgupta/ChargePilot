@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api import onboarding
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.main import app
 from app.models.connector import SiteConnector
@@ -152,8 +153,9 @@ def test_smartlife_pairing_routes_require_login_and_keep_user_session_scoped(mon
     assert poll.json() == {"status": "connected", "devices": []}
 
 
-def test_device_wizard_route_redirects_to_react_and_scan_api_remains_available():
+def test_device_wizard_route_redirects_to_react_and_scan_api_remains_available(monkeypatch):
     client = _authenticated_client("wizard_blank_key_user")
+    monkeypatch.setattr(settings, "frontend_url", "")
     page = client.get("/devices", follow_redirects=False)
     assert page.status_code == 307
     assert page.headers["location"] == "/devices"
@@ -226,8 +228,9 @@ def test_smartlife_account_id_can_be_remembered_per_user():
         assert user.smartlife_user_code is None
 
 
-def test_device_scan_url_respects_reverse_proxy_root_path():
+def test_device_scan_url_respects_reverse_proxy_root_path(monkeypatch):
     client = _authenticated_client("wizard_root_path_user", root_path="/chargepilot")
+    monkeypatch.setattr(settings, "frontend_url", "")
     page = client.get("/devices", follow_redirects=False)
 
     assert page.status_code == 307, page.text

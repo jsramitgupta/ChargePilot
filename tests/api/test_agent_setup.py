@@ -20,7 +20,7 @@ def test_docker_image_includes_scripts_required_by_agent_download():
     assert "COPY agent ./agent" in dockerfile.read_text(encoding="utf-8")
 
 
-def test_agent_setup_api_and_download_provide_tenant_installation():
+def test_agent_setup_api_and_download_provide_tenant_installation(monkeypatch):
     client = TestClient(app)
     username = f"agent_setup_{uuid4().hex[:8]}"
     register_tenant_admin(client, username, "tenant-agent-password")
@@ -37,6 +37,7 @@ def test_agent_setup_api_and_download_provide_tenant_installation():
     assert payload["token_scope"] == f"tenant: {username} tenant"
     assert f"-EndpointToken '{payload['token']}'" in payload["install_command"]
     assert payload["can_rotate_tenant_token"] is True
+    monkeypatch.setattr(settings, "frontend_url", "")
     assert client.get("/agent", follow_redirects=False).headers["location"] == "/agent"
 
     download = client.get("/agent/download")

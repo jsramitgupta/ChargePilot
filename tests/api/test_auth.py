@@ -1,4 +1,5 @@
 import hashlib
+import smtplib
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -11,8 +12,11 @@ from app.api.auth import verify_registration_challenge
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.main import app
+from app.models.email_verification import EmailVerification
 from app.models.tenant import Tenant
 from app.models.tenant_invite import TenantInvite
+from app.models.user import User
+from conftest import TEST_EMAIL_VERIFICATION_TOKENS, verify_registered_email
 
 
 def test_legacy_login_and_register_paths_redirect_to_react():
@@ -30,23 +34,172 @@ def test_legacy_login_and_register_paths_redirect_to_react():
 
 def test_tenant_signup_creates_tenant_admin_and_establishes_session():
     client = TestClient(app)
+    email = "new-tenant-owner@example.test"
     response = client.post(
         "/api/v1/auth/register",
         json={
             "account_type": "tenant",
             "username": "new-tenant-owner",
             "password": "new-tenant-password",
+            "email": email,
             "turnstile_token": "test-turnstile-token",
             "tenant_name": "North Site",
         },
     )
 
-    assert response.status_code == 201
-    user = response.json()["user"]
+    assert response.status_code == 202
+    assert "message" in response.json()
+    assert client.get("/api/v1/auth/me").status_code == 401
+    verified = verify_registered_email(client, response, email)
+    user = verified.json()["user"]
     assert user["role"] == "tenant_admin"
     assert user["tenant_name"] == "North Site"
-    assert response.headers["Cache-Control"] == "private, no-store"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert verified.headers["Cache-Control"] == "private, no-store"
     assert client.get("/api/v1/auth/me").json()["id"] == user["id"]
+
+
+def test_unverified_account_cannot_login_and_verification_token_is_single_use():
+    client = TestClient(app)
+    email = "pending-owner@example.test"
+    registration = client.post(
+        "/api/v1/auth/register",
+        json={
+            "account_type": "tenant",
+            "username": "pending-owner",
+            "password": "pending-owner-password",
+            "email": email,
+            "turnstile_token": "test-turnstile-token",
+            "tenant_name": "Pending Site",
+        },
+    )
+    assert registration.status_code == 202
+    token = TEST_EMAIL_VERIFICATION_TOKENS[email]
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "pending-owner", "password": "pending-owner-password"},
+    )
+    assert login.status_code == 403
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+    verified = client.post("/api/v1/auth/verify-email", json={"token": token})
+    assert verified.status_code == 200
+    replay = client.post("/api/v1/auth/verify-email", json={"token": token})
+    assert replay.status_code == 422
+    assert client.post(
+        "/api/v1/auth/login",
+        json={"username": "pending-owner", "password": "pending-owner-password"},
+    ).status_code == 200
+
+
+def test_expired_email_verification_token_is_rejected():
+    client = TestClient(app)
+    email = "expired-verification@example.test"
+    registration = client.post(
+        "/api/v1/auth/register",
+        json={
+            "account_type": "tenant",
+            "username": "expired-verification",
+            "password": "expired-verification-password",
+            "email": email,
+            "turnstile_token": "test-turnstile-token",
+            "tenant_name": "Expired Verification Site",
+        },
+    )
+    assert registration.status_code == 202
+    token = TEST_EMAIL_VERIFICATION_TOKENS[email]
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    with SessionLocal() as db:
+        verification = db.query(EmailVerification).filter_by(token_hash=token_hash).one()
+        verification.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        db.commit()
+
+    assert client.post("/api/v1/auth/verify-email", json={"token": token}).status_code == 422
+    assert client.post(
+        "/api/v1/auth/login",
+        json={"username": "expired-verification", "password": "expired-verification-password"},
+    ).status_code == 403
+
+
+def test_resend_verification_invalidates_previous_link():
+    client = TestClient(app)
+    email = "resend-verification@example.test"
+    registration = client.post(
+        "/api/v1/auth/register",
+        json={
+            "account_type": "tenant",
+            "username": "resend-verification",
+            "password": "resend-verification-password",
+            "email": email,
+            "turnstile_token": "test-turnstile-token",
+            "tenant_name": "Resend Verification Site",
+        },
+    )
+    assert registration.status_code == 202
+    previous_token = TEST_EMAIL_VERIFICATION_TOKENS[email]
+
+    resend = client.post(
+        "/api/v1/auth/resend-verification",
+        json={"email": email, "turnstile_token": "test-turnstile-token"},
+    )
+    assert resend.status_code == 202
+    current_token = TEST_EMAIL_VERIFICATION_TOKENS[email]
+    assert current_token != previous_token
+    assert client.post(
+        "/api/v1/auth/verify-email",
+        json={"token": previous_token},
+    ).status_code == 422
+    assert client.post(
+        "/api/v1/auth/verify-email",
+        json={"token": current_token},
+    ).status_code == 200
+
+
+@pytest.mark.parametrize("missing_setting", ["smtp_host", "frontend_url"])
+def test_registration_fails_closed_without_email_delivery_configuration(monkeypatch, missing_setting):
+    monkeypatch.setattr(settings, missing_setting, "")
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "account_type": "tenant",
+            "username": f"email-not-configured-{missing_setting}",
+            "password": "email-not-configured-password",
+            "email": f"email-not-configured-{missing_setting}@example.test",
+            "turnstile_token": "test-turnstile-token",
+            "tenant_name": "Email Not Configured",
+        },
+    )
+    assert response.status_code == 503
+    with SessionLocal() as db:
+        assert db.query(User).filter_by(username=f"email-not-configured-{missing_setting}").first() is None
+
+
+def test_smtp_delivery_failure_returns_unavailable_and_keeps_account_pending(monkeypatch):
+    def fail_delivery(**_kwargs):
+        raise smtplib.SMTPAuthenticationError(535, b"Authentication failed")
+
+    monkeypatch.setattr(auth_api, "send_verification_email", fail_delivery)
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "account_type": "tenant",
+            "username": "smtp-failure-owner",
+            "password": "smtp-failure-owner-password",
+            "email": "smtp-failure-owner@example.test",
+            "turnstile_token": "test-turnstile-token",
+            "tenant_name": "SMTP Failure Site",
+        },
+    )
+
+    assert response.status_code == 503
+    assert "could not be sent" in response.json()["detail"]
+    assert client.post(
+        "/api/v1/auth/login",
+        json={"username": "smtp-failure-owner", "password": "smtp-failure-owner-password"},
+    ).status_code == 403
 
 
 def test_production_registration_fails_closed_without_turnstile_configuration(monkeypatch):
@@ -61,6 +214,7 @@ def test_production_registration_fails_closed_without_turnstile_configuration(mo
             "account_type": "tenant",
             "username": "unverified-tenant",
             "password": "new-tenant-password",
+            "email": "unverified-tenant@example.test",
             "turnstile_token": "provider-token",
             "tenant_name": "Unverified Site",
         },
@@ -77,6 +231,7 @@ def test_registration_requires_a_turnstile_token():
             "account_type": "tenant",
             "username": "missing-challenge-tenant",
             "password": "new-tenant-password",
+            "email": "missing-challenge@example.test",
             "tenant_name": "Missing Challenge",
         },
     )
@@ -90,7 +245,7 @@ def test_registration_requires_a_turnstile_token():
         ({"success": False}, 400),
         ({"success": True, "hostname": "other.example.com", "action": "registration"}, 400),
         ({"success": True, "hostname": "app.example.com", "action": "login"}, 400),
-        ({"success": True, "hostname": "app.example.com", "action": "registration"}, 201),
+        ({"success": True, "hostname": "app.example.com", "action": "registration"}, 202),
     ],
 )
 def test_production_registration_requires_valid_turnstile_result(
@@ -133,6 +288,7 @@ def test_production_registration_requires_valid_turnstile_result(
             "account_type": "tenant",
             "username": f"verified-tenant-{expected_status}",
             "password": "new-tenant-password",
+            "email": f"verified-tenant-{expected_status}@example.test",
             "turnstile_token": "provider-token",
             "tenant_name": "Verified Site",
         },
@@ -159,17 +315,19 @@ def test_browser_mutations_reject_foreign_origins_and_include_security_headers(m
 
 def test_standard_signup_requires_single_use_tenant_invite():
     tenant_admin = TestClient(app)
+    tenant_email = "invite-tenant-admin@example.test"
     create_tenant = tenant_admin.post(
         "/api/v1/auth/register",
         json={
             "account_type": "tenant",
             "username": "invite-tenant-admin",
             "password": "invite-admin-password",
+            "email": tenant_email,
             "turnstile_token": "test-turnstile-token",
             "tenant_name": "Invite Site",
         },
     )
-    assert create_tenant.status_code == 201
+    verify_registered_email(tenant_admin, create_tenant, tenant_email)
 
     create_invite = tenant_admin.post("/api/v1/admin/invites", json={})
     assert create_invite.status_code == 201
@@ -180,19 +338,21 @@ def test_standard_signup_requires_single_use_tenant_invite():
     assert listed_invites.json()[0]["is_active"] is True
 
     standard_user = TestClient(app)
+    standard_email = "invite-standard-user@example.test"
     signup = standard_user.post(
         "/api/v1/auth/register",
         json={
             "account_type": "standard",
             "username": "invite-standard-user",
             "password": "standard-user-password",
+            "email": standard_email,
             "turnstile_token": "test-turnstile-token",
             "invite_code": invite["code"],
         },
     )
-    assert signup.status_code == 201
-    assert signup.json()["user"]["tenant_id"] == invite["tenant_id"]
-    assert signup.json()["user"]["role"] == "standard_user"
+    verified_signup = verify_registered_email(standard_user, signup, standard_email)
+    assert verified_signup.json()["user"]["tenant_id"] == invite["tenant_id"]
+    assert verified_signup.json()["user"]["role"] == "standard_user"
 
     replay = TestClient(app).post(
         "/api/v1/auth/register",
@@ -200,6 +360,7 @@ def test_standard_signup_requires_single_use_tenant_invite():
             "account_type": "standard",
             "username": "invite-replay-user",
             "password": "standard-user-password",
+            "email": "invite-replay-user@example.test",
             "turnstile_token": "test-turnstile-token",
             "invite_code": invite["code"],
         },
@@ -216,6 +377,7 @@ def test_standard_signup_rejects_missing_and_expired_invites():
             "account_type": "standard",
             "username": "missing-invite-user",
             "password": "standard-user-password",
+            "email": "missing-invite-user@example.test",
             "turnstile_token": "test-turnstile-token",
         },
     )
@@ -243,6 +405,7 @@ def test_standard_signup_rejects_missing_and_expired_invites():
             "account_type": "standard",
             "username": "expired-invite-user",
             "password": "standard-user-password",
+            "email": "expired-invite-user@example.test",
             "turnstile_token": "test-turnstile-token",
             "invite_code": code,
         },
@@ -315,30 +478,34 @@ def test_super_admin_can_change_password_after_reauthenticating():
 
 def test_tenant_user_cannot_change_super_admin_password():
     tenant_admin = TestClient(app)
+    owner_email = "password-test-owner@example.test"
     created = tenant_admin.post(
         "/api/v1/auth/register",
         json={
             "account_type": "tenant",
             "username": "password-test-owner",
             "password": "password-test-owner-secret",
+            "email": owner_email,
             "turnstile_token": "test-turnstile-token",
             "tenant_name": "Password Test Tenant",
         },
     )
-    assert created.status_code == 201
+    verify_registered_email(tenant_admin, created, owner_email)
     invite = tenant_admin.post("/api/v1/admin/invites", json={}).json()
     client = TestClient(app)
+    standard_email = "password-test-standard@example.test"
     signup = client.post(
         "/api/v1/auth/register",
         json={
             "account_type": "standard",
             "username": "password-test-standard",
             "password": "standard-user-password",
+            "email": standard_email,
             "turnstile_token": "test-turnstile-token",
             "invite_code": invite["code"],
         },
     )
-    assert signup.status_code == 201
+    verify_registered_email(client, signup, standard_email)
     assert client.put(
         "/api/v1/auth/password",
         json={

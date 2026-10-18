@@ -76,6 +76,8 @@ Key runtime modules:
 - `app/core/config.py` — environment-backed settings using `CHARGEPILOT_`
 - `app/core/database.py` — engine and schema creation
 - `app/core/security.py` — security helpers for auth and token handling
+- `app/services/support_email.py` — SMTP delivery for account verification and
+  authenticated support requests
 
 ### 3.3 Data model layer
 
@@ -88,7 +90,9 @@ The model set in `app/models/` includes:
 - `DeviceChannel` — channel-specific state
 - `Mapping` — endpoint-to-device threshold mapping
 - `AutomationEvent` — event auditing
-- `User` — site login and access
+- `User` — site login and access; public signups remain inactive until email
+  verification, while existing and administrator-created users remain active
+- `EmailVerification` — hash-only, expiring single-use registration tokens
 
 ### 3.4 Service layer
 

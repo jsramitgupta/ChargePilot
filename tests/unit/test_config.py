@@ -74,3 +74,29 @@ def test_production_requires_secure_session_cookies():
             admin_password="p" * 24,
             session_cookie_secure=False,
         )
+
+
+def test_smtp_settings_must_be_configured_as_a_complete_set():
+    with pytest.raises(ValidationError, match="SMTP requires"):
+        Settings(
+            _env_file=None,
+            smtp_host="smtp.example.test",
+        )
+
+
+def test_smtp_cannot_enable_starttls_and_implicit_ssl_together():
+    with pytest.raises(ValidationError, match="cannot both be enabled"):
+        Settings(
+            _env_file=None,
+            smtp_host="smtp.example.test",
+            smtp_username="mailer@example.test",
+            smtp_password="smtp-password",
+            smtp_from_email="mailer@example.test",
+            smtp_use_starttls=True,
+            smtp_use_ssl=True,
+        )
+
+
+def test_support_recipient_must_be_an_email_address():
+    with pytest.raises(ValidationError, match="Support recipient"):
+        Settings(_env_file=None, support_recipient="not-an-email")

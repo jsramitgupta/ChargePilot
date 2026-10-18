@@ -14,6 +14,7 @@ import {
   LayoutGrid,
   LogIn,
   LogOut,
+  Mail,
   Menu,
   Moon,
   MonitorSmartphone,
@@ -64,6 +65,7 @@ const queryClient = new QueryClient({
 type User = {
   id: string
   username: string
+  email?: string | null
   role: string
   tenant_id?: string | null
   is_admin: boolean
@@ -377,6 +379,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route element={<ProtectedLayout />}>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/devices" element={<DevicesPage />} />
@@ -389,6 +392,7 @@ function App() {
             <Route path="/users" element={<UsersPage />} />
             <Route path="/tenants" element={<TenantsPage />} />
             <Route path="/agent" element={<AgentSetupPage />} />
+            <Route path="/support" element={<SupportPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
@@ -496,6 +500,7 @@ function AppShell({ user }: { user: User }) {
             <span className="profile-copy"><strong>{user.username}</strong><small>{user.role.replaceAll('_', ' ')}</small></span>
           </NavLink>
           {user.role === 'super_admin' && <NavLink to="/account" className="rail-footer-link" onClick={() => setMobileOpen(false)}><KeyRound size={15} />Account security</NavLink>}
+          <NavLink to="/support" className="rail-footer-link" onClick={() => setMobileOpen(false)}><Mail size={15} />Contact support</NavLink>
           <button type="button" className="rail-footer-link" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}><LogOut size={15} />{logoutMutation.isPending ? 'Signing out…' : 'Sign out'}</button>
         </div>
       </aside>
@@ -563,8 +568,10 @@ function loadTurnstileScript() {
 
 function TurnstileChallenge({
   onToken,
+  action = 'registration',
 }: {
   onToken: (token: string) => void
+  action?: string
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const siteKey = window.CHARGEPILOT_CONFIG?.turnstileSiteKey ?? ''
@@ -580,7 +587,7 @@ function TurnstileChallenge({
         if (disposed || !containerRef.current || !window.turnstile) return
         widgetId = window.turnstile.render(containerRef.current, {
           sitekey: siteKey,
-          action: 'registration',
+          action,
           theme: 'auto',
           callback: (token) => {
             onToken(token)
@@ -604,7 +611,7 @@ function TurnstileChallenge({
       disposed = true
       if (widgetId) window.turnstile?.remove(widgetId)
     }
-  }, [onToken, siteKey])
+  }, [action, onToken, siteKey])
 
   return (
     <div className="turnstile-verification">
@@ -677,6 +684,7 @@ function RegisterPage() {
   const error = searchParams.get('error')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [email, setEmail] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [tenantName, setTenantName] = useState('')
   const [challenge, setChallenge] = useState({ accountType, token: '' })
@@ -687,12 +695,13 @@ function RegisterPage() {
   }, [accountType])
 
   const registerMutation = useMutation({
-    mutationFn: () => apiFetch<{ user: User }>('/api/v1/auth/register', {
+    mutationFn: () => apiFetch<{ message: string }>('/api/v1/auth/register', {
       method: 'POST',
       body: JSON.stringify({
         account_type: accountType,
         username,
         password,
+        email,
         turnstile_token: turnstileToken,
         ...(accountType === 'standard' ? { invite_code: inviteCode } : { tenant_name: tenantName }),
       }),
@@ -701,9 +710,8 @@ function RegisterPage() {
       setChallenge({ accountType, token: '' })
       setChallengeReset((value) => value + 1)
     },
-    onSuccess: ({ user }) => {
-      queryClient.setQueryData(['session'], user)
-      navigate('/', { replace: true })
+    onSuccess: () => {
+      navigate('/verify-email?sent=1', { replace: true })
     },
   })
 
@@ -733,6 +741,11 @@ function RegisterPage() {
             <label htmlFor="password">Password</label>
             <input id="password" name="password" type="password" autoComplete="new-password" minLength={12} maxLength={72} required className="field" value={password} onChange={(event) => setPassword(event.target.value)} />
           </div>
+          <div className="field-group">
+            <label htmlFor="email">Email address</label>
+            <input id="email" name="email" type="email" autoComplete="email" maxLength={254} required className="field" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <p className="mt-1 text-xs text-slate-500">We’ll send a verification link that expires in 30 minutes.</p>
+          </div>
           {accountType === 'tenant'
             ? <div className="field-group"><label htmlFor="tenant_name">Tenant name</label><input id="tenant_name" name="tenant_name" type="text" minLength={1} maxLength={160} placeholder="My tenant" className="field" required value={tenantName} onChange={(event) => setTenantName(event.target.value)} /></div>
             : <div className="field-group"><label htmlFor="invite_code">One-time tenant invite code</label><input id="invite_code" name="invite_code" type="text" autoComplete="off" spellCheck={false} required className="field font-mono" value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} /><p className="mt-1 text-xs text-slate-500">Ask your tenant administrator for a code. It can be used once and expires after seven days.</p></div>}
@@ -745,6 +758,200 @@ function RegisterPage() {
         </form>
         <p className="auth-signin">Already have an account? <a href={frontendUrl('/login')}>Sign in</a></p>
       </section>
+    </div>
+  )
+}
+
+function VerifyEmailPage() {
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const token = searchParams.get('token') ?? ''
+  const sent = searchParams.get('sent') === '1'
+  const [isDark, setIsDark] = useAppTheme()
+  const [email, setEmail] = useState('')
+  const [challenge, setChallenge] = useState('')
+  const [challengeReset, setChallengeReset] = useState(0)
+  const [resent, setResent] = useState(false)
+
+  const verifyMutation = useMutation({
+    mutationFn: () => apiFetch<{ user: User }>('/api/v1/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+    onSuccess: ({ user }) => {
+      queryClient.setQueryData(['session'], user)
+      navigate('/', { replace: true })
+    },
+  })
+
+  const resendMutation = useMutation({
+    mutationFn: () => apiFetch<{ message: string }>('/api/v1/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email, turnstile_token: challenge }),
+    }),
+    onSuccess: () => {
+      setResent(true)
+      setChallenge('')
+      setChallengeReset((value) => value + 1)
+    },
+    onError: () => {
+      setChallenge('')
+      setChallengeReset((value) => value + 1)
+    },
+  })
+
+  return (
+    <div className="auth-shell">
+      <ThemeToggleButton isDark={isDark} onToggle={() => setIsDark((value) => !value)} className="auth-theme-toggle" />
+      <AuthBrandPanel />
+      <section className="auth-card auth-card-wide" aria-labelledby="verify-email-title">
+        <div className="flex items-center justify-center"><div className="brand-mark auth-brand-mark">C</div></div>
+        <div className="auth-badges"><span>Account verification</span><span>Secure access</span></div>
+        <h1 id="verify-email-title">Verify your email</h1>
+        {sent && <p className="alert success mt-4" role="status">Your account is ready. Check your inbox for the verification link; it expires in 30 minutes.</p>}
+        {token && <p className="auth-subtle">Select verify to activate your ChargePilot account.</p>}
+        {token && (
+          <div className="mt-5">
+            {verifyMutation.error && <ErrorCard message={verifyMutation.error.message} />}
+            <button type="button" className="primary-btn large-btn w-full" disabled={verifyMutation.isPending} onClick={() => verifyMutation.mutate()}>
+              {verifyMutation.isPending ? 'Verifying…' : 'Verify email and sign in'}
+            </button>
+          </div>
+        )}
+        <div className="auth-divider" />
+        <form onSubmit={(event) => { event.preventDefault(); resendMutation.mutate() }} className="auth-form">
+          <p className="auth-subtle">{token ? 'If the link expired, request a fresh one.' : 'Need another verification link? Enter your account email.'}</p>
+          <div className="field-group">
+            <label htmlFor="verification-email">Email address</label>
+            <input id="verification-email" name="email" type="email" autoComplete="email" maxLength={254} required className="field" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </div>
+          <div className="field-group">
+            <span>Human verification</span>
+            <TurnstileChallenge key={challengeReset} onToken={setChallenge} />
+          </div>
+          {resendMutation.error && <ErrorCard message={resendMutation.error.message} />}
+          {resent && <p className="alert success" role="status">If the account needs verification, a new email has been sent.</p>}
+          <button type="submit" className="btn-secondary large-btn w-full" disabled={resendMutation.isPending || !challenge}>
+            {resendMutation.isPending ? 'Sending…' : 'Resend verification email'}
+          </button>
+        </form>
+        <p className="auth-signin"><a href={frontendUrl('/login')}>Back to sign in</a></p>
+      </section>
+    </div>
+  )
+}
+
+function SupportPage() {
+  const { data: user } = useSession()
+  const [replyEmail, setReplyEmail] = useState('')
+  const [subject, setSubject] = useState('')
+  const [body, setBody] = useState('')
+  const [sent, setSent] = useState(false)
+  const supportQuery = useQuery({
+    queryKey: ['support-config'],
+    queryFn: () => apiFetch<{ configured: boolean; recipient: string }>('/api/v1/support/config'),
+  })
+  const sendMutation = useMutation({
+    mutationFn: () => apiFetch<{ message: string }>('/api/v1/support/email', {
+      method: 'POST',
+      body: JSON.stringify({ reply_email: replyEmail, subject, body }),
+    }),
+    onSuccess: () => {
+      setSent(true)
+      setSubject('')
+      setBody('')
+    },
+  })
+
+  useEffect(() => {
+    const email = user?.email
+    if (email) setReplyEmail((current) => current || email)
+  }, [user?.email])
+
+  if (supportQuery.isLoading) return <LoadingCard />
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-5">
+      <PageHeader
+        eyebrow="Help"
+        title="Contact support"
+        description="Send a note to the ChargePilot team. We’ll reply to the address you provide."
+      />
+      {supportQuery.error && <ErrorCard message={supportQuery.error.message} />}
+      {supportQuery.data && !supportQuery.data.configured && (
+        <section className="panel border-amber-200 bg-amber-50 p-5 text-sm text-amber-900" role="status">
+          Support email is not available because the app’s SMTP settings are incomplete. Ask your administrator to configure mail delivery.
+        </section>
+      )}
+      {supportQuery.data?.configured && (
+        <section className="panel overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:px-7">
+            <div>
+              <h3 className="font-semibold text-slate-900">Send a support message</h3>
+              <p className="mt-1 text-sm text-slate-600">Your message will go to {supportQuery.data.recipient}.</p>
+            </div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800">
+              <Mail size={14} aria-hidden="true" /> Email ready
+            </span>
+          </div>
+          <form
+            className="space-y-5 p-5 sm:p-7"
+            onSubmit={(event) => {
+              event.preventDefault()
+              setSent(false)
+              sendMutation.mutate()
+            }}
+          >
+            <label className="label" htmlFor="support-reply-email">
+              Reply-to email
+              <input
+                id="support-reply-email"
+                type="email"
+                autoComplete="email"
+                maxLength={254}
+                required
+                className="field"
+                value={replyEmail}
+                onChange={(event) => setReplyEmail(event.target.value)}
+              />
+            </label>
+            <label className="label" htmlFor="support-subject">
+              Subject
+              <input
+                id="support-subject"
+                type="text"
+                minLength={3}
+                maxLength={160}
+                required
+                className="field"
+                value={subject}
+                onChange={(event) => setSubject(event.target.value)}
+              />
+            </label>
+            <label className="label" htmlFor="support-message">
+              How can we help?
+              <textarea
+                id="support-message"
+                minLength={10}
+                maxLength={5000}
+                rows={8}
+                required
+                className="field min-h-40 resize-y"
+                value={body}
+                onChange={(event) => setBody(event.target.value)}
+              />
+            </label>
+            <p className="text-xs leading-5 text-slate-500">
+              Don’t include passwords, app passwords, or device local keys.
+            </p>
+            {sendMutation.error && <ErrorCard message={sendMutation.error.message} />}
+            {sent && <p className="alert success" role="status">Your message has been sent to ChargePilot support.</p>}
+            <button type="submit" className="btn-primary" disabled={sendMutation.isPending}>
+              {sendMutation.isPending ? 'Sending message…' : 'Send support message'}
+            </button>
+          </form>
+        </section>
+      )}
     </div>
   )
 }

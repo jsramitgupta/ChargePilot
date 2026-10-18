@@ -9,7 +9,7 @@ from app.models.event import AutomationEvent
 from app.models.telemetry import BatteryReading
 from app.models.tenant import Tenant
 from app.models.user import User
-from conftest import api_login, register_tenant_admin
+from conftest import api_login, register_tenant_admin, verify_registered_email
 
 
 def _tenant_client(username: str) -> TestClient:
@@ -26,12 +26,14 @@ def test_user_registration_and_login_flow():
             "account_type": "tenant",
             "username": "alice",
             "password": "alice-test-password",
+            "email": "alice@example.test",
             "turnstile_token": "test-turnstile-token",
             "tenant_name": "Alice Site",
         },
     )
-    assert registered.status_code == 201, registered.text
-    assert registered.json()["user"]["role"] == "tenant_admin"
+    assert registered.status_code == 202, registered.text
+    verified = verify_registered_email(client, registered, "alice@example.test")
+    assert verified.json()["user"]["role"] == "tenant_admin"
     assert client.get("/api/v1/auth/me").json()["username"] == "alice"
     client.post("/api/v1/auth/logout")
     assert client.get("/api/v1/auth/me").status_code == 401

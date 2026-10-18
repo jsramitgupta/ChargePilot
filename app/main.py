@@ -26,6 +26,7 @@ from app.api.events import router as events_router
 from app.api.health import router as health_router
 from app.api.mappings import router as mappings_router
 from app.api.onboarding import router as onboarding_router
+from app.api.support import router as support_router
 from app.api.telemetry import router as telemetry_router
 from app.core.authorization import get_authenticated_user, is_super_admin_user
 from app.core.config import settings
@@ -182,6 +183,7 @@ app.include_router(devices_router, prefix=settings.api_v1_prefix)
 app.include_router(onboarding_router)
 app.include_router(mappings_router, prefix=settings.api_v1_prefix)
 app.include_router(events_router, prefix=settings.api_v1_prefix)
+app.include_router(support_router, prefix=settings.api_v1_prefix)
 
 
 @app.get(f"{settings.api_v1_prefix}/agent/setup")

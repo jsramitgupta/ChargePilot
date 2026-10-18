@@ -93,7 +93,12 @@ The API rejects browser state-changing requests that include an `Origin`
 different from `CHARGEPILOT_FRONTEND_URL`. Preserve this exact frontend origin
 when changing hostnames. Add Cloudflare rate-limiting rules for POST requests
 to `/api/v1/auth/register` and `/api/v1/auth/login` as an additional edge
-control; choose thresholds appropriate for the expected shared-IP traffic.
+control; include `/api/v1/auth/resend-verification` and
+`/api/v1/support/email` as well and choose
+thresholds appropriate for the expected shared-IP traffic.
+New public accounts also require email verification. Configure SMTP and the
+frontend origin before enabling signups; Turnstile remains independently
+required. Existing users created before email verification are not blocked.
 
 ## 4. Fresh Docker Compose deployment
 
@@ -262,6 +267,66 @@ address that forwards TCP 443 to the k3s Istio ingress gateway. Set SSL/TLS
 encryption to **Full (strict)** for a Cloudflare Origin Certificate. Do not
 publish internal service addresses or the PostgreSQL/Kafka ports.
 
+#### Configure SMTP for email verification on k3s
+
+The API optionally loads SMTP credentials from a separate
+`chargepilot-smtp` Secret. Create or update it without replacing
+`chargepilot-runtime`; the secret below prompts for the SMTP password without
+echoing it, stores the temporary environment file in `/dev/shm`, and removes
+it on exit. For Gmail, use `smtp.gmail.com`, port `587`, STARTTLS, and a
+Google App Password (not the account password). `SMTP_FROM_EMAIL` must be the
+authenticated Gmail address or a verified Gmail send-as alias. You can use
+`chargepilot.support@endusercompute.in` as the sender if that address is
+configured as the authenticated mailbox or an authorized send-as alias.
+Support requests are sent to `CHARGEPILOT_SUPPORT_RECIPIENT`, which defaults
+to `chargepilot.support@endusercompute.in`. To route them elsewhere, add
+`CHARGEPILOT_SUPPORT_RECIPIENT=your-support-inbox@example.com` to the
+`chargepilot-smtp` Secret values.
+
+Run this on the k3s control-plane host:
+
+```bash
+sudo bash <<'SH'
+set -eu
+umask 077
+secret_file="$(mktemp /dev/shm/chargepilot-smtp.XXXXXX)"
+trap 'rm -f "$secret_file"' EXIT
+read -r -p "SMTP username/email: " smtp_username </dev/tty
+read -r -p "Verified sender email: " smtp_from_email </dev/tty
+read -r -s -p "SMTP app password: " smtp_password </dev/tty
+printf '\n'
+{
+  printf 'CHARGEPILOT_SMTP_HOST=%s\n' 'smtp.gmail.com'
+  printf 'CHARGEPILOT_SMTP_PORT=%s\n' '587'
+  printf 'CHARGEPILOT_SMTP_USERNAME=%s\n' "$smtp_username"
+  printf 'CHARGEPILOT_SMTP_PASSWORD=%s\n' "$smtp_password"
+  printf 'CHARGEPILOT_SMTP_FROM_EMAIL=%s\n' "$smtp_from_email"
+  printf 'CHARGEPILOT_SMTP_FROM_NAME=%s\n' 'ChargePilot'
+  printf 'CHARGEPILOT_SMTP_USE_STARTTLS=%s\n' 'true'
+  printf 'CHARGEPILOT_SMTP_USE_SSL=%s\n' 'false'
+  printf 'CHARGEPILOT_SUPPORT_RECIPIENT=%s\n' 'chargepilot.support@endusercompute.in'
+} > "$secret_file"
+sudo kubectl -n chargepilot create secret generic chargepilot-smtp \
+  --from-env-file="$secret_file" --dry-run=client -o yaml | sudo kubectl apply -f -
+sudo kubectl -n chargepilot rollout restart deployment/chargepilot-api
+sudo kubectl -n chargepilot rollout status deployment/chargepilot-api
+SH
+```
+
+For another SMTP provider, change the host, port, and TLS values to match its
+documented configuration. If signup remains unavailable after the API
+rollout, verify that `chargepilot-runtime` still contains both
+`CHARGEPILOT_TURNSTILE_SITE_KEY` and `CHARGEPILOT_TURNSTILE_SECRET_KEY`, and
+that its `CHARGEPILOT_FRONTEND_URL` is the exact public frontend origin. Check
+API logs for mail-delivery errors without printing Secret contents. Never
+include SMTP credentials in shell history, manifests, or support output.
+To list runtime Secret key names without showing their values:
+
+```bash
+sudo kubectl -n chargepilot get secret chargepilot-runtime \
+  -o go-template='{{range $key, $value := .data}}{{$key}}{{"\n"}}{{end}}'
+```
+
 For subsequent `main` commits, the successful image publish updates the
 kustomization, which ArgoCD syncs automatically. Watch the GitHub Actions
 summary for the immutable tag and digest, and ArgoCD for sync/health status.
@@ -349,6 +414,13 @@ The app creates its schema and initial admin account at startup. The database ro
 ## 6. Database initialization and upgrades
 
 On a genuinely empty database, startup uses SQLAlchemy `Base.metadata.create_all()` followed by the compatibility column and foreign-key adjustments in `app/core/database.py`. The `users.created_at` column is PostgreSQL `TIMESTAMPTZ`, matching its server-side `now()` default.
+
+Email verification adds nullable `users.email`, `users.email_verified` (legacy
+rows default to verified), a unique index for non-null email addresses, and the
+`email_verifications` token table. Startup creates the token table and applies
+the user-column compatibility additions; back up an existing database before
+upgrading and check for duplicate non-null email values before applying the
+unique index.
 
 The repository does not currently contain Alembic revision files. `create_all()` is not a versioned migration system and does not safely upgrade arbitrary existing schemas. Back up existing data and plan a dedicated schema migration before deploying schema-changing updates to an existing installation.
 

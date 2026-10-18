@@ -1,7 +1,9 @@
 import hashlib
 import logging
 import secrets
-from datetime import UTC, datetime
+import smtplib
+from datetime import UTC, datetime, timedelta
+import re
 from typing import Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -12,18 +14,23 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core.authorization import get_authenticated_user, is_super_admin_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password
+from app.models.email_verification import EmailVerification
 from app.models.tenant import Tenant
 from app.models.tenant_invite import TenantInvite
 from app.models.user import User
+from app.services.support_email import build_verification_url, send_verification_email
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger("chargepilot.auth")
 TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+EMAIL_VERIFICATION_TTL = timedelta(minutes=30)
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class PasswordChangeRequest(BaseModel):
@@ -54,14 +61,24 @@ class RegistrationRequest(BaseModel):
     account_type: Literal["standard", "tenant"]
     username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=12, max_length=72)
+    email: str = Field(min_length=3, max_length=254)
     turnstile_token: str = Field(min_length=1, max_length=2048)
     invite_code: str | None = Field(default=None, min_length=20, max_length=128)
     tenant_name: str | None = Field(default=None, min_length=1, max_length=160)
 
-    @field_validator("username", "invite_code", "tenant_name", mode="before")
+    @field_validator("username", "email", "invite_code", "tenant_name", mode="before")
     @classmethod
-    def trim_registration_fields(cls, value: str | None) -> str | None:
+    def trim_registration_fields(cls, value: str | None, info) -> str | None:
+        if info.field_name == "email" and isinstance(value, str):
+            return value.strip().casefold()
         return value.strip() if isinstance(value, str) else value
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        if not EMAIL_PATTERN.fullmatch(value):
+            raise ValueError("Enter a valid email address.")
+        return value
 
     @field_validator("password")
     @classmethod
@@ -77,6 +94,23 @@ class RegistrationRequest(BaseModel):
         if self.account_type == "tenant" and not self.tenant_name:
             raise ValueError("A tenant name is required to create a tenant.")
         return self
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=128)
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    turnstile_token: str = Field(min_length=1, max_length=2048)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        value = value.strip().casefold()
+        if not EMAIL_PATTERN.fullmatch(value):
+            raise ValueError("Enter a valid email address.")
+        return value
 
 
 class ProfileUpdateRequest(BaseModel):
@@ -134,6 +168,7 @@ def _user_payload(user: User, tenant: Tenant | None) -> dict[str, object]:
     return {
         "id": user.id,
         "username": user.username,
+        "email": user.email,
         "role": user.role,
         "tenant_id": user.tenant_id,
         "is_admin": bool(user.is_admin),
@@ -141,6 +176,45 @@ def _user_payload(user: User, tenant: Tenant | None) -> dict[str, object]:
         "timezone": user.timezone,
         "tenant_name": tenant.name if tenant else None,
     }
+
+
+def _create_email_verification(db: Session, user: User, now: datetime) -> str:
+    db.query(EmailVerification).filter(
+        EmailVerification.user_id == user.id,
+        EmailVerification.used_at.is_(None),
+    ).update({"used_at": now}, synchronize_session=False)
+    token = secrets.token_urlsafe(32)
+    db.add(
+        EmailVerification(
+            user_id=user.id,
+            token_hash=hashlib.sha256(token.encode()).hexdigest(),
+            created_at=now,
+            expires_at=now + EMAIL_VERIFICATION_TTL,
+        )
+    )
+    return token
+
+
+async def _send_verification(user: User, token: str) -> None:
+    if not settings.smtp_configured or not settings.frontend_url:
+        logger.error("Account verification email is unavailable because SMTP is not configured.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Account registration is temporarily unavailable because email delivery is not configured.",
+        )
+    try:
+        await run_in_threadpool(
+            send_verification_email,
+            recipient=user.email or "",
+            username=user.username,
+            verification_url=build_verification_url(settings.frontend_url, token),
+        )
+    except (OSError, smtplib.SMTPException, RuntimeError):
+        logger.exception("Account verification email delivery failed.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The verification email could not be sent. Request a new link and try again.",
+        ) from None
 
 
 @router.post("/login")
@@ -156,6 +230,11 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Username or password is incorrect.",
         )
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Verify your email address before signing in.",
+        )
     request.session.clear()
     request.session["user_id"] = user.id
     response.headers["Cache-Control"] = "private, no-store"
@@ -163,7 +242,7 @@ async def login(
     return {"user": _user_payload(user, tenant)}
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_202_ACCEPTED)
 async def register(
     payload: RegistrationRequest,
     request: Request,
@@ -176,11 +255,18 @@ async def register(
             detail="Sign out before creating another account.",
         )
     await verify_registration_challenge(payload.turnstile_token)
+    if not settings.smtp_configured or not settings.frontend_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Account registration is temporarily unavailable because email delivery is not fully configured.",
+        )
     username = payload.username.strip()
     if not username:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Username is required.")
     if db.query(User.id).filter(User.username == username).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That username is already in use.")
+    if db.query(User.id).filter(User.email == payload.email).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That email address is already in use.")
 
     tenant: Tenant
     invite: TenantInvite | None = None
@@ -223,6 +309,8 @@ async def register(
 
     user = User(
         username=username,
+        email=payload.email,
+        email_verified=False,
         password_hash=hash_password(payload.password),
         tenant_id=tenant.id,
         role=role,
@@ -236,6 +324,8 @@ async def register(
         invite.used_at = now
 
     try:
+        db.flush()
+        verification_token = _create_email_verification(db, user, now)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -246,12 +336,71 @@ async def register(
 
     db.refresh(user)
     db.refresh(tenant)
+    response.headers["Cache-Control"] = "no-store"
+    await _send_verification(user, verification_token)
+    return {"message": "Check your email for a link to verify your account."}
+
+
+@router.post("/verify-email")
+async def verify_email(
+    payload: VerifyEmailRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(UTC)
+    token_hash = hashlib.sha256(payload.token.encode()).hexdigest()
+    verification = db.execute(
+        select(EmailVerification)
+        .where(
+            EmailVerification.token_hash == token_hash,
+            EmailVerification.used_at.is_(None),
+            EmailVerification.expires_at > now,
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if verification is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The verification link is invalid, expired, or already used.",
+        )
+
+    user = db.query(User).filter(User.id == verification.user_id).first()
+    if user is None or not user.email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The verification link is invalid, expired, or already used.",
+        )
+    verification.used_at = now
+    user.email_verified = True
+    db.commit()
     request.session.clear()
     request.session["user_id"] = user.id
     response.headers["Cache-Control"] = "private, no-store"
-    return {
-        "user": _user_payload(user, tenant),
-    }
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user.tenant_id else None
+    return {"user": _user_payload(user, tenant)}
+
+
+@router.post("/resend-verification", status_code=status.HTTP_202_ACCEPTED)
+async def resend_verification(
+    payload: ResendVerificationRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    await verify_registration_challenge(payload.turnstile_token)
+    if not settings.smtp_configured or not settings.frontend_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Email delivery is temporarily unavailable.",
+        )
+    response.headers["Cache-Control"] = "no-store"
+    user = db.query(User).filter(User.email == payload.email, User.email_verified.is_(False)).first()
+    if user is not None:
+        now = datetime.now(UTC)
+        token = _create_email_verification(db, user, now)
+        db.commit()
+        await _send_verification(user, token)
+    return {"message": "If the account needs verification, a new email has been sent."}
 
 
 @router.get("/me")

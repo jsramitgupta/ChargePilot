@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -33,6 +34,19 @@ class Settings(BaseSettings):
     frontend_url: str = ""
     turnstile_site_key: str = ""
     turnstile_secret_key: SecretStr = SecretStr("")
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    smtp_from_email: str = ""
+    smtp_from_name: str = "ChargePilot"
+    smtp_use_starttls: bool = True
+    smtp_use_ssl: bool = False
+    support_recipient: str = Field(
+        default="chargepilot.support@endusercompute.in",
+        min_length=3,
+        max_length=254,
+    )
     session_cookie_secure: bool = False
     session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     kafka_bootstrap_servers: str = "kafka:9092"
@@ -53,6 +67,30 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
+        smtp_settings_present = any(
+            (
+                self.smtp_host,
+                self.smtp_username,
+                self.smtp_password.get_secret_value(),
+                self.smtp_from_email,
+            )
+        )
+        if smtp_settings_present and not all(
+            (
+                self.smtp_host,
+                self.smtp_username,
+                self.smtp_password.get_secret_value(),
+                self.smtp_from_email,
+            )
+        ):
+            raise ValueError(
+                "SMTP requires a host, username, password, and sender email address."
+            )
+        if self.smtp_use_starttls and self.smtp_use_ssl:
+            raise ValueError("SMTP STARTTLS and implicit SSL cannot both be enabled.")
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", self.support_recipient):
+            raise ValueError("Support recipient must be a valid email address.")
+
         for setting_name, url in (
             ("API", self.api_url),
             ("Frontend", self.frontend_url),
@@ -91,6 +129,15 @@ class Settings(BaseSettings):
         if not self.session_cookie_secure:
             raise ValueError("Production requires secure session cookies.")
         return self
+
+    @property
+    def smtp_configured(self) -> bool:
+        return bool(
+            self.smtp_host
+            and self.smtp_username
+            and self.smtp_password.get_secret_value()
+            and self.smtp_from_email
+        )
 
 
 settings = Settings()

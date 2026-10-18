@@ -66,9 +66,13 @@ startup walkthrough.
    days; both public signup paths additionally require server-verified
    Cloudflare Turnstile before an account or tenant can be created. Production
    registration fails closed when Turnstile keys are missing. Tenant signup
-   creates the tenant and its first admin. Authenticated
+   also requires configured SMTP and a public frontend origin; newly
+   registered users must verify their unique email link before login. Existing
+   users and admin-created accounts remain verified. Tenant signup creates
+   the tenant and its first admin. Authenticated
    navigation and connector, profile, account, user, tenant, and agent setup
-   workflows are React routes. Super admins can change their own password from
+   workflows are React routes. Signed-in users can contact the configured
+   support inbox from the React navigation using SMTP. Super admins can change their own password from
    the React account page using the authenticated auth API.
    Account settings select the user's display time zone from a region-grouped
    IANA time-zone dropdown; timestamps throughout the app follow that choice.

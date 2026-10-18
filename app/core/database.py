@@ -25,6 +25,7 @@ from app.models.system_setting import SystemSetting  # noqa: F401,E402
 from app.models.connector import SiteConnector, DeviceCommand  # noqa: F401,E402
 from app.models.messaging import TelemetryAutomationCursor, TelemetryOutbox  # noqa: F401,E402
 from app.models.tenant_invite import TenantInvite  # noqa: F401,E402
+from app.models.email_verification import EmailVerification  # noqa: F401,E402
 from app.services.local_key_service import decrypt_local_key, encrypt_local_key  # noqa: E402
 
 
@@ -73,6 +74,8 @@ def _ensure_table_columns() -> None:
             "role": "VARCHAR(40) NOT NULL DEFAULT 'standard_user'",
             "timezone": "VARCHAR(64) NOT NULL DEFAULT 'UTC'",
             "smartlife_user_code": "VARCHAR(120)",
+            "email": "VARCHAR(254)",
+            "email_verified": "BOOLEAN NOT NULL DEFAULT TRUE",
         },
         "device_channels": {
             "enabled": "BOOLEAN NOT NULL DEFAULT TRUE",
@@ -89,6 +92,13 @@ def _ensure_table_columns() -> None:
                 if column_name in existing_columns:
                     continue
                 conn.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {ddl}'))
+
+    if inspector.has_table("users"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email_unique "
+                "ON users (email) WHERE email IS NOT NULL"
+            ))
 
 
 def _ensure_cascade_foreign_keys() -> None:

@@ -39,33 +39,69 @@ server-side against the configured frontend hostname and the `registration`
 action. Production signup fails closed if Turnstile is not configured.
 Standard-user signup also requires a valid one-time tenant invite. Browser
 mutations reject a supplied `Origin` that does not exactly match the configured
-frontend origin.
+frontend origin. New accounts require a unique email address and configured
+SMTP delivery. Signup creates a pending account and returns HTTP 202; the user
+must verify a single-use, 30-minute email token before login is allowed.
+`POST /api/v1/auth/verify-email` activates the account and starts a session.
+`POST /api/v1/auth/resend-verification` requires another Turnstile challenge
+and returns a generic response to avoid disclosing account existence.
+Existing accounts and accounts created by administrators remain verified.
+Signed-in users can contact the configured support inbox using
+`GET /api/v1/support/config` and `POST /api/v1/support/email`. The recipient is
+server-configured; requests cannot select arbitrary recipients. Email delivery
+requires SMTP configuration.
 
 ### 2.0 POST /api/v1/auth/login
 
 Accepts JSON `{ "username": "...", "password": "..." }`, verifies the account,
 sets the session cookie, and returns the signed-in user. Invalid credentials
-return HTTP 401.
+return HTTP 401. Pending email verification returns HTTP 403.
 
 ### 2.0.1 POST /api/v1/auth/register
 
 Tenant creation request:
 
 ```json
-{"account_type":"tenant","username":"owner","password":"a-long-password","tenant_name":"Operations","turnstile_token":"one-time-provider-token"}
+{"account_type":"tenant","username":"owner","password":"a-long-password","email":"owner@example.com","tenant_name":"Operations","turnstile_token":"one-time-provider-token"}
 ```
 
-Creates a tenant and its first tenant-admin account, then signs the user in.
+Creates a tenant and its first tenant-admin account, sends a verification
+email, and returns HTTP 202 with `{"message":"Check your email for a link to
+verify your account."}`. It does not establish a session until the email is
+verified. SMTP credentials and `CHARGEPILOT_FRONTEND_URL` must be configured.
 Standard-user request:
 
 ```json
-{"account_type":"standard","username":"operator","password":"a-long-password","invite_code":"one-time-code","turnstile_token":"one-time-provider-token"}
+{"account_type":"standard","username":"operator","password":"a-long-password","email":"operator@example.com","invite_code":"one-time-code","turnstile_token":"one-time-provider-token"}
 ```
 
 Standard registration requires a tenant admin/manager generated code. The
 database stores only its hash; the invite is consumed in the account-creation
 transaction, can be used once, and expires after seven days. The raw code is
 returned only when created.
+
+### 2.0.2 POST /api/v1/auth/verify-email
+
+Accepts `{"token":"..."}` from the verification email. Valid, unused tokens
+expire after 30 minutes. Success marks the user email verified and establishes
+the browser session. Expired, invalid, or replayed tokens return HTTP 422.
+
+### 2.0.3 POST /api/v1/auth/resend-verification
+
+Accepts `{"email":"...","turnstile_token":"..."}`. A new token invalidates any
+prior pending verification link. The endpoint returns HTTP 202 with the same
+generic message whether an unverified account exists or not.
+
+### 2.0.4 Support contact
+
+`GET /api/v1/support/config` reports whether SMTP is configured and which
+support inbox receives messages. `POST /api/v1/support/email` accepts
+`{"reply_email":"user@example.com","subject":"Help","body":"..."}` and sends
+the message to `CHARGEPILOT_SUPPORT_RECIPIENT` (default
+`chargepilot.support@endusercompute.in`). It requires an authenticated
+session, uses the reply address only as `Reply-To`, limits the subject to one
+line and the body to 5,000 characters, and returns HTTP 202 after SMTP accepts
+the message.
 
 ### 2.1 PUT /api/v1/auth/password
 
