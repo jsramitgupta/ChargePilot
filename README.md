@@ -319,8 +319,9 @@ and k3s GitOps manifests.
   durable and routed only to the assigned site connector.
 - A device can expose its state under `dps`, `data.dps`, or `status` payloads.
 - React is the only browser UI. Login and signup use JSON session APIs;
-  standard-user signup consumes a tenant-admin-created, seven-day invite code,
-  while tenant signup creates a tenant and its first admin.
+  tenant signup creates a tenant and its first admin. Managed-role invitations
+  are sent by email with a single-use password setup link; legacy
+  code-based standard-user signup remains supported for existing invitations.
 - Authentication is intentionally minimal in the current implementation and should be hardened before production use.
 
 ## Documentation pack

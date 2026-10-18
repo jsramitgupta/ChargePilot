@@ -1,5 +1,8 @@
 import hashlib
+import logging
+import re
 import secrets
+import smtplib
 import string
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -7,11 +10,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core.authorization import get_authenticated_user, is_super_admin_user, tenant_scoped_query
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password
+from app.models.account_invitation import AccountInvitation
 from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device, DeviceChannel
 from app.models.endpoint import Endpoint
@@ -21,8 +29,12 @@ from app.models.system_setting import SystemSetting
 from app.models.tenant import Tenant
 from app.models.tenant_invite import TenantInvite
 from app.models.user import User
+from app.services.support_email import build_account_invitation_url, send_account_invitation_email
 
 router = APIRouter(prefix="/admin", tags=["administration"])
+logger = logging.getLogger("chargepilot.admin")
+ACCOUNT_INVITATION_TTL = timedelta(days=7)
+ADMIN_EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 
 class UserCreateRequest(BaseModel):
     username: str = Field(min_length=3, max_length=80)
@@ -67,6 +79,29 @@ class InviteCreateRequest(BaseModel):
     tenant_id: str | None = None
 
 
+class AccountInvitationCreateRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    username: str = Field(min_length=3, max_length=80)
+    role: Literal["tenant_admin", "manager", "standard_user", "viewer"]
+    tenant_id: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        value = value.strip().casefold()
+        if not re.fullmatch(ADMIN_EMAIL_PATTERN, value):
+            raise ValueError("Enter a valid email address.")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def trim_username(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Username is required.")
+        return value
+
+
 class GlobalAgentTokenRequest(BaseModel):
     action: Literal["save", "regenerate"]
     token: str = Field(default="", max_length=512)
@@ -95,6 +130,7 @@ def _user_admin_payload(account: User, tenant_names: dict[str, str]) -> dict[str
     return {
         "id": account.id,
         "username": account.username,
+        "email": account.email,
         "role": account.role,
         "tenant_id": account.tenant_id,
         "tenant_name": tenant_names.get(account.tenant_id),
@@ -219,6 +255,159 @@ async def delete_user(
     db.commit()
 
 
+def _account_invitation_payload(
+    invitation: AccountInvitation,
+    tenant_names: dict[str, str],
+) -> dict[str, object]:
+    return {
+        "id": invitation.id,
+        "tenant_id": invitation.tenant_id,
+        "tenant_name": tenant_names.get(invitation.tenant_id),
+        "username": invitation.username,
+        "email": invitation.email,
+        "role": invitation.role,
+        "created_at": invitation.created_at,
+        "expires_at": invitation.expires_at,
+        "used_at": invitation.used_at,
+        "revoked_at": invitation.revoked_at,
+        "is_active": (
+            invitation.used_at is None
+            and invitation.revoked_at is None
+            and _is_invite_unexpired(invitation.expires_at)
+        ),
+    }
+
+
+@router.post("/account-invitations", status_code=status.HTTP_201_CREATED)
+async def create_account_invitation(
+    payload: AccountInvitationCreateRequest,
+    response: Response,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    _require_user_admin(user)
+    if not settings.smtp_configured or not settings.frontend_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Email invitations are unavailable because email delivery is not configured.",
+        )
+
+    if is_super_admin_user(user):
+        tenant = db.query(Tenant).filter(Tenant.id == payload.tenant_id).first() if payload.tenant_id else None
+    else:
+        tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
+    if tenant is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a valid tenant.")
+
+    if db.query(User.id).filter(User.username == payload.username).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That username is already in use.")
+    if db.query(User.id).filter(func.lower(User.email) == payload.email).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That email address is already in use.")
+
+    now = datetime.now(UTC)
+    matching_invites = db.query(AccountInvitation).filter(
+        AccountInvitation.used_at.is_(None),
+        AccountInvitation.revoked_at.is_(None),
+        AccountInvitation.expires_at > now,
+        (
+            (AccountInvitation.username == payload.username)
+            | (func.lower(AccountInvitation.email) == payload.email)
+        ),
+    )
+    if matching_invites.filter(AccountInvitation.tenant_id != tenant.id).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An active invitation already exists for that username or email address.",
+        )
+    matching_invites.filter(AccountInvitation.tenant_id == tenant.id).update(
+        {"revoked_at": now},
+        synchronize_session=False,
+    )
+
+    token = secrets.token_urlsafe(32)
+    invitation = AccountInvitation(
+        tenant_id=tenant.id,
+        username=payload.username,
+        email=payload.email,
+        role=payload.role,
+        token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+        created_by_user_id=user.id,
+        created_at=now,
+        expires_at=now + ACCOUNT_INVITATION_TTL,
+    )
+    db.add(invitation)
+    try:
+        db.commit()
+        db.refresh(invitation)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An invitation for that username or email address already exists.",
+        ) from exc
+
+    try:
+        await run_in_threadpool(
+            send_account_invitation_email,
+            recipient=invitation.email,
+            username=invitation.username,
+            role=invitation.role,
+            tenant_name=tenant.name,
+            setup_code=token,
+            invitation_url=build_account_invitation_url(settings.frontend_url, token),
+            expires_at=invitation.expires_at.strftime("%Y-%m-%d %H:%M UTC"),
+        )
+    except (OSError, smtplib.SMTPException, RuntimeError):
+        logger.exception("Account invitation email delivery failed.")
+        invitation.revoked_at = datetime.now(UTC)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The invitation email could not be sent. Try creating the invitation again.",
+        ) from None
+
+    response.headers["Cache-Control"] = "private, no-store"
+    return _account_invitation_payload(invitation, {tenant.id: tenant.name})
+
+
+@router.get("/account-invitations")
+async def list_account_invitations(
+    response: Response,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    _require_user_admin(user)
+    invitations = db.query(AccountInvitation)
+    if not is_super_admin_user(user):
+        invitations = invitations.filter(AccountInvitation.tenant_id == user.tenant_id)
+        tenant_names = {}
+    else:
+        tenant_names = {tenant.id: tenant.name for tenant in db.query(Tenant).all()}
+    response.headers["Cache-Control"] = "private, no-store"
+    return [
+        _account_invitation_payload(invitation, tenant_names)
+        for invitation in invitations.order_by(AccountInvitation.created_at.desc()).all()
+    ]
+
+
+@router.delete("/account-invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_account_invitation(
+    invitation_id: UUID,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    _require_user_admin(user)
+    invitation = db.query(AccountInvitation).filter(AccountInvitation.id == str(invitation_id)).first()
+    if invitation is None or (
+        not is_super_admin_user(user) and invitation.tenant_id != user.tenant_id
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found.")
+    if invitation.used_at is not None or invitation.revoked_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This invitation is no longer active.")
+    invitation.revoked_at = datetime.now(UTC)
+    db.commit()
+
+
 @router.get("/tenants")
 async def list_tenants(
     response: Response,
@@ -302,6 +491,7 @@ async def delete_tenant(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found.")
 
     db.query(TenantInvite).filter(TenantInvite.tenant_id == tenant.id).delete(synchronize_session=False)
+    db.query(AccountInvitation).filter(AccountInvitation.tenant_id == tenant.id).delete(synchronize_session=False)
     connectors = db.query(SiteConnector).filter(SiteConnector.tenant_id == tenant.id).all()
     for connector in connectors:
         db.query(DeviceCommand).filter(DeviceCommand.connector_id == connector.id).delete(synchronize_session=False)

@@ -166,6 +166,39 @@ def test_auth_controls_and_semantic_statuses_follow_both_themes():
     assert contrast_ratio("#b8e0c0", "#21382b") >= 4.5
 
 
+def test_people_invitations_and_account_settings_follow_the_shared_theme():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    dark = DARK_THEME.read_text(encoding="utf-8")
+    users_page = app.split("function UsersPage()", 1)[1].split("\nfunction ", 1)[0]
+
+    assert 'path="/accept-invitation"' in app
+    assert "function AcceptInvitationPage()" in app
+    assert "function ChangePasswordSection()" in app
+    assert "'/api/v1/auth/accept-invitation'" in app
+    assert "'/api/v1/admin/account-invitations'" in users_page
+    assert "Send invitation" in users_page
+    assert "Copy invite code" not in users_page
+    assert "Create a user" not in users_page
+    assert 'path="/account" element={<Navigate to="/profile" replace />}' in app
+    assert "Only the super admin can change this password." not in app
+
+    for selector in (
+        ".people-invite-section",
+        ".people-invitation-row",
+        ".people-table",
+        ".account-summary",
+        ".account-password-section",
+    ):
+        assert selector in light
+
+    assert "var(--surface)" in css_rule(light, ".account-summary")
+    assert "var(--line)" in css_rule(light, ".people-table td")
+    assert "--warning-surface: #fffaf1;" in css_rule(light, ":root")
+    assert "--warning-surface: #382d1f;" in css_rule(dark, "body.theme-dark")
+    assert contrast_ratio("#efc98f", "#382d1f") >= 4.5
+
+
 def test_mapping_rule_inputs_do_not_submit_until_explicit_save():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     mappings_page = app.split("function MappingsPage()", 1)[1].split("\nfunction ", 1)[0]

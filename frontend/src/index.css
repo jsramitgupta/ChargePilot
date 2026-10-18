@@ -30,6 +30,9 @@
   --success-ink: #38684e;
   --success-surface: #edf7ef;
   --success-line: #c6dfcf;
+  --warning-ink: #825d28;
+  --warning-surface: #fffaf1;
+  --warning-line: #ead8b7;
 }
 
 html {
@@ -2200,6 +2203,451 @@ button, a {
   font-size: 10px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.people-page,
+.account-page {
+  display: grid;
+  gap: 18px;
+}
+
+.people-page .page-heading,
+.account-page .page-heading {
+  margin-bottom: 2px;
+}
+
+.people-invite-section,
+.people-invitations-section,
+.people-accounts-section {
+  min-width: 0;
+  padding: clamp(18px, 2.5vw, 26px);
+}
+
+.people-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.people-section-heading h2,
+.account-password-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 720;
+  letter-spacing: -.025em;
+}
+
+.people-section-heading p,
+.account-password-heading p {
+  max-width: 620px;
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.people-heading-icon,
+.account-password-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--leaf);
+  background: var(--surface-muted);
+}
+
+.people-invite-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px 16px;
+}
+
+.people-invite-form .field-group {
+  min-width: 0;
+}
+
+.people-invite-submit {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.people-invite-submit p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.people-count {
+  display: grid;
+  min-width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  background: var(--surface-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.people-invitation-list {
+  border-top: 1px solid var(--line);
+}
+
+.people-invitation-row {
+  display: grid;
+  grid-template-columns: minmax(160px, .9fr) minmax(0, 1.7fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.people-invitation-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.people-invitation-person {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.people-invitation-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface) 82%, var(--leaf));
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.people-invitation-person div,
+.people-account-person {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.people-invitation-person strong,
+.people-account-person strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+
+.people-invitation-person div > span,
+.people-account-person > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+}
+
+.people-invitation-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.people-invitation-status,
+.people-current-account {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 99px;
+  color: var(--muted);
+  background: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.people-invitation-status.is-pending {
+  color: var(--warning-ink);
+  background: var(--warning-surface);
+  box-shadow: inset 0 0 0 1px var(--warning-line);
+}
+
+.people-invitation-status.is-accepted {
+  color: var(--success-ink);
+  background: var(--success-surface);
+  box-shadow: inset 0 0 0 1px var(--success-line);
+}
+
+.people-revoke-button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--danger-line);
+  border-radius: 8px;
+  color: var(--danger-ink);
+  background: var(--danger-surface);
+  font-size: 11px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.people-revoke-button:hover {
+  background: var(--danger-hover);
+}
+
+.people-revoke-button:disabled {
+  cursor: not-allowed;
+  opacity: .65;
+}
+
+.people-empty-state {
+  display: grid;
+  gap: 4px;
+  padding: 21px 0 2px;
+}
+
+.people-empty-state p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.people-empty-state span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.people-table-wrap {
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
+}
+
+.people-table {
+  width: 100%;
+  min-width: 700px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 11px;
+}
+
+.people-table th {
+  padding: 11px 12px;
+  color: var(--muted);
+  background: var(--surface-muted);
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.people-table td {
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+  vertical-align: middle;
+}
+
+.people-role-form {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.people-role-form .field {
+  width: auto;
+  min-width: 130px;
+  max-width: 200px;
+  margin: 0;
+  padding: 7px 9px;
+  font-size: 11px;
+}
+
+.people-role-form .btn-secondary {
+  min-height: 34px;
+  padding: 6px 9px;
+  font-size: 10px;
+}
+
+.people-no-accounts {
+  padding: 28px !important;
+  color: var(--muted) !important;
+  text-align: center;
+}
+
+.account-page {
+  max-width: 930px;
+  margin: 0 auto;
+}
+
+.account-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
+}
+
+.account-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 15px 17px;
+}
+
+.account-summary > div:nth-child(even) {
+  border-left: 1px solid var(--line);
+}
+
+.account-summary > div:nth-child(n + 3) {
+  border-top: 1px solid var(--line);
+}
+
+.account-summary span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.account-summary strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+}
+
+.account-timezone-section {
+  border-radius: 13px;
+}
+
+.account-password-section {
+  display: grid;
+  gap: 17px;
+  padding: clamp(18px, 3vw, 25px);
+  border-radius: 13px;
+}
+
+.account-password-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.account-password-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.account-password-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.invitation-account-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-muted);
+}
+
+.invitation-account-details div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.invitation-account-details dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.invitation-account-details dd {
+  overflow: hidden;
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+}
+
+@media (max-width: 720px) {
+  .people-invitation-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .people-invitation-meta {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding-left: 44px;
+  }
+
+  .people-invitation-row .people-revoke-button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+@media (max-width: 520px) {
+  .people-invite-form,
+  .account-password-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .people-invite-submit,
+  .account-password-actions {
+    grid-column: 1;
+  }
+
+  .people-invite-submit {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .people-invite-submit .btn-primary,
+  .account-password-actions .btn-primary {
+    width: 100%;
+  }
+
+  .account-summary > div {
+    padding: 12px;
+  }
+
+  .invitation-account-details {
+    gap: 10px;
+  }
 }
 
 .mapping-empty-state,

@@ -65,9 +65,10 @@ startup walkthrough.
 8. The React frontend consumes the API and keeps session cookies; browser-facing
    API/frontend origins are provided by runtime `CHARGEPILOT_API_URL` and
    `CHARGEPILOT_FRONTEND_URL` configuration. JSON login and registration APIs
-   establish the browser session. Standard-user signup requires a
-   tenant-admin/manager-issued one-time invite code that expires after seven
-   days; both public signup paths additionally require server-verified
+   establish the browser session. Existing standard-user self-registration
+   accepts a tenant-admin/manager-issued legacy one-time code; new managed-role
+   invitations are sent by email with a single-use password setup link. Both
+   public signup paths additionally require server-verified
    Cloudflare Turnstile before an account or tenant can be created. Production
    registration fails closed when Turnstile keys are missing. Tenant signup
    also requires configured SMTP and a public frontend origin; newly
@@ -76,10 +77,16 @@ startup walkthrough.
    the tenant and its first admin. Authenticated
    navigation and connector, profile, account, user, tenant, and agent setup
    workflows are React routes. Signed-in users can contact the configured
-   support inbox from the React navigation using SMTP. Super admins can change their own password from
-   the React account page using the authenticated auth API.
+   support inbox from the React navigation using SMTP. Signed-in users can change
+   their own password from the Account page using the authenticated auth API.
    Account settings select the user's display time zone from a region-grouped
    IANA time-zone dropdown; timestamps throughout the app follow that choice.
+   People & Invites sends role- and tenant-scoped invitations by email with a
+   single-use, seven-day setup code. The recipient sets a password before the
+   account is created and is signed in after redemption. Invitation codes are
+   stored hashed, expire, can be revoked, and are never returned by the admin API.
+   Signed-in users change their own password alongside profile preferences; the
+   legacy `/account` route redirects to `/profile`.
 
 ## Current important service modules
 - app/services/rule_engine.py — threshold logic and hysteresis

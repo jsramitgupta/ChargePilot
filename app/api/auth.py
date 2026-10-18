@@ -11,15 +11,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.core.authorization import get_authenticated_user, is_super_admin_user
+from app.core.authorization import get_authenticated_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password
+from app.models.account_invitation import AccountInvitation
 from app.models.email_verification import EmailVerification
 from app.models.tenant import Tenant
 from app.models.tenant_invite import TenantInvite
@@ -98,6 +99,21 @@ class RegistrationRequest(BaseModel):
 
 class VerifyEmailRequest(BaseModel):
     token: str = Field(min_length=32, max_length=128)
+
+
+class InvitationCodeRequest(BaseModel):
+    code: str = Field(min_length=32, max_length=128)
+
+
+class AcceptInvitationRequest(InvitationCodeRequest):
+    password: str = Field(min_length=12, max_length=72)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_bytes(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be 72 UTF-8 bytes or fewer.")
+        return value
 
 
 class ResendVerificationRequest(BaseModel):
@@ -381,6 +397,108 @@ async def verify_email(
     return {"user": _user_payload(user, tenant)}
 
 
+@router.post("/invitation-details")
+async def get_invitation_details(
+    payload: InvitationCodeRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(UTC)
+    token_hash = hashlib.sha256(payload.code.encode("utf-8")).hexdigest()
+    invitation = db.query(AccountInvitation).filter(
+        AccountInvitation.token_hash == token_hash,
+        AccountInvitation.used_at.is_(None),
+        AccountInvitation.revoked_at.is_(None),
+        AccountInvitation.expires_at > now,
+    ).first()
+    if invitation is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This invitation is invalid, expired, or already used.",
+        )
+    tenant = db.query(Tenant).filter(Tenant.id == invitation.tenant_id).first()
+    if tenant is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This invitation is no longer associated with an active tenant.",
+        )
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "username": invitation.username,
+        "email": invitation.email,
+        "role": invitation.role,
+        "tenant_name": tenant.name,
+        "expires_at": invitation.expires_at,
+    }
+
+
+@router.post("/accept-invitation")
+async def accept_account_invitation(
+    payload: AcceptInvitationRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(UTC)
+    token_hash = hashlib.sha256(payload.code.encode("utf-8")).hexdigest()
+    invitation = db.execute(
+        select(AccountInvitation)
+        .where(
+            AccountInvitation.token_hash == token_hash,
+            AccountInvitation.used_at.is_(None),
+            AccountInvitation.revoked_at.is_(None),
+            AccountInvitation.expires_at > now,
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if invitation is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This invitation is invalid, expired, or already used.",
+        )
+    tenant = db.query(Tenant).filter(Tenant.id == invitation.tenant_id).first()
+    if tenant is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This invitation is no longer associated with an active tenant.",
+        )
+    if (
+        db.query(User.id)
+        .filter((User.username == invitation.username) | (func.lower(User.email) == invitation.email))
+        .first()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This username or email address is already associated with an account.",
+        )
+
+    user = User(
+        username=invitation.username,
+        email=invitation.email,
+        email_verified=True,
+        password_hash=hash_password(payload.password),
+        tenant_id=tenant.id,
+        role=invitation.role,
+        is_admin=invitation.role == "tenant_admin",
+        timezone="UTC",
+    )
+    invitation.used_at = now
+    db.add(user)
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This username or email address is already associated with an account.",
+        ) from exc
+    request.session.clear()
+    request.session["user_id"] = user.id
+    response.headers["Cache-Control"] = "private, no-store"
+    return {"user": _user_payload(user, tenant)}
+
+
 @router.post("/resend-verification", status_code=status.HTTP_202_ACCEPTED)
 async def resend_verification(
     payload: ResendVerificationRequest,
@@ -438,11 +556,6 @@ async def change_password(
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
 ):
-    if not is_super_admin_user(user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the super admin can change this password.",
-        )
     if not verify_password(payload.current_password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

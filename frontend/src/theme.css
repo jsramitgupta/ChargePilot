@@ -15,6 +15,9 @@ body.theme-dark {
   --success-ink: #b8e0c0;
   --success-surface: #21382b;
   --success-line: #47644f;
+  --warning-ink: #efc98f;
+  --warning-surface: #382d1f;
+  --warning-line: #775e36;
   color: var(--ink);
   background: var(--paper);
 }

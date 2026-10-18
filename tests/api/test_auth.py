@@ -476,7 +476,7 @@ def test_super_admin_can_change_password_after_reauthenticating():
     assert new_password_login.status_code == 200
 
 
-def test_tenant_user_cannot_change_super_admin_password():
+def test_standard_user_can_change_own_password():
     tenant_admin = TestClient(app)
     owner_email = "password-test-owner@example.test"
     created = tenant_admin.post(
@@ -506,13 +506,20 @@ def test_tenant_user_cannot_change_super_admin_password():
         },
     )
     verify_registered_email(client, signup, standard_email)
-    assert client.put(
+    changed = client.put(
         "/api/v1/auth/password",
         json={
             "current_password": "standard-user-password",
             "new_password": "new-standard-user-password",
         },
-    ).status_code == 403
+    )
+    assert changed.status_code == 200
+    replacement_client = TestClient(app)
+    login = replacement_client.post(
+        "/api/v1/auth/login",
+        json={"username": "password-test-standard", "password": "new-standard-user-password"},
+    )
+    assert login.status_code == 200
 
 
 def test_password_change_requires_a_strong_new_password():

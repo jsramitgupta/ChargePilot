@@ -13,6 +13,10 @@ def build_verification_url(frontend_url: str, token: str) -> str:
     return f"{frontend_url.rstrip('/')}/verify-email?{urlencode({'token': token})}"
 
 
+def build_account_invitation_url(frontend_url: str, token: str) -> str:
+    return f"{frontend_url.rstrip('/')}/accept-invitation?{urlencode({'code': token})}"
+
+
 def send_verification_email(*, recipient: str, username: str, verification_url: str) -> None:
     message = EmailMessage()
     message["Subject"] = "Verify your ChargePilot account"
@@ -24,6 +28,33 @@ def send_verification_email(*, recipient: str, username: str, verification_url: 
         f"{verification_url}\n\n"
         "This link expires in 30 minutes. If you did not request this account, "
         "you can ignore this email."
+    )
+    _send_message(message)
+
+
+def send_account_invitation_email(
+    *,
+    recipient: str,
+    username: str,
+    role: str,
+    tenant_name: str,
+    setup_code: str,
+    invitation_url: str,
+    expires_at: str,
+) -> None:
+    message = EmailMessage()
+    message["Subject"] = "Your ChargePilot account invitation"
+    message["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
+    message["To"] = recipient
+    message.set_content(
+        f"Hello {username},\n\n"
+        f"You have been invited to {tenant_name} as {role.replace('_', ' ')}.\n\n"
+        f"Username: {username}\n"
+        f"One-time setup code: {setup_code}\n\n"
+        "Open this link to set your password and activate your account:\n"
+        f"{invitation_url}\n\n"
+        f"This invitation expires on {expires_at}. The setup code can only be used once.\n"
+        "If you were not expecting this invitation, you can ignore this email."
     )
     _send_message(message)
 

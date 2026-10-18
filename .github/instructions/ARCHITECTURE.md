@@ -53,8 +53,8 @@ Populate only the local key; device details and IP come from LAN scan
 The HTTP API modules are in `app/api/`:
 
 - `health.py` — liveness and database readiness
-- `auth.py` — JSON login/registration, profile, session, and super-admin password API
-- `admin.py` — tenant/user administration and one-time tenant invitations
+- `auth.py` — JSON login/registration, profile, session, and authenticated password API
+- `admin.py` — tenant/user administration, emailed account invitations, and legacy tenant invites
 - `telemetry.py` — telemetry intake, rule execution, and SSE stream
 - `devices.py` — device/channel CRUD and device control
 - `onboarding.py` — LAN discovery and SmartLife pairing
@@ -93,6 +93,7 @@ The model set in `app/models/` includes:
 - `User` — site login and access; public signups remain inactive until email
   verification, while existing and administrator-created users remain active
 - `EmailVerification` — hash-only, expiring single-use registration tokens
+- `AccountInvitation` — tenant-scoped, hash-only, expiring single-use account setup links
 
 ### 3.4 Service layer
 
@@ -268,6 +269,9 @@ power states; show the live state with its indicator, label, and accent border
 rather than changing the whole card background.
 The route inventory, palette, typography, responsive behavior, and theme
 decisions are maintained in [FRONTEND_DESIGN.md](FRONTEND_DESIGN.md).
+People & Invites issues account invitations by email for managed roles; the
+recipient sets their password before an account is created. The Account page
+contains both time-zone and password preferences for all signed-in roles.
 
 ## 9. Risks and operational concerns
 

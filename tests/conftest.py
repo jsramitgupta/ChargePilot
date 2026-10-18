@@ -7,6 +7,7 @@ os.environ["CHARGEPILOT_ENVIRONMENT"] = "test"
 import pytest
 from pydantic import SecretStr
 
+from app.api import admin as admin_api
 from app.api import auth as auth_api
 from app.core.database import Base, SessionLocal, engine, ensure_default_admin_user, ensure_default_system_settings
 from app.core.config import settings
@@ -18,6 +19,7 @@ from app.models.mapping import Mapping
 
 TEST_GLOBAL_AGENT_TOKEN = "test-endpoint-token"
 TEST_EMAIL_VERIFICATION_TOKENS: dict[str, str] = {}
+TEST_ACCOUNT_INVITATION_TOKENS: dict[str, str] = {}
 
 
 def set_test_global_agent_token() -> None:
@@ -94,14 +96,30 @@ def reset_database(monkeypatch):
         token = parse_qs(urlsplit(verification_url).query)["token"][0]
         TEST_EMAIL_VERIFICATION_TOKENS[recipient] = token
 
+    def capture_account_invitation_email(
+        *,
+        recipient: str,
+        username: str,
+        role: str,
+        tenant_name: str,
+        setup_code: str,
+        invitation_url: str,
+        expires_at: str,
+    ):
+        code = parse_qs(urlsplit(invitation_url).query)["code"][0]
+        assert code == setup_code
+        TEST_ACCOUNT_INVITATION_TOKENS[recipient] = code
+
     monkeypatch.setattr(auth_api, "verify_registration_challenge", accept_test_challenge)
     monkeypatch.setattr(auth_api, "send_verification_email", capture_verification_email)
+    monkeypatch.setattr(admin_api, "send_account_invitation_email", capture_account_invitation_email)
     monkeypatch.setattr(settings, "frontend_url", "https://app.example.test")
     monkeypatch.setattr(settings, "smtp_host", "smtp.example.test")
     monkeypatch.setattr(settings, "smtp_username", "test-user")
     monkeypatch.setattr(settings, "smtp_password", SecretStr("test-password"))
     monkeypatch.setattr(settings, "smtp_from_email", "no-reply@example.test")
     TEST_EMAIL_VERIFICATION_TOKENS.clear()
+    TEST_ACCOUNT_INVITATION_TOKENS.clear()
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     ensure_default_admin_user()

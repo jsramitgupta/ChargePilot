@@ -24,19 +24,20 @@ browser interactions:
 | Route | Responsibility |
 | --- | --- |
 | `/login` | Sign in to an existing account |
-| `/register` | Register a tenant admin or accept a tenant invitation |
+| `/register` | Create a tenant or complete legacy code-based standard-user signup |
 | `/verify-email` | Explain and complete email verification |
+| `/accept-invitation` | Review an emailed invitation and set the account password |
 | `/` | Endpoint and switch overview with live telemetry summary |
 | `/endpoints` | Review laptops, ownership, readings, and endpoint assignment |
 | `/devices` | Review switches, channels, connector assignment, and device state |
 | `/mappings` | Create, edit, and remove endpoint-to-switch battery rules |
 | `/events` | Review automation activity and outcomes |
 | `/connectors` | Enroll and operate site connectors |
-| `/profile` | Edit profile preferences, including display time zone |
-| `/users` | Manage tenant users and invitations |
+| `/profile` | Manage account details, display time zone, and password |
+| `/users` | Invite people by email and manage roles and accounts |
 | `/tenants` | Manage tenants as a Super Admin |
 | `/agent` | Install and configure the laptop telemetry agent |
-| `/account` | Change the Super Admin password |
+| `/account` | Redirect to the shared account settings page |
 | `/support` | Send a support request |
 
 All routes except sign-in, registration, and email verification require the

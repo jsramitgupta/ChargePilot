@@ -155,6 +155,7 @@ type DevicesPageData = {
 type AdminUser = {
   id: string
   username: string
+  email?: string | null
   role: string
   tenant_id?: string | null
   tenant_name?: string | null
@@ -169,13 +170,17 @@ type TenantInfo = {
   created_at: string
 }
 
-type TenantInviteInfo = {
+type AccountInvitationInfo = {
   id: string
   tenant_id: string
   tenant_name?: string | null
+  username: string
+  email: string
+  role: string
   created_at: string
   expires_at: string
   used_at?: string | null
+  revoked_at?: string | null
   is_active: boolean
 }
 
@@ -380,13 +385,14 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
           <Route element={<ProtectedLayout />}>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/devices" element={<DevicesPage />} />
             <Route path="/mappings" element={<MappingsPage />} />
             <Route path="/endpoints" element={<EndpointsPage />} />
             <Route path="/events" element={<EventsPage />} />
-            <Route path="/account" element={<SuperAdminAccountPage />} />
+            <Route path="/account" element={<Navigate to="/profile" replace />} />
             <Route path="/connectors" element={<ConnectorsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/users" element={<UsersPage />} />
@@ -496,11 +502,10 @@ function AppShell({ user }: { user: User }) {
           {user.role === 'super_admin' && <NavLink to="/tenants" onClick={() => setMobileOpen(false)} className="rail-link"><Building2 size={17} aria-hidden="true" /><span>Tenants</span></NavLink>}
         </nav>
         <div className="rail-footer">
-          <NavLink to="/profile" className="rail-profile" onClick={() => setMobileOpen(false)}>
+          <NavLink to="/profile" className="rail-profile" aria-label="Account settings" onClick={() => setMobileOpen(false)}>
             <span className="profile-initial">{user.username.slice(0, 1).toUpperCase()}</span>
-            <span className="profile-copy"><strong>{user.username}</strong><small>{user.role.replaceAll('_', ' ')}</small></span>
+            <span className="profile-copy"><strong>Account</strong><small>{user.username}</small></span>
           </NavLink>
-          {user.role === 'super_admin' && <NavLink to="/account" className="rail-footer-link" onClick={() => setMobileOpen(false)}><KeyRound size={15} />Account security</NavLink>}
           <NavLink to="/support" className="rail-footer-link" onClick={() => setMobileOpen(false)}><Mail size={15} />Contact support</NavLink>
           <button type="button" className="rail-footer-link" onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}><LogOut size={15} />{logoutMutation.isPending ? 'Signing out…' : 'Sign out'}</button>
         </div>
@@ -666,9 +671,8 @@ function LoginPage() {
         </form>
         <div className="auth-divider" />
         <div className="auth-signup">
-          <p>Need a new account?</p>
+          <p>Joining an existing workspace? Ask its administrator to email you an invitation.</p>
           <div className="auth-actions">
-            <a href={frontendUrl('/register?account_type=standard')} className="choice-link">Standard user</a>
             <a href={frontendUrl('/register?account_type=tenant')} className="primary-btn small-btn">Create tenant</a>
           </div>
         </div>
@@ -842,6 +846,114 @@ function VerifyEmailPage() {
   )
 }
 
+function AcceptInvitationPage() {
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const [code] = useState(() => searchParams.get('code') ?? '')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [formError, setFormError] = useState('')
+  useEffect(() => {
+    if (code) navigate('/accept-invitation', { replace: true })
+  }, [code, navigate])
+
+  const invitationQuery = useQuery({
+    queryKey: ['account-invitation', code],
+    queryFn: () => apiFetch<{ username: string; email: string; role: string; tenant_name: string; expires_at: string }>(
+      '/api/v1/auth/invitation-details',
+      { method: 'POST', body: JSON.stringify({ code }) },
+    ),
+    enabled: Boolean(code),
+    retry: false,
+  })
+  const acceptMutation = useMutation({
+    mutationFn: () => apiFetch<{ user: User }>('/api/v1/auth/accept-invitation', {
+      method: 'POST',
+      body: JSON.stringify({ code, password }),
+    }),
+    onSuccess: ({ user }) => {
+      queryClient.setQueryData(['session'], user)
+      navigate('/', { replace: true })
+    },
+  })
+
+  function submitPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setFormError('')
+    if (password !== confirmPassword) {
+      setFormError('The passwords do not match.')
+      return
+    }
+    if (new TextEncoder().encode(password).length > 72) {
+      setFormError('The password must be 72 UTF-8 bytes or fewer.')
+      return
+    }
+    acceptMutation.mutate()
+  }
+
+  const invite = invitationQuery.data
+  const detailsError = invitationQuery.error
+  const [isDark, setIsDark] = useAppTheme()
+
+  return (
+    <div className="auth-shell">
+      <ThemeToggleButton isDark={isDark} onToggle={() => setIsDark((value) => !value)} className="auth-theme-toggle" />
+      <AuthBrandPanel />
+      <section className="auth-card auth-card-wide" aria-labelledby="invitation-title">
+        <h1 id="invitation-title">Set your password</h1>
+        {invitationQuery.isLoading && <p className="auth-subtle">Checking your invitation…</p>}
+        {detailsError && <ErrorCard message={detailsError.message} />}
+        {!code && <ErrorCard message="This invitation link is missing its one-time setup code." />}
+        {invite && <>
+          <p className="auth-subtle">Choose a password to activate your ChargePilot account.</p>
+          <dl className="invitation-account-details">
+            <div><dt>Username</dt><dd>{invite.username}</dd></div>
+            <div><dt>Email</dt><dd>{invite.email}</dd></div>
+            <div><dt>Workspace</dt><dd>{invite.tenant_name}</dd></div>
+            <div><dt>Access</dt><dd>{invite.role.replaceAll('_', ' ')}</dd></div>
+          </dl>
+          <form className="auth-form" onSubmit={submitPassword}>
+            <label className="field-group" htmlFor="invited-password">
+              New password
+              <input
+                id="invited-password"
+                type="password"
+                autoComplete="new-password"
+                minLength={12}
+                maxLength={72}
+                required
+                className="field"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+              <span className="auth-helper">Use at least 12 characters.</span>
+            </label>
+            <label className="field-group" htmlFor="invited-password-confirm">
+              Confirm password
+              <input
+                id="invited-password-confirm"
+                type="password"
+                autoComplete="new-password"
+                minLength={12}
+                maxLength={72}
+                required
+                className="field"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+              />
+            </label>
+            {(formError || acceptMutation.error) && <ErrorCard message={formError || acceptMutation.error?.message || 'The invitation could not be accepted.'} />}
+            <button type="submit" className="primary-btn large-btn w-full" disabled={acceptMutation.isPending}>
+              {acceptMutation.isPending ? 'Activating account…' : 'Set password and sign in'}
+            </button>
+          </form>
+        </>}
+        <p className="auth-signin"><a href={frontendUrl('/login')}>Back to sign in</a></p>
+      </section>
+    </div>
+  )
+}
+
 function SupportPage() {
   const { data: user } = useSession()
   const [replyEmail, setReplyEmail] = useState('')
@@ -957,8 +1069,7 @@ function SupportPage() {
   )
 }
 
-function SuperAdminAccountPage() {
-  const { data: user, isLoading, error } = useSession()
+function ChangePasswordSection() {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -995,34 +1106,22 @@ function SuperAdminAccountPage() {
     mutation.mutate({ current_password: currentPassword, new_password: newPassword })
   }
 
-  if (isLoading) return <LoadingCard />
-  if (error || !user) return <ErrorCard message="Your session could not be verified. Sign in again to continue." />
-  if (user.role !== 'super_admin') return <Navigate to="/" replace />
-
   return (
-    <div className="space-y-6">
-      <PageHeader
-        eyebrow="Account security"
-        title="Change password"
-        description="Update the password used to sign in to the super admin account."
-      />
-      <section className="panel max-w-2xl p-5 sm:p-6" aria-labelledby="password-form-title">
-        <div className="mb-5 flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+      <section className="panel account-password-section" aria-labelledby="password-form-title">
+        <div className="account-password-heading">
+          <span className="account-password-icon">
             <KeyRound size={18} aria-hidden="true" />
           </span>
           <div>
-            <h2 id="password-form-title" className="text-lg font-semibold text-slate-900">Super admin password</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">Use at least 12 characters. Your current session stays active after the change.</p>
+            <h2 id="password-form-title">Change password</h2>
+            <p>Choose a new password for your ChargePilot account.</p>
           </div>
         </div>
-        {successMessage && <p className="alert success mb-4" role="status">{successMessage}</p>}
-        {(formError || mutation.error) && (
-          <p className="alert error mb-4" role="alert">{formError || mutation.error?.message}</p>
-        )}
-        <form className="space-y-4" onSubmit={submitPasswordChange}>
-          <div className="field-group">
-            <label htmlFor="current-password">Current password</label>
+        {successMessage && <p className="alert success" role="status">{successMessage}</p>}
+        {(formError || mutation.error) && <p className="alert error" role="alert">{formError || mutation.error?.message}</p>}
+        <form className="account-password-form" onSubmit={submitPasswordChange}>
+          <label className="field-group" htmlFor="current-password">
+            Current password
             <input
               id="current-password"
               type="password"
@@ -1032,9 +1131,9 @@ function SuperAdminAccountPage() {
               value={currentPassword}
               onChange={(event) => setCurrentPassword(event.target.value)}
             />
-          </div>
-          <div className="field-group">
-            <label htmlFor="new-password">New password</label>
+          </label>
+          <label className="field-group" htmlFor="new-password">
+            New password
             <input
               id="new-password"
               type="password"
@@ -1046,9 +1145,10 @@ function SuperAdminAccountPage() {
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
             />
-          </div>
-          <div className="field-group">
-            <label htmlFor="confirm-password">Confirm new password</label>
+            <span className="auth-helper">Use at least 12 characters.</span>
+          </label>
+          <label className="field-group" htmlFor="confirm-password">
+            Confirm new password
             <input
               id="confirm-password"
               type="password"
@@ -1060,15 +1160,14 @@ function SuperAdminAccountPage() {
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
             />
-          </div>
-          <div className="flex justify-end border-t border-slate-200 pt-4">
+          </label>
+          <div className="account-password-actions">
             <button type="submit" className="btn-primary" disabled={mutation.isPending}>
-              {mutation.isPending ? 'Changing password…' : 'Change password'}
+              {mutation.isPending ? 'Saving password…' : 'Save new password'}
             </button>
           </div>
         </form>
       </section>
-    </div>
   )
 }
 
@@ -2182,13 +2281,15 @@ function ProfilePage() {
   if (isLoading) return <LoadingCard />
   if (error || !user) return <ErrorCard message={error?.message ?? 'Your account could not be loaded.'} />
   const currentTimezone = timezone || user.timezone || 'UTC'
-  return <div className="mx-auto max-w-3xl space-y-5">
-    <PageHeader eyebrow="Account" title={user.username} description="Manage the display settings for your ChargePilot account." />
-    <section className="grid gap-4 sm:grid-cols-2">
-      <MetricMini label="Role" value={user.role.replaceAll('_', ' ')} />
-      <MetricMini label="Tenant" value={user.tenant_name ?? 'Personal tenant'} />
+  return <div className="account-page">
+    <PageHeader eyebrow="Your settings" title="Account" description="Manage your profile and sign-in preferences." />
+    <section className="account-summary" aria-label="Account details">
+      <div><span>Username</span><strong>{user.username}</strong></div>
+      <div><span>Email</span><strong>{user.email ?? 'Not set'}</strong></div>
+      <div><span>Role</span><strong>{user.role.replaceAll('_', ' ')}</strong></div>
+      <div><span>Workspace</span><strong>{user.tenant_name ?? 'System'}</strong></div>
     </section>
-    <section className="profile-preference panel">
+    <section className="profile-preference panel account-timezone-section">
       <div>
         <h2>Time zone</h2>
         <p>Choose how dates and times are shown across ChargePilot.</p>
@@ -2220,6 +2321,7 @@ function ProfilePage() {
         <button type="submit" className="btn-primary" disabled={mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save time zone'}</button>
       </form>
     </section>
+    <ChangePasswordSection />
   </div>
 }
 
@@ -2228,106 +2330,260 @@ function UsersPage() {
   const { data: currentUser, isLoading: sessionLoading } = useSession()
   const usersQuery = useQuery({ queryKey: ['admin-users'], queryFn: () => apiFetch<AdminUser[]>('/api/v1/admin/users') })
   const tenantsQuery = useQuery({ queryKey: ['admin-tenants'], queryFn: () => apiFetch<TenantInfo[]>('/api/v1/admin/tenants'), enabled: currentUser?.role === 'super_admin' })
-  const invitesQuery = useQuery({ queryKey: ['admin-invites'], queryFn: () => apiFetch<TenantInviteInfo[]>('/api/v1/admin/invites') })
+  const invitationsQuery = useQuery({ queryKey: ['account-invitations'], queryFn: () => apiFetch<AccountInvitationInfo[]>('/api/v1/admin/account-invitations') })
   const [statusMessage, setStatusMessage] = useState('')
-  const [inviteCode, setInviteCode] = useState('')
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteUsername, setInviteUsername] = useState('')
+  const [inviteRole, setInviteRole] = useState('tenant_admin')
   const [inviteTenantId, setInviteTenantId] = useState('')
   const actionMutation = useMutation({
-    mutationFn: async ({ method, path, body }: { method: 'POST' | 'PATCH' | 'DELETE'; path: string; body?: Record<string, unknown> }) =>
+    mutationFn: async ({ method, path, body }: { method: 'PATCH' | 'DELETE'; path: string; body?: Record<string, unknown> }) =>
       apiFetch<{ message?: string } | undefined>(path, {
         method,
         ...(body ? { body: JSON.stringify(body) } : {}),
       }),
     onSuccess: (_, variables) => {
-      setStatusMessage(variables.method === 'DELETE' ? 'User deleted.' : variables.method === 'PATCH' ? 'User updated.' : 'User created.')
+      setStatusMessage(variables.method === 'DELETE' ? 'Account removed.' : 'Access updated.')
       queryClient.invalidateQueries({ queryKey: ['admin-users'] })
     },
   })
   const inviteMutation = useMutation({
-    mutationFn: () => apiFetch<{ id: string; code: string }>('/api/v1/admin/invites', {
+    mutationFn: (body: { email: string; username: string; role: string; tenant_id?: string }) => apiFetch<AccountInvitationInfo>('/api/v1/admin/account-invitations', {
       method: 'POST',
-      body: JSON.stringify(isSuperAdmin ? { tenant_id: inviteTenantId } : {}),
+      body: JSON.stringify(body),
     }),
-    onSuccess: ({ code }) => {
-      setInviteCode(code)
-      queryClient.invalidateQueries({ queryKey: ['admin-invites'] })
+    onSuccess: (invitation) => {
+      setStatusMessage(`Invitation sent to ${invitation.email}.`)
+      setInviteEmail('')
+      setInviteUsername('')
+      queryClient.invalidateQueries({ queryKey: ['account-invitations'] })
     },
   })
   const revokeInviteMutation = useMutation({
-    mutationFn: (inviteId: string) => apiFetch<void>(`/api/v1/admin/invites/${inviteId}`, { method: 'DELETE' }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-invites'] }),
+    mutationFn: (invitationId: string) => apiFetch<void>(`/api/v1/admin/account-invitations/${invitationId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      setStatusMessage('Invitation revoked.')
+      queryClient.invalidateQueries({ queryKey: ['account-invitations'] })
+    },
   })
   const isSuperAdmin = currentUser?.role === 'super_admin'
-  if (sessionLoading || usersQuery.isLoading || tenantsQuery.isLoading || invitesQuery.isLoading) return <LoadingCard />
+  if (sessionLoading || usersQuery.isLoading || tenantsQuery.isLoading || invitationsQuery.isLoading) return <LoadingCard />
   if (usersQuery.error) return <ErrorCard message={usersQuery.error.message} />
   if (tenantsQuery.error) return <ErrorCard message={tenantsQuery.error.message} />
-  if (invitesQuery.error) return <ErrorCard message={invitesQuery.error.message} />
+  if (invitationsQuery.error) return <ErrorCard message={invitationsQuery.error.message} />
   const tenants = tenantsQuery.data ?? []
   const roles = ['tenant_admin', 'manager', 'standard_user', 'viewer']
-  const submit = (event: FormEvent<HTMLFormElement>, path: string, method: 'POST' | 'PATCH' = 'POST') => {
+  const submitRoleChange = (event: FormEvent<HTMLFormElement>, account: AdminUser) => {
     event.preventDefault()
     const body = Object.fromEntries(new FormData(event.currentTarget).entries())
-    actionMutation.mutate({ path: path === '/users' ? '/api/v1/admin/users' : path, method, body })
+    actionMutation.mutate({ path: `/api/v1/admin/users/${account.id}`, method: 'PATCH', body })
   }
-  return <div className="space-y-6">
-    <PageHeader eyebrow="Administration" title="User accounts" description="Add people to your tenant and control which ChargePilot tasks they can access." />
-    {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
-    {(actionMutation.error || inviteMutation.error || revokeInviteMutation.error) && <ErrorCard message={actionMutation.error?.message ?? inviteMutation.error?.message ?? revokeInviteMutation.error?.message ?? 'The request failed.'} />}
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-bold text-slate-900">Invite a standard user</h2>
-      <p className="mt-1 max-w-2xl text-sm text-slate-600">Create a one-use code for someone joining this tenant. It expires in seven days and is shown only once.</p>
-      {inviteCode && <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-        <p className="text-sm font-semibold text-emerald-900">Copy this code and share it with the new user.</p>
-        <output className="mt-2 block select-all break-all font-mono text-sm text-emerald-950">{inviteCode}</output>
-        <button type="button" className="btn-secondary mt-3" onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(inviteCode)
-            setStatusMessage('Invite code copied.')
-          } catch {
-            setStatusMessage('Copy was blocked. Select the code and copy it manually.')
-          }
-        }}>Copy invite code</button>
-      </div>}
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-        {isSuperAdmin && <label className="label min-w-0 flex-1" htmlFor="invite-tenant">Tenant<select id="invite-tenant" className="field" required value={inviteTenantId} onChange={(event) => setInviteTenantId(event.target.value)}><option value="">Select a tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></label>}
-        <button type="button" className="btn-primary" disabled={inviteMutation.isPending || (isSuperAdmin && !inviteTenantId)} onClick={() => { setInviteCode(''); inviteMutation.mutate() }}>{inviteMutation.isPending ? 'Creating code…' : 'Create one-time invite'}</button>
-      </div>
-      {!!invitesQuery.data?.length && <div className="mt-4 divide-y divide-slate-100 border-t border-slate-200">
-        {invitesQuery.data.map((invite) => <div key={invite.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
-          <div><span className="font-semibold">{invite.tenant_name ?? currentUser?.tenant_name ?? 'Tenant'}</span><span className="ml-2 text-slate-500">{invite.used_at ? 'Used' : invite.is_active ? `Expires ${formatTimestamp(invite.expires_at)}` : 'Expired'}</span></div>
-          {invite.is_active && <button type="button" className="text-sm font-semibold text-red-700 underline" onClick={() => revokeInviteMutation.mutate(invite.id)}>Revoke</button>}
-        </div>)}
-      </div>}
-    </section>
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-bold text-slate-900">Create a user</h2>
-      <form className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" onSubmit={(event) => submit(event, '/users')}>
-        <label className="label" htmlFor="new-user-name">Username<input id="new-user-name" name="username" minLength={3} maxLength={80} required className="field" /></label>
-        <label className="label" htmlFor="new-user-password">Password<input id="new-user-password" name="password" minLength={12} maxLength={72} required type="password" autoComplete="new-password" className="field" /></label>
-        <label className="label" htmlFor="new-user-role">Role<select id="new-user-role" name="role" className="field">{roles.map((role) => <option key={role} value={role}>{role.replaceAll('_', ' ')}</option>)}</select></label>
-        {isSuperAdmin && <label className="label" htmlFor="new-user-tenant">Tenant<select id="new-user-tenant" name="tenant_id" required className="field"><option value="">Select a tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></label>}
-        <button type="submit" className="btn-primary sm:col-span-2 xl:col-span-4" disabled={actionMutation.isPending}>Create user</button>
-      </form>
-    </section>
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-bold text-slate-900">Accounts</h2></div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[680px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="px-4 py-3">Username</th><th className="px-4 py-3">Role</th>{isSuperAdmin && <th className="px-4 py-3">Tenant</th>}<th className="px-4 py-3">Created</th><th className="px-4 py-3">Actions</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">
-            {(usersQuery.data ?? []).map((account) => <tr key={account.id}>
-              <td className="px-4 py-3 font-semibold text-slate-900">{account.username}</td>
-              <td className="px-4 py-3">{account.role === 'super_admin' ? 'Super Admin' : <form className="flex flex-wrap gap-2" onSubmit={(event) => submit(event, `/api/v1/admin/users/${account.id}`, 'PATCH')}><select name="role" aria-label={`Role for ${account.username}`} defaultValue={account.role} className="field min-w-32 py-2">{roles.map((role) => <option key={role} value={role}>{role.replaceAll('_', ' ')}</option>)}</select>{isSuperAdmin && <select name="tenant_id" aria-label={`Tenant for ${account.username}`} defaultValue={account.tenant_id ?? ''} required className="field min-w-36 py-2"><option value="">Select tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select>}<button type="submit" className="btn-secondary px-3 py-2">Save</button></form>}</td>
-              {isSuperAdmin && <td className="px-4 py-3">{account.tenant_name ?? 'Unassigned'}</td>}
-              <td className="px-4 py-3 text-slate-500">{formatTimestamp(account.created_at)}</td>
-              <td className="px-4 py-3">{account.id !== currentUser?.id && account.role !== 'super_admin' ? <button type="button" className="btn-secondary border-red-200 px-3 py-2 text-red-700" onClick={() => { if (window.confirm('Delete this user?')) actionMutation.mutate({ path: `/api/v1/admin/users/${account.id}`, method: 'DELETE' }) }}>Delete</button> : <span className="text-xs text-slate-400">Current</span>}</td>
-            </tr>)}
-            {!usersQuery.data?.length && <tr><td colSpan={isSuperAdmin ? 5 : 4} className="px-4 py-8 text-center text-slate-500">No users found.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  </div>
+  const invitations = invitationsQuery.data ?? []
+  const statusOf = (invitation: AccountInvitationInfo) => invitation.used_at
+    ? 'Accepted'
+    : invitation.revoked_at
+      ? 'Revoked'
+      : invitation.is_active
+        ? 'Waiting for response'
+        : 'Expired'
+  const submitInvitation = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setStatusMessage('')
+    inviteMutation.mutate({
+      email: inviteEmail,
+      username: inviteUsername,
+      role: inviteRole,
+      ...(isSuperAdmin ? { tenant_id: inviteTenantId } : {}),
+    })
+  }
+  return (
+    <div className="people-page">
+      <PageHeader eyebrow="Administration" title="People & invites" description="Invite teammates, manage access, and keep track of who belongs to this workspace." />
+      {statusMessage && <p className="alert success" role="status">{statusMessage}</p>}
+      {(actionMutation.error || inviteMutation.error || revokeInviteMutation.error) && (
+        <ErrorCard message={actionMutation.error?.message ?? inviteMutation.error?.message ?? revokeInviteMutation.error?.message ?? 'The request failed.'} />
+      )}
+
+      <section className="panel people-invite-section" aria-labelledby="invite-heading">
+        <div className="people-section-heading">
+          <div>
+            <h2 id="invite-heading">Invite someone</h2>
+            <p>We’ll email a private setup link and one-time code. They choose their password before signing in.</p>
+          </div>
+          <span className="people-heading-icon"><Mail size={19} aria-hidden="true" /></span>
+        </div>
+        <form className="people-invite-form" onSubmit={submitInvitation}>
+          <label className="field-group" htmlFor="invite-username">
+            Username
+            <input
+              id="invite-username"
+              autoComplete="off"
+              minLength={3}
+              maxLength={80}
+              required
+              className="field"
+              value={inviteUsername}
+              onChange={(event) => setInviteUsername(event.target.value)}
+            />
+          </label>
+          <label className="field-group" htmlFor="invite-email">
+            Email address
+            <input
+              id="invite-email"
+              type="email"
+              autoComplete="email"
+              maxLength={254}
+              required
+              className="field"
+              value={inviteEmail}
+              onChange={(event) => setInviteEmail(event.target.value)}
+            />
+          </label>
+          <label className="field-group" htmlFor="invite-role">
+            Access level
+            <select id="invite-role" className="field" value={inviteRole} onChange={(event) => setInviteRole(event.target.value)}>
+              {roles.map((role) => <option key={role} value={role}>{role.replaceAll('_', ' ')}</option>)}
+            </select>
+          </label>
+          {isSuperAdmin && (
+            <label className="field-group" htmlFor="invite-tenant">
+              Workspace
+              <select id="invite-tenant" className="field" required value={inviteTenantId} onChange={(event) => setInviteTenantId(event.target.value)}>
+                <option value="">Select a workspace</option>
+                {tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
+              </select>
+            </label>
+          )}
+          <div className="people-invite-submit">
+            <p>The link expires in seven days and can only be used once.</p>
+            <button type="submit" className="btn-primary" disabled={inviteMutation.isPending || (isSuperAdmin && !inviteTenantId)}>
+              {inviteMutation.isPending ? 'Sending invitation…' : 'Send invitation'}
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section className="panel people-invitations-section" aria-labelledby="invitations-heading">
+        <div className="people-section-heading">
+          <div>
+            <h2 id="invitations-heading">Invitations</h2>
+            <p>Track who has been invited and revoke links that are no longer needed.</p>
+          </div>
+          <span className="people-count">{invitations.length}</span>
+        </div>
+        {invitations.length ? (
+          <div className="people-invitation-list">
+            {invitations.map((invitation) => (
+              <article className="people-invitation-row" key={invitation.id}>
+                <div className="people-invitation-person">
+                  <span className="people-invitation-avatar" aria-hidden="true">{invitation.username.slice(0, 1).toUpperCase()}</span>
+                  <div>
+                    <strong>{invitation.username}</strong>
+                    <span>{invitation.email}</span>
+                  </div>
+                </div>
+                <div className="people-invitation-meta">
+                  <span className={`people-invitation-status ${invitation.is_active ? 'is-pending' : invitation.used_at ? 'is-accepted' : ''}`}>
+                    {statusOf(invitation)}
+                  </span>
+                  <span>{invitation.role.replaceAll('_', ' ')}</span>
+                  <span>{invitation.tenant_name ?? currentUser?.tenant_name ?? 'Workspace'}</span>
+                  <span>{invitation.is_active ? `Expires ${formatTimestamp(invitation.expires_at)}` : `Sent ${formatTimestamp(invitation.created_at)}`}</span>
+                </div>
+                {invitation.is_active && (
+                  <button
+                    type="button"
+                    className="people-revoke-button"
+                    disabled={revokeInviteMutation.isPending}
+                    onClick={() => revokeInviteMutation.mutate(invitation.id)}
+                  >
+                    Revoke
+                  </button>
+                )}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="people-empty-state">
+            <p>No invitations yet.</p>
+            <span>Send an invitation above to give someone access to this workspace.</span>
+          </div>
+        )}
+      </section>
+
+      <section className="panel people-accounts-section" aria-labelledby="accounts-heading">
+        <div className="people-section-heading">
+          <div>
+            <h2 id="accounts-heading">Accounts</h2>
+            <p>Manage roles and remove access for people already in ChargePilot.</p>
+          </div>
+          <span className="people-count">{usersQuery.data?.length ?? 0}</span>
+        </div>
+        <div className="people-table-wrap">
+          <table className="people-table">
+            <thead>
+              <tr>
+                <th scope="col">Person</th>
+                <th scope="col">Access</th>
+                {isSuperAdmin && <th scope="col">Workspace</th>}
+                <th scope="col">Joined</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(usersQuery.data ?? []).map((account) => (
+                <tr key={account.id}>
+                  <td>
+                    <div className="people-account-person">
+                      <strong>{account.username}</strong>
+                      <span>{account.email ?? 'Email not set'}</span>
+                    </div>
+                  </td>
+                  <td>
+                    {account.role === 'super_admin' ? 'Super Admin' : (
+                      <form className="people-role-form" onSubmit={(event) => submitRoleChange(event, account)}>
+                        <select name="role" aria-label={`Access level for ${account.username}`} defaultValue={account.role} className="field">
+                          {roles.map((role) => <option key={role} value={role}>{role.replaceAll('_', ' ')}</option>)}
+                        </select>
+                        {isSuperAdmin && (
+                          <select name="tenant_id" aria-label={`Workspace for ${account.username}`} defaultValue={account.tenant_id ?? ''} required className="field">
+                            <option value="">Select workspace</option>
+                            {tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
+                          </select>
+                        )}
+                        <button type="submit" className="btn-secondary" disabled={actionMutation.isPending}>Save access</button>
+                      </form>
+                    )}
+                  </td>
+                  {isSuperAdmin && <td>{account.tenant_name ?? 'Unassigned'}</td>}
+                  <td>{formatTimestamp(account.created_at)}</td>
+                  <td>
+                    {account.id !== currentUser?.id && account.role !== 'super_admin' ? (
+                      <button
+                        type="button"
+                        className="people-revoke-button"
+                        disabled={actionMutation.isPending}
+                        onClick={() => {
+                          if (window.confirm(`Remove ${account.username}'s account?`)) {
+                            actionMutation.mutate({ path: `/api/v1/admin/users/${account.id}`, method: 'DELETE' })
+                          }
+                        }}
+                      >
+                        Remove
+                      </button>
+                    ) : <span className="people-current-account">You</span>}
+                  </td>
+                </tr>
+              ))}
+              {!usersQuery.data?.length && (
+                <tr><td colSpan={isSuperAdmin ? 5 : 4} className="people-no-accounts">No accounts found.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  )
 }
 
 function TenantsPage() {

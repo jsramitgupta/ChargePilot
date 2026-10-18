@@ -49,7 +49,9 @@ Existing accounts and accounts created by administrators remain verified.
 Signed-in users can contact the configured support inbox using
 `GET /api/v1/support/config` and `POST /api/v1/support/email`. The recipient is
 server-configured; requests cannot select arbitrary recipients. Email delivery
-requires SMTP configuration.
+requires SMTP configuration. Tenant administrators, managers, and Super Admins
+can invite managed roles by email. The single-use setup code is stored hashed;
+the invited person sets a password before the account is created.
 
 ### 2.0 POST /api/v1/auth/login
 
@@ -92,6 +94,16 @@ Accepts `{"email":"...","turnstile_token":"..."}`. A new token invalidates any
 prior pending verification link. The endpoint returns HTTP 202 with the same
 generic message whether an unverified account exists or not.
 
+### 2.0.4 Account invitation activation
+
+- `POST /api/v1/auth/invitation-details` accepts `{"code":"..."}` and returns
+  the invited username, email, role, workspace, and expiry for a valid,
+  unused invitation. Responses are not cacheable.
+- `POST /api/v1/auth/accept-invitation` accepts the same setup code and a
+  password of at least 12 characters. It atomically consumes the invitation,
+  creates the verified account, and establishes its session. A code cannot be
+  reused.
+
 ### 2.0.4 Support contact
 
 `GET /api/v1/support/config` reports whether SMTP is configured and which
@@ -105,9 +117,9 @@ the message.
 
 ### 2.1 PUT /api/v1/auth/password
 
-Changes the authenticated super admin's password. The current password must
-match, and the new password must be at least 12 characters and no more than
-72 UTF-8 bytes. Other roles receive HTTP 403.
+Changes the authenticated user's password. The current password must match,
+and the new password must be at least 12 characters and no more than 72 UTF-8
+bytes.
 
 Request:
 
@@ -143,9 +155,9 @@ browser to an API-host page.
 
 ### 2.4 GET /api/v1/admin/users
 
-Lists user accounts visible to the signed-in Super Admin or tenant admin.
-Passwords and password hashes are never returned. Tenant admins see only users
-in their tenant.
+Lists user accounts visible to the signed-in Super Admin, tenant admin, or
+tenant manager. Passwords and password hashes are never returned. Tenant admins
+and managers see only users in their tenant.
 
 ### 2.5 GET /api/v1/admin/tenants
 
@@ -155,14 +167,26 @@ response is marked `private, no-store`.
 
 ### 2.6 Tenant invitations and administration
 
+- `POST /api/v1/admin/account-invitations` accepts an email, username, role,
+  and (for Super Admin) tenant. It sends the recipient a seven-day, one-time
+  setup code and a link to choose a password. Email and a public frontend
+  origin must be configured; raw codes are never returned by the API.
+- `GET /api/v1/admin/account-invitations` lists invitation identity, status,
+  and expiry within the caller's tenant scope.
+- `DELETE /api/v1/admin/account-invitations/{invitation_id}` revokes an
+  unused invitation. Sending a replacement for the same username or email
+  invalidates its earlier active invitation.
 - `POST /api/v1/admin/invites` creates a seven-day, single-use tenant invite.
   Tenant admins/managers can issue codes for their tenant; Super Admins must
-  select the tenant. The raw code is returned once.
+  select the tenant. The raw code is returned once for legacy self-registration
+  compatibility; the React People & Invites workflow uses account invitations.
 - `GET /api/v1/admin/invites` lists status and expiry without code values.
 - `DELETE /api/v1/admin/invites/{invite_id}` revokes an unused invite.
 - `POST /api/v1/admin/users`, `PATCH /api/v1/admin/users/{user_id}`, and
   `DELETE /api/v1/admin/users/{user_id}` provide scoped account management
-  while retaining at least one tenant administrator.
+  while retaining at least one tenant administrator. Direct account creation
+  remains available to existing integrations; the React UI uses emailed
+  invitations instead.
 - `POST /api/v1/admin/tenants` creates a tenant; `DELETE
   /api/v1/admin/tenants/{tenant_id}` removes its tenant-scoped records.
 - Tenant telemetry credentials can be rotated with
