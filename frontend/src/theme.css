@@ -8,6 +8,8 @@ body.theme-dark {
   --surface-muted: #21312b;
   --line: #32443d;
   --muted: #a1b3aa;
+  --selection-ink: #101c19;
+  --selection-surface: #9bc8aa;
   --danger-ink: #f0b5a6;
   --danger-surface: #38221e;
   --danger-line: #78453b;

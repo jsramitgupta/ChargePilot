@@ -74,6 +74,8 @@ instead of introducing page-specific color values.
 Semantic status colors have matching light and dark tokens. Retain their
 meaning and verify text contrast on each surface. A state should not be
 communicated by color alone; pair it with readable text or an icon.
+Text selection uses theme-aware ink and surface colors, and battery readings
+in the mapping laptop picker use the shared foreground token in both themes.
 Overview metric icons use the shared leaf token in both themes; reserve
 operational state colors for explicit status indicators.
 

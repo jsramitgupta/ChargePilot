@@ -51,6 +51,22 @@ def test_light_and_dark_themes_share_chargepilot_design_tokens():
     assert "prefers-reduced-motion" in light
 
 
+def test_text_selection_and_mapping_battery_badge_follow_theme_contrast():
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    dark = DARK_THEME.read_text(encoding="utf-8")
+
+    for token in ("--selection-ink", "--selection-surface"):
+        assert token in light
+        assert token in dark
+
+    assert "color: var(--selection-ink);" in css_rule(light, "::selection")
+    assert "background: var(--selection-surface);" in css_rule(light, "::selection")
+    assert ".mapping-choice-battery,\n.mapping-switch-state {" in light
+    assert "color: var(--ink);" in light.split(".mapping-choice-battery,", 1)[1].split("}", 1)[0]
+    assert "#101c19" in dark
+    assert "#9bc8aa" in dark
+
+
 def test_mapping_wizard_and_switch_inventory_have_tenant_safe_theme_support():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     light = LIGHT_THEME.read_text(encoding="utf-8")

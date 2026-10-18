@@ -23,6 +23,8 @@
   --surface-muted: #f5f8f6;
   --line: #d7e2dc;
   --muted: #71827b;
+  --selection-ink: #ffffff;
+  --selection-surface: #397a61;
   --danger-ink: #934c37;
   --danger-surface: #fff9f6;
   --danger-line: #e7c4b7;
@@ -53,6 +55,11 @@ body {
 
 * {
   box-sizing: border-box;
+}
+
+::selection {
+  color: var(--selection-ink);
+  background: var(--selection-surface);
 }
 
 input, select, textarea, button {
@@ -1798,8 +1805,8 @@ button, a {
   flex: 0 0 auto;
   padding: 4px 7px;
   border-radius: 7px;
-  color: var(--forest);
-  background: color-mix(in srgb, var(--surface) 78%, var(--leaf));
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-muted) 78%, var(--leaf));
   font-size: 11px;
   font-weight: 750;
 }
