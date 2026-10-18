@@ -5,6 +5,7 @@ os.environ["CHARGEPILOT_ENVIRONMENT"] = "test"
 
 import pytest
 
+from app.api import auth as auth_api
 from app.core.database import Base, SessionLocal, engine, ensure_default_admin_user, ensure_default_system_settings
 from app.models.system_setting import SystemSetting
 from app.models.device import Device, DeviceChannel
@@ -38,6 +39,7 @@ def register_tenant_admin(client, username: str, password: str, tenant_name: str
             "account_type": "tenant",
             "username": username,
             "password": password,
+            "turnstile_token": "test-turnstile-token",
             "tenant_name": tenant_name or f"{username} tenant",
         },
     )
@@ -61,6 +63,7 @@ def register_standard_user(client, username: str, password: str):
             "account_type": "standard",
             "username": username,
             "password": password,
+            "turnstile_token": "test-turnstile-token",
             "invite_code": invite.json()["code"],
         },
     )
@@ -69,7 +72,11 @@ def register_standard_user(client, username: str, password: str):
 
 
 @pytest.fixture(autouse=True)
-def reset_database():
+def reset_database(monkeypatch):
+    async def accept_test_challenge(_token, _request=None):
+        return None
+
+    monkeypatch.setattr(auth_api, "verify_registration_challenge", accept_test_challenge)
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     ensure_default_admin_user()

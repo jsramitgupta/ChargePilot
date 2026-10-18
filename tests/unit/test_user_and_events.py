@@ -26,6 +26,7 @@ def test_user_registration_and_login_flow():
             "account_type": "tenant",
             "username": "alice",
             "password": "alice-test-password",
+            "turnstile_token": "test-turnstile-token",
             "tenant_name": "Alice Site",
         },
     )

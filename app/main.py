@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -79,6 +79,31 @@ if settings.frontend_url:
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
     )
+
+
+@app.middleware("http")
+async def secure_browser_requests(request: Request, call_next):
+    origin = request.headers.get("origin")
+    if (
+        origin
+        and request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        and settings.frontend_url
+        and origin.rstrip("/") != settings.frontend_url.rstrip("/")
+    ):
+        response = JSONResponse(
+            status_code=403,
+            content={"detail": "Requests from this origin are not allowed."},
+        )
+    else:
+        response = await call_next(request)
+
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), geolocation=(), microphone=()"
+    if settings.environment.casefold() == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 
 def frontend_redirect(path: str, status_code: int = 307) -> RedirectResponse:

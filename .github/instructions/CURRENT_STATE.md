@@ -63,7 +63,10 @@ startup walkthrough.
    `CHARGEPILOT_FRONTEND_URL` configuration. JSON login and registration APIs
    establish the browser session. Standard-user signup requires a
    tenant-admin/manager-issued one-time invite code that expires after seven
-   days; tenant signup creates the tenant and its first admin. Authenticated
+   days; both public signup paths additionally require server-verified
+   Cloudflare Turnstile before an account or tenant can be created. Production
+   registration fails closed when Turnstile keys are missing. Tenant signup
+   creates the tenant and its first admin. Authenticated
    navigation and connector, profile, account, user, tenant, and agent setup
    workflows are React routes. Super admins can change their own password from
    the React account page using the authenticated auth API.
@@ -113,6 +116,9 @@ sharded PostgreSQL infrastructure before setting throughput or SLO claims.
 
 ## Current known implementation risks
 - bearer-token validation remains intentionally minimal
+- configure Cloudflare edge rate limits for public auth paths in addition to
+  Turnstile; the app validates challenge tokens and browser origins but does
+  not maintain a distributed login-rate counter
 - the database bootstrap uses `create_all()` plus compatibility SQL, not
   versioned Alembic revisions; schema changes need a reviewed migration plan
 - device payloads vary by Tuya firmware and hardware model

@@ -34,7 +34,12 @@ The validation logic lives in `app/services/endpoint_service.py`. It accepts a t
 Browser authentication uses session cookies set by JSON requests to
 `POST /api/v1/auth/login` and `POST /api/v1/auth/register`. The React frontend
 is the only browser UI; legacy page GETs redirect to the configured frontend.
-Standard-user signup requires a valid one-time tenant invite.
+Both public signup modes require a Cloudflare Turnstile token, verified
+server-side against the configured frontend hostname and the `registration`
+action. Production signup fails closed if Turnstile is not configured.
+Standard-user signup also requires a valid one-time tenant invite. Browser
+mutations reject a supplied `Origin` that does not exactly match the configured
+frontend origin.
 
 ### 2.0 POST /api/v1/auth/login
 
@@ -47,14 +52,14 @@ return HTTP 401.
 Tenant creation request:
 
 ```json
-{"account_type":"tenant","username":"owner","password":"a-long-password","tenant_name":"Operations"}
+{"account_type":"tenant","username":"owner","password":"a-long-password","tenant_name":"Operations","turnstile_token":"one-time-provider-token"}
 ```
 
 Creates a tenant and its first tenant-admin account, then signs the user in.
 Standard-user request:
 
 ```json
-{"account_type":"standard","username":"operator","password":"a-long-password","invite_code":"one-time-code"}
+{"account_type":"standard","username":"operator","password":"a-long-password","invite_code":"one-time-code","turnstile_token":"one-time-provider-token"}
 ```
 
 Standard registration requires a tenant admin/manager generated code. The

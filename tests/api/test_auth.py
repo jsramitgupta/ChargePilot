@@ -1,8 +1,13 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
+from app.api import auth as auth_api
+from app.api.auth import verify_registration_challenge
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.main import app
@@ -31,6 +36,7 @@ def test_tenant_signup_creates_tenant_admin_and_establishes_session():
             "account_type": "tenant",
             "username": "new-tenant-owner",
             "password": "new-tenant-password",
+            "turnstile_token": "test-turnstile-token",
             "tenant_name": "North Site",
         },
     )
@@ -39,7 +45,116 @@ def test_tenant_signup_creates_tenant_admin_and_establishes_session():
     user = response.json()["user"]
     assert user["role"] == "tenant_admin"
     assert user["tenant_name"] == "North Site"
+    assert response.headers["Cache-Control"] == "private, no-store"
     assert client.get("/api/v1/auth/me").json()["id"] == user["id"]
+
+
+def test_production_registration_fails_closed_without_turnstile_configuration(monkeypatch):
+    monkeypatch.setattr(auth_api, "verify_registration_challenge", verify_registration_challenge)
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "turnstile_site_key", "")
+    monkeypatch.setattr(settings, "turnstile_secret_key", SecretStr(""))
+
+    response = TestClient(app).post(
+        "/api/v1/auth/register",
+        json={
+            "account_type": "tenant",
+            "username": "unverified-tenant",
+            "password": "new-tenant-password",
+            "turnstile_token": "provider-token",
+            "tenant_name": "Unverified Site",
+        },
+    )
+
+    assert response.status_code == 503
+    assert "temporarily unavailable" in response.json()["detail"]
+
+
+def test_registration_requires_a_turnstile_token():
+    response = TestClient(app).post(
+        "/api/v1/auth/register",
+        json={
+            "account_type": "tenant",
+            "username": "missing-challenge-tenant",
+            "password": "new-tenant-password",
+            "tenant_name": "Missing Challenge",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("verification_result", "expected_status"),
+    [
+        ({"success": False}, 400),
+        ({"success": True, "hostname": "other.example.com", "action": "registration"}, 400),
+        ({"success": True, "hostname": "app.example.com", "action": "login"}, 400),
+        ({"success": True, "hostname": "app.example.com", "action": "registration"}, 201),
+    ],
+)
+def test_production_registration_requires_valid_turnstile_result(
+    monkeypatch,
+    verification_result,
+    expected_status,
+):
+    monkeypatch.setattr(auth_api, "verify_registration_challenge", verify_registration_challenge)
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "frontend_url", "https://app.example.com")
+    monkeypatch.setattr(settings, "turnstile_site_key", "public-site-key")
+    monkeypatch.setattr(settings, "turnstile_secret_key", SecretStr("private-secret-key"))
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return verification_result
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            assert timeout == 5.0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, data):
+            assert url == auth_api.TURNSTILE_SITEVERIFY_URL
+            assert data == {"secret": "private-secret-key", "response": "provider-token"}
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    response = TestClient(app).post(
+        "/api/v1/auth/register",
+        json={
+            "account_type": "tenant",
+            "username": f"verified-tenant-{expected_status}",
+            "password": "new-tenant-password",
+            "turnstile_token": "provider-token",
+            "tenant_name": "Verified Site",
+        },
+    )
+
+    assert response.status_code == expected_status
+
+
+def test_browser_mutations_reject_foreign_origins_and_include_security_headers(monkeypatch):
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "frontend_url", "https://console.example.com")
+
+    response = TestClient(app).post(
+        "/api/v1/auth/logout",
+        headers={"Origin": "https://attacker.example.com"},
+    )
+
+    assert response.status_code == 403
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["Strict-Transport-Security"].startswith("max-age=31536000")
 
 
 def test_standard_signup_requires_single_use_tenant_invite():
@@ -50,6 +165,7 @@ def test_standard_signup_requires_single_use_tenant_invite():
             "account_type": "tenant",
             "username": "invite-tenant-admin",
             "password": "invite-admin-password",
+            "turnstile_token": "test-turnstile-token",
             "tenant_name": "Invite Site",
         },
     )
@@ -70,6 +186,7 @@ def test_standard_signup_requires_single_use_tenant_invite():
             "account_type": "standard",
             "username": "invite-standard-user",
             "password": "standard-user-password",
+            "turnstile_token": "test-turnstile-token",
             "invite_code": invite["code"],
         },
     )
@@ -83,6 +200,7 @@ def test_standard_signup_requires_single_use_tenant_invite():
             "account_type": "standard",
             "username": "invite-replay-user",
             "password": "standard-user-password",
+            "turnstile_token": "test-turnstile-token",
             "invite_code": invite["code"],
         },
     )
@@ -98,6 +216,7 @@ def test_standard_signup_rejects_missing_and_expired_invites():
             "account_type": "standard",
             "username": "missing-invite-user",
             "password": "standard-user-password",
+            "turnstile_token": "test-turnstile-token",
         },
     )
     assert missing.status_code == 422
@@ -124,6 +243,7 @@ def test_standard_signup_rejects_missing_and_expired_invites():
             "account_type": "standard",
             "username": "expired-invite-user",
             "password": "standard-user-password",
+            "turnstile_token": "test-turnstile-token",
             "invite_code": code,
         },
     )
@@ -136,6 +256,11 @@ def test_json_login_establishes_session_and_rejects_invalid_credentials():
 
     invalid = client.post("/api/v1/auth/login", json={"username": "missing", "password": "incorrect"})
     assert invalid.status_code == 401
+    oversized = client.post(
+        "/api/v1/auth/login",
+        json={"username": "missing", "password": "é" * 37},
+    )
+    assert oversized.status_code == 422
 
     login = client.post(
         "/api/v1/auth/login",
@@ -196,6 +321,7 @@ def test_tenant_user_cannot_change_super_admin_password():
             "account_type": "tenant",
             "username": "password-test-owner",
             "password": "password-test-owner-secret",
+            "turnstile_token": "test-turnstile-token",
             "tenant_name": "Password Test Tenant",
         },
     )
@@ -208,6 +334,7 @@ def test_tenant_user_cannot_change_super_admin_password():
             "account_type": "standard",
             "username": "password-test-standard",
             "password": "standard-user-password",
+            "turnstile_token": "test-turnstile-token",
             "invite_code": invite["code"],
         },
     )

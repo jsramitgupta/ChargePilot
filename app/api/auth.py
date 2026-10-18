@@ -1,9 +1,12 @@
 import hashlib
+import logging
 import secrets
 from datetime import UTC, datetime
 from typing import Literal
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
@@ -11,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.authorization import get_authenticated_user, is_super_admin_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password, verify_password
 from app.models.tenant import Tenant
@@ -18,6 +22,8 @@ from app.models.tenant_invite import TenantInvite
 from app.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger("chargepilot.auth")
+TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
 
 class PasswordChangeRequest(BaseModel):
@@ -36,11 +42,19 @@ class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=80)
     password: str = Field(min_length=1, max_length=72)
 
+    @field_validator("password")
+    @classmethod
+    def validate_password_bytes(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be 72 UTF-8 bytes or fewer.")
+        return value
+
 
 class RegistrationRequest(BaseModel):
     account_type: Literal["standard", "tenant"]
     username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=12, max_length=72)
+    turnstile_token: str = Field(min_length=1, max_length=2048)
     invite_code: str | None = Field(default=None, min_length=20, max_length=128)
     tenant_name: str | None = Field(default=None, min_length=1, max_length=160)
 
@@ -79,6 +93,43 @@ class ProfileUpdateRequest(BaseModel):
         return value
 
 
+async def verify_registration_challenge(token: str) -> None:
+    secret = settings.turnstile_secret_key.get_secret_value()
+    expected_hostname = urlsplit(settings.frontend_url).hostname
+    if not settings.turnstile_site_key or not secret or not expected_hostname:
+        logger.error("Account registration is disabled because Turnstile is not fully configured.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Account registration is temporarily unavailable.",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                TURNSTILE_SITEVERIFY_URL,
+                data={"secret": secret, "response": token},
+            )
+            response.raise_for_status()
+            result = response.json()
+    except (httpx.HTTPError, ValueError):
+        logger.exception("Turnstile verification could not be completed.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Human verification is temporarily unavailable. Please try again.",
+        ) from None
+
+    if (
+        not isinstance(result, dict)
+        or result.get("success") is not True
+        or result.get("hostname") != expected_hostname
+        or result.get("action") != "registration"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Human verification failed. Please complete the challenge again.",
+        )
+
+
 def _user_payload(user: User, tenant: Tenant | None) -> dict[str, object]:
     return {
         "id": user.id,
@@ -93,7 +144,12 @@ def _user_payload(user: User, tenant: Tenant | None) -> dict[str, object]:
 
 
 @router.post("/login")
-async def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.username == payload.username.strip()).first()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(
@@ -102,6 +158,7 @@ async def login(payload: LoginRequest, request: Request, db: Session = Depends(g
         )
     request.session.clear()
     request.session["user_id"] = user.id
+    response.headers["Cache-Control"] = "private, no-store"
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user.tenant_id else None
     return {"user": _user_payload(user, tenant)}
 
@@ -118,6 +175,7 @@ async def register(
             status_code=status.HTTP_409_CONFLICT,
             detail="Sign out before creating another account.",
         )
+    await verify_registration_challenge(payload.turnstile_token)
     username = payload.username.strip()
     if not username:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Username is required.")

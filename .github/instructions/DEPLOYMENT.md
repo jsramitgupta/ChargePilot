@@ -45,6 +45,8 @@ CHARGEPILOT_TELEMETRY_RATE_LIMIT_PER_MINUTE=60
 CHARGEPILOT_ENDPOINT_OFFLINE_TIMEOUT_SECONDS=600
 CHARGEPILOT_API_URL=https://api.example.com
 CHARGEPILOT_FRONTEND_URL=https://app.example.com
+CHARGEPILOT_TURNSTILE_SITE_KEY=<public-turnstile-site-key>
+CHARGEPILOT_TURNSTILE_SECRET_KEY=<private-turnstile-secret-key>
 CHARGEPILOT_SESSION_COOKIE_SECURE=true
 CHARGEPILOT_SESSION_COOKIE_SAMESITE=lax
 CHARGEPILOT_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
@@ -75,6 +77,23 @@ redirects. Agent setup uses `CHARGEPILOT_API_URL` as the server URL embedded
 in the Windows install command; set it to the public HTTPS API origin when
 agents connect through a TLS-terminating proxy. Session cookies use `Secure` in production; use `SameSite=None`
 when the frontend and API are on different registrable domains.
+
+Public tenant and standard-user signup require Cloudflare Turnstile. Create a
+Turnstile widget for the frontend hostname, configure its site key and secret
+as `CHARGEPILOT_TURNSTILE_SITE_KEY` and
+`CHARGEPILOT_TURNSTILE_SECRET_KEY`, and keep the secret only in the backend
+environment/secret store. The public site key is injected into
+`runtime-config.js`; the API validates each single-use token with Cloudflare,
+checking both the configured frontend hostname and the `registration` action.
+Registration returns HTTP 503 when the production keys or frontend origin are
+not configured, rather than accepting an unverified signup. Local development
+also requires a Turnstile widget configured for its frontend hostname.
+
+The API rejects browser state-changing requests that include an `Origin`
+different from `CHARGEPILOT_FRONTEND_URL`. Preserve this exact frontend origin
+when changing hostnames. Add Cloudflare rate-limiting rules for POST requests
+to `/api/v1/auth/register` and `/api/v1/auth/login` as an additional edge
+control; choose thresholds appropriate for the expected shared-IP traffic.
 
 ## 4. Fresh Docker Compose deployment
 
@@ -192,6 +211,8 @@ CHARGEPILOT_ADMIN_USERNAME=admin
 CHARGEPILOT_ADMIN_PASSWORD=<unique_strong_password>
 CHARGEPILOT_API_URL=https://api-chargepilot.endusercompute.in
 CHARGEPILOT_FRONTEND_URL=https://console-chargepilot.endusercompute.in
+CHARGEPILOT_TURNSTILE_SITE_KEY=<public-turnstile-site-key>
+CHARGEPILOT_TURNSTILE_SECRET_KEY=<private-turnstile-secret-key>
 CHARGEPILOT_SESSION_COOKIE_SECURE=true
 CHARGEPILOT_SESSION_COOKIE_SAMESITE=lax
 CHARGEPILOT_KAFKA_BOOTSTRAP_SERVERS=chargepilot-kafka.chargepilot.svc.cluster.local:9092

@@ -1082,6 +1082,22 @@ button, a {
   gap: 16px;
 }
 
+.turnstile-verification {
+  min-height: 66px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.turnstile-status {
+  margin: 0;
+  color: #9b3e2f;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
 .auth-divider {
   height: 1px;
   margin: 24px 0 20px;

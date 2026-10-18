@@ -310,6 +310,10 @@ body.theme-dark .auth-card .field {
   background: #192824;
 }
 
+body.theme-dark .turnstile-status {
+  color: #f0a499;
+}
+
 body.theme-dark .profile-preference h2,
 body.theme-dark .profile-timezone-label {
   color: #e1ece5;

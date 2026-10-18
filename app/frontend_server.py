@@ -20,6 +20,30 @@ class FrontendRequestHandler(SimpleHTTPRequestHandler):
     def do_HEAD(self):
         self._serve_request(include_body=False)
 
+    def end_headers(self):
+        api_origin = settings.api_url.rstrip("/")
+        connect_sources = " ".join(
+            source
+            for source in ("'self'", api_origin, "https://challenges.cloudflare.com")
+            if source
+        )
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; base-uri 'self'; object-src 'none'; "
+            "frame-ancestors 'none'; form-action 'self'; "
+            "script-src 'self' https://challenges.cloudflare.com; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+            f"connect-src {connect_sources}; "
+            "frame-src https://challenges.cloudflare.com",
+        )
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
+        if settings.environment.casefold() == "production":
+            self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        super().end_headers()
+
     def _serve_request(self, include_body: bool):
         path = urlsplit(self.path).path
         if path == "/runtime-config.js":
@@ -48,6 +72,11 @@ class FrontendRequestHandler(SimpleHTTPRequestHandler):
         config = {
             "apiBaseUrl": settings.api_url.rstrip("/"),
             "frontendUrl": settings.frontend_url.rstrip("/"),
+            "turnstileSiteKey": (
+                settings.turnstile_site_key
+                if settings.turnstile_secret_key.get_secret_value()
+                else ""
+            ),
         }
         payload = (
             "window.CHARGEPILOT_CONFIG = "

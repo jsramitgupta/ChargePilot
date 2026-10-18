@@ -26,7 +26,7 @@ import {
   Sun,
   Users,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
@@ -36,6 +36,18 @@ declare global {
     CHARGEPILOT_CONFIG?: {
       apiBaseUrl?: string
       frontendUrl?: string
+      turnstileSiteKey?: string
+    }
+    turnstile?: {
+      render: (container: HTMLElement, options: {
+        sitekey: string
+        action: string
+        theme: 'auto'
+        callback: (token: string) => void
+        'expired-callback': () => void
+        'error-callback': () => void
+      }) => string
+      remove: (widgetId: string) => void
     }
   }
 }
@@ -524,6 +536,86 @@ function AuthBrandPanel() {
   )
 }
 
+let turnstileScriptPromise: Promise<void> | null = null
+
+function loadTurnstileScript() {
+  if (window.turnstile) return Promise.resolve()
+  if (turnstileScriptPromise) return turnstileScriptPromise
+
+  turnstileScriptPromise = new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+    script.async = true
+    script.defer = true
+    script.onload = () => {
+      if (window.turnstile) resolve()
+      else reject(new Error('Human verification could not be initialized.'))
+    }
+    script.onerror = () => {
+      turnstileScriptPromise = null
+      script.remove()
+      reject(new Error('Human verification could not be loaded.'))
+    }
+    document.head.appendChild(script)
+  })
+  return turnstileScriptPromise
+}
+
+function TurnstileChallenge({
+  onToken,
+}: {
+  onToken: (token: string) => void
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const siteKey = window.CHARGEPILOT_CONFIG?.turnstileSiteKey ?? ''
+  const [widgetError, setWidgetError] = useState('')
+
+  useEffect(() => {
+    if (!siteKey) return
+
+    let disposed = false
+    let widgetId: string | undefined
+    void loadTurnstileScript()
+      .then(() => {
+        if (disposed || !containerRef.current || !window.turnstile) return
+        widgetId = window.turnstile.render(containerRef.current, {
+          sitekey: siteKey,
+          action: 'registration',
+          theme: 'auto',
+          callback: (token) => {
+            onToken(token)
+            setWidgetError('')
+          },
+          'expired-callback': () => onToken(''),
+          'error-callback': () => {
+            onToken('')
+            setWidgetError('Human verification is unavailable. Refresh the page and try again.')
+          },
+        })
+      })
+      .catch(() => {
+        if (!disposed) {
+          onToken('')
+          setWidgetError('Human verification could not be loaded. Check your connection and refresh.')
+        }
+      })
+
+    return () => {
+      disposed = true
+      if (widgetId) window.turnstile?.remove(widgetId)
+    }
+  }, [onToken, siteKey])
+
+  return (
+    <div className="turnstile-verification">
+      {siteKey
+        ? <div ref={containerRef} aria-label="Human verification challenge" />
+        : <p className="turnstile-status" role="alert">New account registration is currently unavailable. Human verification has not been configured.</p>}
+      {widgetError && <p className="turnstile-status" role="alert">{widgetError}</p>}
+    </div>
+  )
+}
+
 function LoginPage() {
   const [searchParams] = useSearchParams()
   const [isDark, setIsDark] = useAppTheme()
@@ -587,6 +679,13 @@ function RegisterPage() {
   const [password, setPassword] = useState('')
   const [inviteCode, setInviteCode] = useState('')
   const [tenantName, setTenantName] = useState('')
+  const [challenge, setChallenge] = useState({ accountType, token: '' })
+  const [challengeReset, setChallengeReset] = useState(0)
+  const turnstileToken = challenge.accountType === accountType ? challenge.token : ''
+  const setTurnstileToken = useCallback((token: string) => {
+    setChallenge({ accountType, token })
+  }, [accountType])
+
   const registerMutation = useMutation({
     mutationFn: () => apiFetch<{ user: User }>('/api/v1/auth/register', {
       method: 'POST',
@@ -594,9 +693,14 @@ function RegisterPage() {
         account_type: accountType,
         username,
         password,
+        turnstile_token: turnstileToken,
         ...(accountType === 'standard' ? { invite_code: inviteCode } : { tenant_name: tenantName }),
       }),
     }),
+    onError: () => {
+      setChallenge({ accountType, token: '' })
+      setChallengeReset((value) => value + 1)
+    },
     onSuccess: ({ user }) => {
       queryClient.setQueryData(['session'], user)
       navigate('/', { replace: true })
@@ -632,8 +736,12 @@ function RegisterPage() {
           {accountType === 'tenant'
             ? <div className="field-group"><label htmlFor="tenant_name">Tenant name</label><input id="tenant_name" name="tenant_name" type="text" minLength={1} maxLength={160} placeholder="My tenant" className="field" required value={tenantName} onChange={(event) => setTenantName(event.target.value)} /></div>
             : <div className="field-group"><label htmlFor="invite_code">One-time tenant invite code</label><input id="invite_code" name="invite_code" type="text" autoComplete="off" spellCheck={false} required className="field font-mono" value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} /><p className="mt-1 text-xs text-slate-500">Ask your tenant administrator for a code. It can be used once and expires after seven days.</p></div>}
+          <div className="field-group">
+            <span>Human verification</span>
+            <TurnstileChallenge key={`${accountType}-${challengeReset}`} onToken={setTurnstileToken} />
+          </div>
           {registerMutation.error && <ErrorCard message={registerMutation.error.message} />}
-          <button type="submit" className="primary-btn large-btn w-full" disabled={registerMutation.isPending}>{registerMutation.isPending ? 'Creating account…' : accountType === 'tenant' ? 'Create tenant and admin account' : 'Create standard user account'}</button>
+          <button type="submit" className="primary-btn large-btn w-full" disabled={registerMutation.isPending || !turnstileToken}>{registerMutation.isPending ? 'Creating account…' : accountType === 'tenant' ? 'Create tenant and admin account' : 'Create standard user account'}</button>
         </form>
         <p className="auth-signin">Already have an account? <a href={frontendUrl('/login')}>Sign in</a></p>
       </section>

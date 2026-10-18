@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     api_url: str = ""
     frontend_url: str = ""
+    turnstile_site_key: str = ""
+    turnstile_secret_key: SecretStr = SecretStr("")
     session_cookie_secure: bool = False
     session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     kafka_bootstrap_servers: str = "kafka:9092"
