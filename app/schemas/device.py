@@ -18,6 +18,7 @@ class DeviceBase(BaseModel):
 
 class DeviceCreate(DeviceBase):
     encrypted_local_key: str = Field(..., min_length=1)
+    tenant_id: UUID | None = None
 
 
 class DeviceUpdate(BaseModel):

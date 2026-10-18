@@ -131,6 +131,7 @@ type Connector = {
   id: string
   name: string
   tenant_id: string | null
+  tenant_name?: string | null
   is_active: boolean
   is_enrolled: boolean
   is_online: boolean
@@ -1299,6 +1300,7 @@ function DevicesPage() {
       connector_id: '',
     },
   })
+  const selectedSetupConnectorId = useWatch({ control: form.control, name: 'connector_id' })
 
   const connectorMutation = useMutation({
     mutationFn: ({ deviceId, connectorId }: { deviceId: string; connectorId: string }) =>
@@ -1315,9 +1317,13 @@ function DevicesPage() {
   const mutation = useMutation({
     mutationFn: async (values: DeviceFormValues) => {
       const { channel_count, connector_id, ...devicePayload } = values
+      const routeConnector = connectors.find((connector) => connector.id === connector_id)
+      const deviceTenantId = user?.role === 'super_admin'
+        ? routeConnector?.tenant_id ?? null
+        : user?.tenant_id ?? null
       const device = await apiFetch<Device>('/api/v1/devices', {
         method: 'POST',
-        body: JSON.stringify(devicePayload),
+        body: JSON.stringify({ ...devicePayload, tenant_id: deviceTenantId }),
       })
       for (let index = 1; index <= channel_count; index += 1) {
         await apiFetch<DeviceChannel>(`/api/v1/devices/${device.id}/channels`, {
@@ -1449,8 +1455,11 @@ function DevicesPage() {
 
   const channelCount = data?.devices.reduce((total, device) => total + (device.channels?.length ?? 0), 0) ?? 0
   const canManageConnectors = user?.role === 'super_admin' || user?.role === 'tenant_admin' || user?.role === 'manager'
+  const isSuperAdmin = user?.role === 'super_admin'
   const setupConnectors = connectors.filter((connector) => (
-    connector.is_active && connector.is_enrolled && connector.tenant_id === user?.tenant_id
+    connector.is_active && connector.is_enrolled && (
+      isSuperAdmin || connector.tenant_id === user?.tenant_id
+    )
   ))
   const onlineSetupConnectors = setupConnectors.filter((connector) => connector.is_online)
   const filteredDevices = (data?.devices ?? []).filter((device) => {
@@ -1494,11 +1503,11 @@ function DevicesPage() {
         </div>
         {scanMutation.isError && <ErrorCard message={scanMutation.error.message} />}
         {scanMutation.isSuccess && (
-          <section className="border-t border-blue-100 pt-5" aria-live="polite">
-            <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-bold text-slate-900">Devices found on your network</h3><span className="badge border-slate-200 bg-white text-slate-600">{discovered.length}</span></div>
-            {!discovered.length ? <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">No Tuya devices were found. Make sure a switch is powered on and the selected network can reach it.</p> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {discovered.map((device) => <article key={device.device_id} className="rounded-xl border border-slate-200 bg-white p-3">
-                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="truncate text-sm font-bold text-slate-900">{device.name}</h4><p className="mt-1 break-all text-xs leading-5 text-slate-500">{device.ip_address} · {device.device_id} · Protocol {device.protocol_version}</p></div><button type="button" className="btn-primary shrink-0 px-3 py-2 text-xs" disabled={device.already_added} onClick={() => {
+          <section className="switch-scan-results" aria-live="polite">
+            <div className="switch-scan-heading"><h3>Devices found on your network</h3><span className="switch-scan-count">{discovered.length}</span></div>
+            {!discovered.length ? <p className="switch-scan-empty">No Tuya devices were found. Make sure a switch is powered on and the selected network can reach it.</p> : <div className="switch-scan-grid">
+              {discovered.map((device) => <article key={device.device_id} className="switch-scan-card">
+                <div className="switch-scan-card-copy"><h4>{device.name}</h4><p>{device.ip_address} · {device.device_id} · Protocol {device.protocol_version}</p></div><button type="button" className="btn-primary shrink-0 px-3 py-2 text-xs" disabled={device.already_added} onClick={() => {
                   setSelectedLanDeviceId(device.device_id)
                   form.setValue('name', device.name)
                   form.setValue('device_id', device.device_id)
@@ -1506,15 +1515,23 @@ function DevicesPage() {
                   form.setValue('device_type', device.device_type || 'switch')
                   form.setValue('protocol_version', device.protocol_version || '3.5')
                   form.setValue('encrypted_local_key', '')
-                form.setValue('connector_id', onlineSetupConnectors.length === 1 ? onlineSetupConnectors[0].id : '')
-                setManualOpen(true)
-                  }}>{device.already_added ? 'Added' : 'Use device'}</button></div>
-                    {device.already_added && <p className="mt-2 text-xs text-slate-500">This device is already configured.</p>}
+                  const scannedConnectorId = scanLocation.startsWith('connector:')
+                    ? scanLocation.slice('connector:'.length)
+                    : ''
+                  const defaultConnectorId = setupConnectors.some((connector) => connector.id === scannedConnectorId)
+                    ? scannedConnectorId
+                    : onlineSetupConnectors.length === 1
+                      ? onlineSetupConnectors[0].id
+                      : ''
+                  form.setValue('connector_id', defaultConnectorId)
+                  setManualOpen(true)
+                  }}>{device.already_added ? 'Added' : 'Use device'}</button>
+                  {device.already_added && <p className="switch-scan-note">This device is already configured.</p>}
                   </article>)}
             </div>}
           </section>
         )}
-        {!connectors.some((connector) => connector.is_active && connector.is_enrolled) && <p className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">You can scan the ChargePilot server network now. To scan a remote site, <NavLink to="/connectors" className="font-semibold underline">enroll a site connector</NavLink>.</p>}
+        {!connectors.some((connector) => connector.is_active && connector.is_enrolled) && <p className="switch-discovery-note">You can scan the ChargePilot server network now. To scan a remote site, <NavLink to="/connectors">enroll a site connector</NavLink>.</p>}
       </section>
 
       <section className="switch-add-panel">
@@ -1528,32 +1545,40 @@ function DevicesPage() {
             })
           }}>{manualOpen ? 'Close setup' : 'Add switch manually'}</button>
         </div>
-        {statusMessage && <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
+        {statusMessage && <p className="switch-action-message" role="status">{statusMessage}</p>}
         {(mutation.isError || switchMutation.isError || connectorMutation.isError || deleteMutation.isError) && <div className="mb-4"><ErrorCard message={mutation.error?.message ?? switchMutation.error?.message ?? connectorMutation.error?.message ?? deleteMutation.error?.message ?? 'The action failed.'} /></div>}
-        {manualOpen && <form className="grid gap-4 border-t border-slate-200 pt-5 md:grid-cols-2" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-          <div className="md:col-span-2"><p className="switch-setup-step"><span>1</span> Identify the switch</p></div>
+        {manualOpen && <form className="switch-setup-form" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+          <div className="switch-setup-step"><span>1</span><div><strong>Identify the switch</strong><small>Use LAN scan details or enter the device identity.</small></div></div>
           <div><label className="label" htmlFor="device-name">Display name</label><input id="device-name" className="field" placeholder="Living room plug" {...form.register('name')} />{form.formState.errors.name && <FieldError>{form.formState.errors.name.message}</FieldError>}</div>
           <div><label className="label" htmlFor="device-id">Device ID</label><input id="device-id" className="field" {...form.register('device_id')} />{form.formState.errors.device_id && <FieldError>{form.formState.errors.device_id.message}</FieldError>}</div>
           <div><label className="label" htmlFor="device-ip">Local IP address</label><input id="device-ip" className="field" placeholder="192.168.0.50" {...form.register('ip_address')} /></div>
           <div><label className="label" htmlFor="device-type">Device type</label><input id="device-type" className="field" {...form.register('device_type')} /></div>
           <div><label className="label" htmlFor="device-protocol">Protocol version</label><input id="device-protocol" className="field" {...form.register('protocol_version')} /></div>
-          <div className="md:col-span-2"><p className="switch-setup-step"><span>2</span> Add local access details</p></div>
-          <div><label className="label" htmlFor="device-key">Local key</label><button type="button" className="ml-2 text-xs font-semibold text-brand-600 underline" onClick={() => setSmartLifeOpen(true)}>Fetch with Smart Life</button><input id="device-key" type="password" autoComplete="new-password" className="field" placeholder="Blank until entered or retrieved" {...form.register('encrypted_local_key')} />{form.formState.errors.encrypted_local_key && <FieldError>{form.formState.errors.encrypted_local_key.message}</FieldError>}<p className="mt-1.5 text-xs leading-5 text-slate-500">The key is kept blank until entered or matched from Smart Life.</p></div>
+          <div className="switch-setup-step"><span>2</span><div><strong>Add local access details</strong><small>Device keys are encrypted at rest and shared only for authorized control.</small></div></div>
+          <div className="switch-key-field"><div className="switch-key-label"><label className="label" htmlFor="device-key">Local key</label><button type="button" className="switch-key-action" onClick={() => setSmartLifeOpen(true)}>Fetch with Smart Life</button></div><input id="device-key" type="password" autoComplete="new-password" className="field" placeholder="Blank until entered or retrieved" {...form.register('encrypted_local_key')} />{form.formState.errors.encrypted_local_key && <FieldError>{form.formState.errors.encrypted_local_key.message}</FieldError>}<p className="switch-form-help">The key stays blank until entered or matched from Smart Life.</p></div>
           <div><label className="label" htmlFor="channel-count">Number of channels</label><select id="channel-count" className="field" {...form.register('channel_count', { valueAsNumber: true })}>{Array.from({ length: 8 }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count} channel{count > 1 ? 's' : ''}</option>)}</select></div>
-          <div className="md:col-span-2"><p className="switch-setup-step"><span>3</span> Choose where commands run</p></div>
-          <div className="md:col-span-2">
-            <label className="label" htmlFor="new-device-connector">Control this switch through</label>
-            <select id="new-device-connector" className="field" {...form.register('connector_id')}>
-              <option value="">ChargePilot host · local network only</option>
-              {setupConnectors.map((connector) => <option key={connector.id} value={connector.id}>{connector.name} · {connector.is_online ? 'online' : 'offline'}</option>)}
-            </select>
+          <div className="switch-setup-step"><span>3</span><div><strong>Choose where commands run</strong><small>Choose the site that shares this switch’s local network.</small></div></div>
+          <div className="switch-route-picker">
+            <span className="label" id="new-device-connector-label">Control this switch through</span>
+            <div className="switch-route-options" role="radiogroup" aria-labelledby="new-device-connector-label">
+              <label className={`switch-route-choice ${selectedSetupConnectorId === '' ? 'is-selected' : ''}`}>
+                <input type="radio" value="" {...form.register('connector_id')} />
+                <span className="switch-route-choice-copy"><strong>ChargePilot host</strong><small>For switches on the API host’s local network</small></span>
+                <span className="switch-route-choice-status">Direct</span>
+              </label>
+              {setupConnectors.map((connector) => <label key={connector.id} className={`switch-route-choice ${selectedSetupConnectorId === connector.id ? 'is-selected' : ''}`}>
+                <input type="radio" value={connector.id} {...form.register('connector_id')} />
+                <span className="switch-route-choice-copy"><strong>{connector.name}</strong><small>{isSuperAdmin && connector.tenant_name ? `${connector.tenant_name} · ` : ''}{connector.is_online ? 'Online now' : 'Offline · control resumes after reconnection'}</small></span>
+                <span className={`switch-route-choice-status ${connector.is_online ? 'is-online' : 'is-offline'}`}>{connector.is_online ? 'Online' : 'Offline'}</span>
+              </label>)}
+            </div>
             {setupConnectors.length ? (
-              <p className="switch-route-help">Choose the site connector that shares this switch’s LAN. An offline connector can be assigned, but won’t control the switch until it reconnects.</p>
+              <p className="switch-route-help">An offline connector can be assigned, but will control the switch only after it reconnects.</p>
             ) : (
-              <p className="switch-route-warning">No enrolled connector is available for this tenant. The ChargePilot host option works only when the API host can reach the switch directly. <NavLink to="/connectors">Set up a site connector</NavLink>.</p>
+              <p className="switch-route-warning">No enrolled connector is available for this workspace. The ChargePilot host option works only when the API host can reach the switch directly. <NavLink to="/connectors">Set up a site connector</NavLink>.</p>
             )}
           </div>
-          <div className="md:col-span-2 flex justify-end"><button type="submit" className="btn-primary" disabled={mutation.isPending}><Plus size={16} className="mr-2" />{mutation.isPending ? 'Adding switch…' : 'Save switch setup'}</button></div>
+          <div className="switch-setup-submit"><button type="submit" className="btn-primary" disabled={mutation.isPending}><Plus size={16} />{mutation.isPending ? 'Adding switch…' : 'Save switch setup'}</button></div>
         </form>}
       </section>
 
@@ -1597,7 +1622,7 @@ function DevicesPage() {
               </div>
               <div className="switch-device-facts"><span>{device.device_type || 'Switch'}</span><span>{device.ip_address || 'IP not set'}</span><span>{device.channels?.length ?? 0} channel{device.channels?.length === 1 ? '' : 's'}</span><span>Last checked {formatTimestamp(device.last_seen_at ?? null)}</span></div>
               {!device.connector_id && <p className="switch-route-warning switch-unassigned-warning" role="status">Commands currently run from the ChargePilot host. In k3s or cloud hosting, assign a site connector on this switch’s LAN.</p>}
-              {!!device.channels?.length ? <div className="channel-panel">{device.channels.map((channel) => <div key={channel.id} className="switch-channel-row">
+              {device.channels?.length ? <div className="channel-panel">{device.channels.map((channel) => <div key={channel.id} className="switch-channel-row">
                 <div className="switch-channel-name"><span className="channel-number">{channel.channel_index}</span><span>{channel.name}</span><span className={`channel-state-label ${channel.current_state ? 'is-on' : ''}`}>{channel.current_state ? 'On' : 'Off'}</span></div>
                 <button type="button" className="btn-secondary px-3 py-2 text-xs" disabled={switchMutation.isPending} aria-label={`Turn ${channel.current_state ? 'off' : 'on'} ${channel.name}`} onClick={() => switchMutation.mutate({ deviceId: device.id, channelId: channel.id, desiredState: !channel.current_state })}>{channel.current_state ? 'Turn off' : 'Turn on'}</button>
               </div>)}</div> : <div className="switch-card-actions">
@@ -1621,14 +1646,19 @@ function DevicesPage() {
         </div>
       </section>
 
-      {smartLifeOpen && <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSmartLifeOpen(false) }}>
-        <section className="w-full max-w-xl overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="smartlife-title">
-          <header className="ui-modal-heading flex items-start justify-between gap-4 px-6 py-6 text-white sm:px-8"><div><p className="text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-100">Secure local key retrieval</p><h2 id="smartlife-title" className="mt-2 text-2xl font-bold">Connect Smart Life</h2><p className="mt-2 text-sm leading-6 text-emerald-50">ChargePilot retrieves local keys only. Device IP and other details come from the LAN scan.</p></div><button type="button" className="btn-secondary" onClick={() => setSmartLifeOpen(false)}>Close</button></header>
-          <div className="space-y-5 p-6 sm:p-8">
-            <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-3"><label className="label" htmlFor="smartlife-code">Smart Life account ID</label><input id="smartlife-code" maxLength={120} autoComplete="username" className="field mt-3" value={smartLifeUserCode} onChange={(event) => setSmartLifeUserCode(event.target.value)} /><p className="mt-2 text-[11px] leading-4 text-slate-500">Find it in Smart Life → Me → Settings → Account and Security.</p></div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3"><label className="label" htmlFor="smartlife-scheme">Mobile app</label><select id="smartlife-scheme" className="field mt-3" value={qrScheme} onChange={(event) => setQrScheme(event.target.value)}><option value="smartlife">Smart Life</option><option value="tuyaSmart">Tuya Smart</option></select><label className="mt-3 flex items-start gap-2 text-xs text-slate-600"><input type="checkbox" checked={rememberUserCode} onChange={(event) => setRememberUserCode(event.target.checked)} /><span>Remember this account ID on my ChargePilot account</span></label></div></div>
-            <div className="flex flex-col items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center"><p className="text-sm font-semibold text-slate-800">Generate a secure sign-in QR</p><p className="mt-1 text-xs text-slate-500">Scan it in your mobile app and approve the request.</p><button type="button" className="btn-primary mt-4" disabled={smartLifeMutation.isPending} onClick={() => smartLifeMutation.mutate()}>{smartLifeMutation.isPending ? 'Preparing…' : 'Generate secure QR'}</button>{smartLifeStatus && <p className="mt-4 text-sm text-slate-600" role="status" aria-live="polite">{smartLifeStatus}</p>}{qr && <img className="mt-3 h-48 w-48 rounded-xl border border-slate-200 bg-white p-2" src={qr} alt="Smart Life sign-in QR code" />}</div>
-            {!!linkedDevices.length && <div className="space-y-2" aria-live="polite">{linkedDevices.map((linked) => <div key={linked.device_id} className={`flex items-center justify-between gap-3 rounded-xl border p-3 ${selectedLanDeviceId === linked.device_id ? 'border-emerald-300 bg-emerald-50' : 'border-emerald-200 bg-white'}`}><span className="break-all text-xs font-semibold text-slate-800">{linked.device_id}</span><span className="shrink-0 text-[10px] font-semibold text-slate-600">{selectedLanDeviceId === linked.device_id ? 'Matched automatically' : 'Select matching LAN device'}</span></div>)}</div>}
+      {smartLifeOpen && <div className="smartlife-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSmartLifeOpen(false) }}>
+        <section className="smartlife-modal" role="dialog" aria-modal="true" aria-labelledby="smartlife-title">
+          <header className="smartlife-modal-heading ui-modal-heading">
+            <div><p className="smartlife-modal-kicker">Secure local key retrieval</p><h2 id="smartlife-title">Connect Smart Life</h2><p>ChargePilot retrieves local keys only. Device IP and other details come from the LAN scan.</p></div>
+            <button type="button" className="smartlife-modal-close" onClick={() => setSmartLifeOpen(false)}>Close</button>
+          </header>
+          <div className="smartlife-modal-body">
+            <div className="smartlife-modal-grid">
+              <div className="smartlife-detail-panel"><label className="label" htmlFor="smartlife-code">Smart Life account ID</label><input id="smartlife-code" maxLength={120} autoComplete="username" className="field" value={smartLifeUserCode} onChange={(event) => setSmartLifeUserCode(event.target.value)} /><p>Find it in Smart Life → Me → Settings → Account and Security.</p></div>
+              <div className="smartlife-detail-panel"><label className="label" htmlFor="smartlife-scheme">Mobile app</label><select id="smartlife-scheme" className="field" value={qrScheme} onChange={(event) => setQrScheme(event.target.value)}><option value="smartlife">Smart Life</option><option value="tuyaSmart">Tuya Smart</option></select><label className="smartlife-remember"><input type="checkbox" checked={rememberUserCode} onChange={(event) => setRememberUserCode(event.target.checked)} /><span>Remember this account ID on my ChargePilot account</span></label></div>
+            </div>
+            <div className="smartlife-qr-panel"><p className="smartlife-qr-title">Generate a secure sign-in QR</p><p>Scan it in your mobile app and approve the request.</p><button type="button" className="btn-primary" disabled={smartLifeMutation.isPending} onClick={() => smartLifeMutation.mutate()}>{smartLifeMutation.isPending ? 'Preparing…' : 'Generate secure QR'}</button>{smartLifeStatus && <p className="smartlife-qr-status" role="status" aria-live="polite">{smartLifeStatus}</p>}{qr && <img className="smartlife-qr-image" src={qr} alt="Smart Life sign-in QR code" />}</div>
+            {linkedDevices.length > 0 && <div className="smartlife-match-list" aria-live="polite">{linkedDevices.map((linked) => <div key={linked.device_id} className={`smartlife-match ${selectedLanDeviceId === linked.device_id ? 'is-matched' : ''}`}><span>{linked.device_id}</span><span>{selectedLanDeviceId === linked.device_id ? 'Matched automatically' : 'Select matching LAN device'}</span></div>)}</div>}
           </div>
         </section>
       </div>}

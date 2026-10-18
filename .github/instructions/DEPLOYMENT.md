@@ -198,14 +198,44 @@ data untouched until the k3s instance has been independently validated.
    The CI workflow ignores commits that only change the generated image tag,
    preventing a publish loop.
 
+#### Workflow security and build best practices
+
+The GitHub Actions pipeline keeps routine validation separate from publishing:
+
+- `ci.yml` runs Python tests/lint and frontend lint/build, then detects which
+  component image inputs changed. It only builds and scans affected API,
+  frontend, and connector images.
+- `publish-deploy.yml` runs only after successful CI for the latest `main`
+  commit from this repository. It compares API/frontend source files with the
+  source revision recorded in their deployed image tags, so stale CI runs and
+  unchanged images are skipped. API and frontend tags are updated independently.
+- `connector-multiarch.yml` builds only for connector-related changes or an
+  explicit manual rebuild.
+- Trivy scans each created image for OS/library vulnerabilities and secrets.
+  Published multi-platform images are scanned by digest for AMD64 and ARM64.
+  High and critical findings with fixes available fail the workflow before the
+  image tag is promoted to the k3s manifests. Images include BuildKit
+  provenance and SBOM attestations.
+- Workflows grant read-only repository permissions by default; only the
+  deployment workflow gets `contents: write`. Third-party actions are pinned
+  to full commit SHAs, registry credentials stay in Actions secrets, and
+  generated manifest-only commits do not start another CI run.
+
+Protect `main` with required CI checks and review before merging workflow or
+Dockerfile changes. Review Trivy reports and update vulnerable dependencies or
+base-image pins rather than bypassing scans.
+
 #### First deployment
 
 First merge the CI/CD and manifest changes to `main`. Each main commit runs
 `ci.yml` (Python lint/tests and frontend lint/build). After successful CI,
-`publish-deploy.yml` builds and pushes multi-platform images to Docker Hub as
+`publish-deploy.yml` builds, scans, and pushes only changed API/frontend
+multi-platform images to Docker Hub as
 `endusercompute/chargepilot-api:sha-<full-commit-sha>` and
-`endusercompute/chargepilot-frontend:sha-<full-commit-sha>`, then commits both
-tags into the kustomization. CI-only commits do not publish an image.
+`endusercompute/chargepilot-frontend:sha-<full-commit-sha>`, then commits only
+the corresponding changed tag into the kustomization. Connector images are
+published by `connector-multiarch.yml` after their own multi-platform build
+and security scans. CI-only commits do not publish images.
 
 Before syncing the ArgoCD Application, create the namespace secrets out of
 band. Use a private environment file `.env.k3s` (do not commit it) with these

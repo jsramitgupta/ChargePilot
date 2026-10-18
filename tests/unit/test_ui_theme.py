@@ -148,6 +148,26 @@ def test_overview_and_switch_pages_have_responsive_operational_layouts():
     assert "body.theme-dark .switch-discovery-panel" in dark
 
 
+def test_switch_setup_routes_and_smartlife_dialog_follow_the_shared_theme():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    dark = DARK_THEME.read_text(encoding="utf-8")
+
+    assert "role=\"radiogroup\"" in app
+    assert "switch-route-choice" in app
+    assert "isSuperAdmin || connector.tenant_id === user?.tenant_id" in app
+    assert "tenant_id: deviceTenantId" in app
+    assert "connector.tenant_name" in app
+    assert "smartlife-modal" in app
+    assert ".switch-setup-form" in light
+    assert ".switch-route-choice.is-selected" in light
+    assert ".switch-scan-results" in light
+    assert ".smartlife-modal" in light
+    assert "background: var(--surface);" in css_rule(light, ".smartlife-modal")
+    assert "body.theme-dark" in dark
+    assert "--surface-muted: #21312b;" in css_rule(dark, "body.theme-dark")
+
+
 def test_shared_controls_and_surfaces_use_theme_tokens():
     light = LIGHT_THEME.read_text(encoding="utf-8")
     dark = DARK_THEME.read_text(encoding="utf-8")

@@ -174,9 +174,15 @@ async def create_device(
             detail="A device with this device ID already exists.",
         )
 
+    tenant_id = user.tenant_id
+    if is_super_admin_user(user):
+        tenant_id = str(payload.tenant_id) if payload.tenant_id else None
+        if tenant_id and db.query(Tenant.id).filter(Tenant.id == tenant_id).first() is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a valid tenant.")
+
     device = Device(
         owner_id=user.id,
-        tenant_id=user.tenant_id,
+        tenant_id=tenant_id,
         name=payload.name,
         device_id=payload.device_id,
         encrypted_local_key=encrypt_local_key(payload.encrypted_local_key),

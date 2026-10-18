@@ -62,8 +62,9 @@ frontend/src/*.css         # shared responsive themes
 agent/BatteryAgent.ps1     # telemetry sender
 agentv2/                  # alternate agent flow or future version
 docker-compose.yml         # runtime config
-.github/workflows/ci.yml   # Python and frontend CI gates
-.github/workflows/publish-deploy.yml # Docker Hub publish and ArgoCD tag update
+.github/workflows/ci.yml   # Tests, change detection, image builds and Trivy scans
+.github/workflows/publish-deploy.yml # Selective Docker Hub publish, scans, GitOps update
+.github/workflows/connector-multiarch.yml # Connector build, scan and multi-arch publish
 deploy/k3s/                # k3s, PostgreSQL, Kafka, and Istio resources
 deploy/argocd/              # ArgoCD Application bootstrap resource
 scripts/scale_test.py      # temporary PostgreSQL dataset above 10M rows

@@ -20,20 +20,36 @@ Docker Hub namespace for `linux/amd64` and `linux/arm64`.
    image publisher can commit the ArgoCD tag update to `main`.
 5. Confirm GitHub Actions and the ArgoCD controller are enabled.
 
-### Main-branch pipeline
+### Main-branch pipeline and security practices
 
-`.github/workflows/ci.yml` runs Python lint/tests, frontend lint/build, and
-builds API and frontend containers independently for pull requests into
-`main` and pushes to `main`. A successful main-branch CI run triggers
-`.github/workflows/publish-deploy.yml`, which publishes the tested source
-commit's API and frontend images and updates
-`deploy/k3s/kustomization.yaml`. ArgoCD tracks `main`; CI skips commits that
-only change the generated image tags, preventing a publish loop.
+`.github/workflows/ci.yml` runs Python lint/tests and frontend lint/build, then
+detects image inputs changed by the commit. It builds and scans only affected
+API, frontend, and connector images. A successful main-branch CI run triggers
+`.github/workflows/publish-deploy.yml`; that workflow compares source files
+with each API/frontend image's deployed source revision and publishes only
+changed images. A newer commit makes an older run a no-op; the newer successful
+CI run compares against the last deployed revisions and includes accumulated
+changes. API and frontend deployment tags advance independently.
 
-The API and frontend tag format is `sha-<full-commit-sha>`. Workflow summaries
-include separate digests for both images. The connector workflow separately publishes
-`endusercompute/chargepilot-connector:sha-<full-commit-sha>` when connector
-files change on `main`.
+The connector workflow publishes only when connector image inputs change (or
+when an operator explicitly dispatches a rebuild). All workflows pin actions
+to full commit SHAs and use read-only token permissions except the deployment
+job that must commit the GitOps image-tag update. Docker Hub credentials stay
+in the `DOCKERHUB_TOKEN` repository secret; pull-request CI never receives
+registry credentials.
+
+Every built local image is scanned by Trivy for OS/library vulnerabilities and
+secrets. Published multi-platform images are then scanned by digest for both
+AMD64 and ARM64 before deployment tags advance. High/critical findings with
+available fixes fail the publishing workflow; unfixed vulnerability findings
+are excluded from this blocking scan. BuildKit generates provenance and SBOM
+attestations for each published image. Protect `main` with required CI checks
+and review before merging Dockerfile or workflow changes.
+
+API and frontend tags use the `sha-<full-commit-sha>` format; connector tags
+use the same full source SHA format. Workflow summaries report each published
+digest and its scan outcome. ArgoCD tracks `main`; commits that only update
+`deploy/k3s/kustomization.yaml` are excluded from CI to prevent a publish loop.
 
 ### First k3s rollout
 

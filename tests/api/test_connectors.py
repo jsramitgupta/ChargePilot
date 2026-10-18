@@ -11,7 +11,7 @@ from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device
 from app.models.event import AutomationEvent
 from app.services.local_key_service import decrypt_local_key
-from conftest import register_standard_user, register_tenant_admin
+from conftest import api_login, register_standard_user, register_tenant_admin
 
 
 def _tenant_admin_client(username: str) -> TestClient:
@@ -45,8 +45,69 @@ def test_connector_api_lists_status_for_authenticated_tenant():
     connectors = response.json()
     assert len(connectors) == 1
     assert connectors[0]["name"] == "Office LAN"
+    assert connectors[0]["tenant_name"] == "connector_list_owner site"
     assert connectors[0]["is_enrolled"] is False
     assert connectors[0]["is_online"] is False
+
+
+def test_super_admin_can_create_a_switch_for_the_selected_connector_tenant():
+    admin = TestClient(app)
+    api_login(admin, "admin", "change-me")
+    tenant = admin.post("/api/v1/admin/tenants", json={"name": "Connector setup tenant"})
+    assert tenant.status_code == 201, tenant.text
+
+    created = admin.post(
+        "/api/v1/connectors/enrollment-codes",
+        json={"name": "Remote LAN", "tenant_id": tenant.json()["id"]},
+    )
+    assert created.status_code == 201, created.text
+    enrolled = admin.post(
+        "/api/v1/connectors/enroll",
+        headers={"Authorization": f"Bearer {created.json()['enrollment_code']}"},
+        json={"version": "test"},
+    )
+    assert enrolled.status_code == 200, enrolled.text
+
+    device = admin.post(
+        "/api/v1/devices",
+        json={
+            "name": "Remote switch",
+            "device_id": "super-admin-connector-device",
+            "encrypted_local_key": "test-local-key",
+            "tenant_id": tenant.json()["id"],
+        },
+    )
+    assert device.status_code == 201, device.text
+    assert device.json()["tenant_id"] == tenant.json()["id"]
+
+    assigned = admin.put(
+        f"/api/v1/devices/{device.json()['id']}/connector",
+        json={"connector_id": enrolled.json()["connector_id"]},
+    )
+    assert assigned.status_code == 200, assigned.text
+    assert assigned.json()["connector_id"] == enrolled.json()["connector_id"]
+
+
+def test_tenant_user_cannot_create_a_device_in_another_tenant():
+    admin = TestClient(app)
+    api_login(admin, "admin", "change-me")
+    other_tenant = admin.post("/api/v1/admin/tenants", json={"name": "Other device tenant"})
+    assert other_tenant.status_code == 201, other_tenant.text
+    client = _tenant_admin_client("device_tenant_scope_owner")
+
+    device = client.post(
+        "/api/v1/devices",
+        json={
+            "name": "Tenant switch",
+            "device_id": "tenant-scope-device",
+            "encrypted_local_key": "test-local-key",
+            "tenant_id": other_tenant.json()["id"],
+        },
+    )
+
+    assert device.status_code == 201, device.text
+    assert device.json()["tenant_id"] != other_tenant.json()["id"]
+    assert device.json()["tenant_id"] is not None
 
 
 def test_react_connector_api_creates_revokes_and_deletes_connectors():

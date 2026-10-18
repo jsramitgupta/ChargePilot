@@ -11,10 +11,66 @@ on:
       - main
   workflow_dispatch:
 
+# Security best practices:
+# - Grant the default token read-only access; publishing uses a separate workflow.
+# - Pin third-party actions to full commit SHAs.
+# - Build and scan the exact component images affected by the change.
 permissions:
   contents: read
 
+concurrency:
+  group: chargepilot-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    name: Detect changed components
+    runs-on: ubuntu-24.04
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      connector: ${{ steps.filter.outputs.connector }}
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Determine changed files
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            changed_files="$(git ls-files)"
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          elif [ -z "$BEFORE_SHA" ] || ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            changed_files="$(git ls-files)"
+          else
+            changed_files="$(git diff --name-only "$BEFORE_SHA" "$HEAD_SHA")"
+          fi
+
+          printf '%s\n' "$changed_files"
+          if printf '%s\n' "$changed_files" | grep -Eq '^(app/|agent/|connector/|docker/Dockerfile$|pyproject.toml$|README.md$|\.dockerignore$)'; then
+            echo "api=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "api=false" >> "$GITHUB_OUTPUT"
+          fi
+          if printf '%s\n' "$changed_files" | grep -Eq '^(frontend/|app/frontend_server\.py$|\.dockerignore$)'; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend=false" >> "$GITHUB_OUTPUT"
+          fi
+          if printf '%s\n' "$changed_files" | grep -Eq '^(connector/(Dockerfile|requirements\.txt|[^/]+\.py)$|\.dockerignore$)'; then
+            echo "connector=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "connector=false" >> "$GITHUB_OUTPUT"
+          fi
+
   backend:
     name: Backend tests and lint
     runs-on: ubuntu-24.04
@@ -39,17 +95,33 @@ jobs:
         run: python -m pytest -q
 
   api-container:
-    name: Build API container
+    name: Build and scan API image
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Build container image
+      - name: Build API container image
         run: docker build --tag chargepilot-api:ci -f docker/Dockerfile .
 
+      - name: Scan API image for vulnerabilities and secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: chargepilot-api:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
+
   frontend-container:
-    name: Build frontend container
+    name: Build and scan frontend image
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source code
@@ -57,6 +129,42 @@ jobs:
 
       - name: Build frontend container image
         run: docker build --tag chargepilot-frontend:ci -f frontend/Dockerfile .
+
+      - name: Scan frontend image for vulnerabilities and secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: chargepilot-frontend:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
+
+  connector-container:
+    name: Build and scan connector image
+    needs: changes
+    if: needs.changes.outputs.connector == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Build connector container image
+        run: docker build --tag chargepilot-connector:ci -f connector/Dockerfile .
+
+      - name: Scan connector image for vulnerabilities and secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: chargepilot-connector:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
 
   frontend:
     name: Frontend lint and production build

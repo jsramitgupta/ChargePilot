@@ -390,6 +390,10 @@ Required fields:
 }
 ```
 
+Super Admins may include `tenant_id` to create a switch in a selected tenant;
+the tenant must exist. Other users always create devices in their own tenant,
+regardless of any supplied `tenant_id`.
+
 ### 4.3 GET /api/v1/devices/{device_id}
 
 Retrieves one device by UUID.
@@ -439,6 +443,11 @@ Connector endpoints are mounted at `/api/v1/connectors`. Enrollment uses a
 one-time enrollment code. Connector heartbeat and command routes use the
 connector-specific bearer credential. User-facing management routes use the
 signed-in ChargePilot session and normal tenant authorization.
+
+### GET /api/v1/connectors
+
+Lists connectors visible to the authenticated user, including connector
+`tenant_id`, `tenant_name`, active/enrolled status, and online status.
 
 ### POST /api/v1/connectors/enroll
 

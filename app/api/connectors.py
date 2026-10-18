@@ -53,11 +53,17 @@ async def list_connectors(
     connectors = tenant_scoped_query(db.query(SiteConnector), SiteConnector, user).order_by(
         SiteConnector.name.asc()
     ).all()
+    tenant_ids = {connector.tenant_id for connector in connectors if connector.tenant_id is not None}
+    tenant_names = {
+        tenant.id: tenant.name
+        for tenant in db.query(Tenant).filter(Tenant.id.in_(tenant_ids)).all()
+    } if tenant_ids else {}
     return [
         {
             "id": connector.id,
             "name": connector.name,
             "tenant_id": connector.tenant_id,
+            "tenant_name": tenant_names.get(connector.tenant_id),
             "is_active": connector.is_active,
             "is_enrolled": connector.token_hash is not None,
             "is_online": connector_is_online(connector),

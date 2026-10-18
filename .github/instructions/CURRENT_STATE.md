@@ -38,6 +38,12 @@ The Overview presents live endpoint and switch counts in a responsive summary
 grid above the endpoint activity table. The Smart switches page groups LAN
 discovery, manual setup, and the searchable/filterable inventory into clear
 work areas; card and list views remain available on small screens.
+Switch onboarding separates device identity, local access, and command routing.
+The route picker limits tenant users to enrolled connectors for their tenant;
+Super Admins can choose an enrolled connector across tenants and the new device
+is assigned to that connector's tenant. Scanning through a connector selects
+that route by default. Discovery results and Smart Life key retrieval follow
+the shared light/dark theme tokens.
 The mapping wizard has no form submission side effect: Continue only advances
 the setup, and creating or editing a mapping requires its explicit save button.
 Step 3 reviews the selected laptop and switch alongside editable battery rules.
@@ -125,19 +131,22 @@ are not yet implemented. Redis is not enabled because token/rule caching has
 not been shown to be a measured bottleneck.
 
 The delivery pipeline is split between `.github/workflows/ci.yml` (Python
-tests/lint, frontend lint/build, and independent API/frontend container builds)
-and `.github/workflows/publish-deploy.yml` (multi-platform Docker Hub publish
-and ArgoCD image-tag update after successful main CI). API and frontend images
-use separate repositories and immutable
+tests/lint, frontend lint/build, component change detection, and affected
+container build/scan jobs), `.github/workflows/publish-deploy.yml` (latest-main
+API/frontend change detection, multi-platform Docker Hub publication, image
+security scans, and selective ArgoCD tag updates), and
+`.github/workflows/connector-multiarch.yml` (connector image build, scan, and
+multi-platform publication). Trivy checks created images for OS/library
+vulnerabilities and secrets; published AMD64 and ARM64 images are scanned by
+digest before deployment tags advance. API and frontend images use separate repositories and immutable
 `endusercompute/chargepilot-api:sha-<full-commit-sha>` and
 `endusercompute/chargepilot-frontend:sha-<full-commit-sha>` tags. The k3s
 manifests under `deploy/k3s/` configure Istio routes for
 `console-chargepilot.endusercompute.in` and `api-chargepilot.endusercompute.in`;
 runtime frontend and API origins use HTTPS on those hosts. ArgoCD bootstrapping
 is under `deploy/argocd/`.
-`.github/workflows/connector-multiarch.yml` separately publishes the
-multi-platform site connector image. The Connectors page uses that immutable
-published image by default and also offers a one-line Python installer.
+The Connectors page uses the immutable published image by default and also
+offers a one-line Python installer.
 The checked-in k3s PostgreSQL and Kafka services are single-replica,
 single-node starting components and are not highly available.
 

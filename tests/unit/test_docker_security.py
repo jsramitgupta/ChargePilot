@@ -69,6 +69,7 @@ def test_image_workflows_pin_actions_and_publish_digest_references():
         "docker/login-action",
         "docker/metadata-action",
         "docker/build-push-action",
+        "aquasecurity/trivy-action",
     }
     found_actions = set()
 
@@ -85,7 +86,7 @@ def test_image_workflows_pin_actions_and_publish_digest_references():
         assert tag_format in workflow
         assert "provenance: mode=max" in workflow
         assert "sbom: true" in workflow
-        assert "steps.build.outputs.digest" in workflow
+        assert "outputs.digest" in workflow
         assert "type=raw,value=latest" not in workflow
         assert "DDMMYYYY" not in workflow
         assert (
@@ -94,3 +95,63 @@ def test_image_workflows_pin_actions_and_publish_digest_references():
         )
 
     assert expected_actions <= found_actions
+
+
+def test_container_workflows_scan_built_images_and_scope_publishing():
+    ci_workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    publish_workflow = (ROOT / ".github" / "workflows" / "publish-deploy.yml").read_text()
+    connector_workflow = (ROOT / ".github" / "workflows" / "connector-multiarch.yml").read_text()
+    workflows = (ci_workflow, publish_workflow, connector_workflow)
+
+    for workflow in workflows:
+        assert "scanners: vuln,secret" in workflow
+        assert "severity: CRITICAL,HIGH" in workflow
+        assert 'exit-code: "1"' in workflow
+        for action, ref in PINNED_ACTION.findall(workflow):
+            assert re.fullmatch(r"[0-9a-f]{40}", ref), action
+
+    assert "needs.changes.outputs.api == 'true'" in ci_workflow
+    assert "needs.changes.outputs.frontend == 'true'" in ci_workflow
+    assert "needs.changes.outputs.connector == 'true'" in ci_workflow
+    assert "connector/Dockerfile" in connector_workflow
+    assert "connector/requirements.txt" in connector_workflow
+    assert "connector/*.py" in connector_workflow
+    assert ".github/workflows/connector-multiarch.yml" not in connector_workflow
+    assert '"git", "diff", "--name-only"' in publish_workflow
+    assert "Compare components with their deployed source revisions" in publish_workflow
+    assert "API_CHANGED" in publish_workflow
+    assert "FRONTEND_CHANGED" in publish_workflow
+
+    for workflow, build_marker, scan_marker in (
+        (
+            ci_workflow,
+            "Build API container image",
+            "Scan API image for vulnerabilities and secrets",
+        ),
+        (
+            ci_workflow,
+            "Build frontend container image",
+            "Scan frontend image for vulnerabilities and secrets",
+        ),
+        (
+            ci_workflow,
+            "Build connector container image",
+            "Scan connector image for vulnerabilities and secrets",
+        ),
+        (
+            publish_workflow,
+            "Build and push API image",
+            "Scan published API image for vulnerabilities and secrets",
+        ),
+        (
+            publish_workflow,
+            "Build and push frontend image",
+            "Scan published frontend image for vulnerabilities and secrets",
+        ),
+        (
+            connector_workflow,
+            "Build and push AMD64 + ARM64 connector image",
+            "Scan published connector AMD64 image",
+        ),
+    ):
+        assert workflow.index(build_marker) < workflow.index(scan_marker)

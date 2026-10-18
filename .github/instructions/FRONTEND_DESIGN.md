@@ -125,6 +125,12 @@ operational state colors for explicit status indicators.
   task. Keep scan location and action together, give inventory search and
   filters usable tap targets, and let device cards collapse to one column
   without narrowing a single result to an unused grid track.
+  The switch setup presents identity, local access, and command routing as
+  three clear stages. Route choices use selectable cards: tenant users see only
+  their enrolled tenant connectors, while Super Admins can select a connector
+  and the new switch is created in that connector's tenant. A connector scan
+  preselects that same route. The Smart Life key-retrieval dialog and discovery
+  results use the shared theme surfaces and status tokens in both themes.
 - Use surface, muted-surface, and line tokens for hierarchy. Reserve the
   mineral-green hero and navigation surfaces for strong anchors; do not turn
   every content group into an identical raised card.

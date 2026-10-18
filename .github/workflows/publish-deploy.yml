@@ -1,4 +1,4 @@
-name: Publish ChargePilot image and update k3s
+name: Publish ChargePilot images and update k3s
 
 on:
   workflow_run:
@@ -9,58 +9,122 @@ on:
     branches:
       - main
 
+# Security best practices:
+# - This privileged workflow only consumes successful CI runs from this repository's main.
+# - Registry credentials are used only after change detection and current-main checks.
+# - Images are scanned by digest before GitOps is updated; deployment uses source-SHA tags.
+# - contents:write is scoped to this deployment workflow only.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: chargepilot-main-publish
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Build API and frontend images and publish GitOps update
+  detect:
+    name: Determine changed deployable images
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-24.04
+    outputs:
+      publish: ${{ steps.current.outputs.publish }}
+      api: ${{ steps.components.outputs.api }}
+      frontend: ${{ steps.components.outputs.frontend }}
     steps:
-      - name: Check out tested source commit
+      - name: Check out the tested source commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
-      - name: Skip if a newer main commit is available
+      - name: Skip stale CI runs
         id: current
         env:
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           latest_main="$(git ls-remote origin refs/heads/main | cut -f1)"
           if [ "$latest_main" != "$SOURCE_SHA" ]; then
-            echo "A newer main commit exists; its successful CI run will publish the image."
+            echo "A newer main commit exists; its successful CI run will publish the accumulated changes."
             echo "publish=false" >> "$GITHUB_OUTPUT"
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up QEMU for multi-platform builds
+      - name: Compare components with their deployed source revisions
+        id: components
         if: steps.current.outputs.publish == 'true'
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          source = subprocess.check_output(
+              ["git", "rev-parse", os.environ["SOURCE_SHA"]], text=True
+          ).strip()
+          manifest = Path("deploy/k3s/kustomization.yaml").read_text()
+          patterns = {
+              "api": re.compile(r"(?ms)- name: endusercompute/chargepilot-api\s+newTag:\s*sha-([0-9a-f]{40})"),
+              "frontend": re.compile(r"(?ms)- name: endusercompute/chargepilot-frontend\s+newTag:\s*sha-([0-9a-f]{40})"),
+          }
+          scopes = {
+              "api": re.compile(r"^(app/|agent/|connector/|docker/Dockerfile$|pyproject.toml$|README.md$|\.dockerignore$)"),
+              "frontend": re.compile(r"^(frontend/|app/frontend_server\.py$|\.dockerignore$)"),
+          }
+
+          for component, pattern in patterns.items():
+              match = pattern.search(manifest)
+              base = match.group(1) if match else None
+              if not base or subprocess.run(
+                  ["git", "cat-file", "-e", f"{base}^{{commit}}"],
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              ).returncode:
+                  changed = True
+              else:
+                  names = subprocess.check_output(
+                      ["git", "diff", "--name-only", base, source], text=True
+                  ).splitlines()
+                  changed = any(scopes[component].search(name) for name in names)
+              print(f"{component}={'true' if changed else 'false'}")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write(f"{component}={'true' if changed else 'false'}\n")
+          PY
+
+  publish:
+    name: Build, scan, and publish changed images
+    needs: detect
+    if: needs.detect.outputs.publish == 'true' && (needs.detect.outputs.api == 'true' || needs.detect.outputs.frontend == 'true')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the tested source commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Set up QEMU for multi-platform builds
         uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
 
       - name: Set up Docker Buildx
-        if: steps.current.outputs.publish == 'true'
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Log in to Docker Hub
-        if: steps.current.outputs.publish == 'true'
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           username: endusercompute
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Generate immutable API image tag
-        if: steps.current.outputs.publish == 'true'
+        if: needs.detect.outputs.api == 'true'
         id: api-meta
         uses: docker/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f # v5.8.0
         with:
@@ -69,7 +133,7 @@ jobs:
             type=raw,value=sha-${{ github.event.workflow_run.head_sha }}
 
       - name: Generate immutable frontend image tag
-        if: steps.current.outputs.publish == 'true'
+        if: needs.detect.outputs.frontend == 'true'
         id: frontend-meta
         uses: docker/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f # v5.8.0
         with:
@@ -78,8 +142,8 @@ jobs:
             type=raw,value=sha-${{ github.event.workflow_run.head_sha }}
 
       - name: Build and push API image
-        if: steps.current.outputs.publish == 'true'
-        id: build
+        if: needs.detect.outputs.api == 'true'
+        id: api-build
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
@@ -91,8 +155,35 @@ jobs:
           provenance: mode=max
           sbom: true
 
+      - name: Scan published API image for vulnerabilities and secrets
+        if: needs.detect.outputs.api == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: endusercompute/chargepilot-api@${{ steps.api-build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
+
+      - name: Scan published API ARM64 image for vulnerabilities and secrets
+        if: needs.detect.outputs.api == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: endusercompute/chargepilot-api@${{ steps.api-build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
+          trivy-args: --platform linux/arm64
+
       - name: Build and push frontend image
-        if: steps.current.outputs.publish == 'true'
+        if: needs.detect.outputs.frontend == 'true'
         id: frontend-build
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
@@ -105,10 +196,38 @@ jobs:
           provenance: mode=max
           sbom: true
 
-      - name: Update Argo CD image tag
-        if: steps.current.outputs.publish == 'true'
+      - name: Scan published frontend image for vulnerabilities and secrets
+        if: needs.detect.outputs.frontend == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: endusercompute/chargepilot-frontend@${{ steps.frontend-build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
+
+      - name: Scan published frontend ARM64 image for vulnerabilities and secrets
+        if: needs.detect.outputs.frontend == 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: endusercompute/chargepilot-frontend@${{ steps.frontend-build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
+          trivy-args: --platform linux/arm64
+
+      - name: Update only changed image tags in Argo CD manifests
         env:
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          API_CHANGED: ${{ needs.detect.outputs.api }}
+          FRONTEND_CHANGED: ${{ needs.detect.outputs.frontend }}
         run: |
           latest_main="$(git ls-remote origin refs/heads/main | cut -f1)"
           if [ "$latest_main" != "$SOURCE_SHA" ]; then
@@ -116,20 +235,25 @@ jobs:
             exit 0
           fi
 
-          image_tag="sha-${SOURCE_SHA}"
-          python - "$image_tag" <<'PY'
+          python3 - <<'PY'
+          import os
           import re
-          import sys
           from pathlib import Path
 
           path = Path("deploy/k3s/kustomization.yaml")
           content = path.read_text()
           updated = content
-          for image in ("chargepilot-api", "chargepilot-frontend"):
+          source_sha = os.environ["SOURCE_SHA"]
+          for image, env_name in (
+              ("chargepilot-api", "API_CHANGED"),
+              ("chargepilot-frontend", "FRONTEND_CHANGED"),
+          ):
+              if os.environ[env_name] != "true":
+                  continue
               pattern = rf"(?m)(- name: endusercompute/{image}\n\s+newTag:\s*)[^\n]+"
               updated, count = re.subn(
                   pattern,
-                  lambda match: match.group(1) + sys.argv[1],
+                  lambda match: match.group(1) + f"sha-{source_sha}",
                   updated,
                   count=1,
               )
@@ -142,28 +266,30 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add deploy/k3s/kustomization.yaml
           if git diff --cached --quiet; then
-            echo "Argo CD already references ${image_tag}."
+            echo "Argo CD already references the published image tags."
             exit 0
           fi
-          git commit -m "chore(deploy): use ${image_tag}"
+          git commit -m "chore(deploy): update changed image tags"
           git push origin HEAD:refs/heads/main
 
-      - name: Report immutable image references
-        if: steps.current.outputs.publish == 'true'
+      - name: Report image publication and scan results
         env:
-          API_IMAGE: endusercompute/chargepilot-api
-          API_TAGS: ${{ steps.api-meta.outputs.tags }}
-          API_DIGEST: ${{ steps.build.outputs.digest }}
-          FRONTEND_IMAGE: endusercompute/chargepilot-frontend
-          FRONTEND_TAGS: ${{ steps.frontend-meta.outputs.tags }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          API_CHANGED: ${{ needs.detect.outputs.api }}
+          API_DIGEST: ${{ steps.api-build.outputs.digest }}
+          FRONTEND_CHANGED: ${{ needs.detect.outputs.frontend }}
           FRONTEND_DIGEST: ${{ steps.frontend-build.outputs.digest }}
         run: |
           {
-            echo "Published API image: \`${API_IMAGE}\`"
-            echo "Tags: \`${API_TAGS}\`"
-            echo "Digest: \`${API_IMAGE}@${API_DIGEST}\`"
-            echo "Published frontend image: \`${FRONTEND_IMAGE}\`"
-            echo "Tags: \`${FRONTEND_TAGS}\`"
-            echo "Digest: \`${FRONTEND_IMAGE}@${FRONTEND_DIGEST}\`"
-            echo "Argo CD will sync the k3s application from the updated main branch."
+            echo "Source commit: \`${SOURCE_SHA}\`"
+            if [ "$API_CHANGED" = "true" ]; then
+              echo "API image: \`endusercompute/chargepilot-api@${API_DIGEST}\` (scanned)"
+            else
+              echo "API image: unchanged; build skipped."
+            fi
+            if [ "$FRONTEND_CHANGED" = "true" ]; then
+              echo "Frontend image: \`endusercompute/chargepilot-frontend@${FRONTEND_DIGEST}\` (scanned)"
+            else
+              echo "Frontend image: unchanged; build skipped."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
