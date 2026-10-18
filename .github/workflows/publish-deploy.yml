@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Build multi-arch image and publish GitOps update
+    name: Build API and frontend images and publish GitOps update
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main' &&
@@ -59,26 +59,49 @@ jobs:
           username: endusercompute
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Generate immutable commit image tag
+      - name: Generate immutable API image tag
         if: steps.current.outputs.publish == 'true'
-        id: meta
+        id: api-meta
         uses: docker/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f # v5.8.0
         with:
-          images: endusercompute/chargepilot
+          images: endusercompute/chargepilot-api
           tags: |
             type=raw,value=sha-${{ github.event.workflow_run.head_sha }}
 
-      - name: Build and push AMD64 + ARM64 image to Docker Hub
+      - name: Generate immutable frontend image tag
         if: steps.current.outputs.publish == 'true'
-        id: build
+        id: frontend-meta
+        uses: docker/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f # v5.8.0
+        with:
+          images: endusercompute/chargepilot-frontend
+          tags: |
+            type=raw,value=sha-${{ github.event.workflow_run.head_sha }}
+
+      - name: Build and push API image
+        if: steps.current.outputs.publish == 'true'
+        id: api-build
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           file: ./docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.api-meta.outputs.tags }}
+          labels: ${{ steps.api-meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Build and push frontend image
+        if: steps.current.outputs.publish == 'true'
+        id: frontend-build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: ./frontend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.frontend-meta.outputs.tags }}
+          labels: ${{ steps.frontend-meta.outputs.labels }}
           provenance: mode=max
           sbom: true
 
@@ -101,14 +124,17 @@ jobs:
 
           path = Path("deploy/k3s/kustomization.yaml")
           content = path.read_text()
-          updated, count = re.subn(
-              r"(?m)^(\s*newTag:\s*).+$",
-              lambda match: match.group(1) + sys.argv[1],
-              content,
-              count=1,
-          )
-          if count != 1:
-              raise SystemExit(f"Expected one image newTag in {path}, found {count}.")
+          updated = content
+          for image in ("chargepilot-api", "chargepilot-frontend"):
+              pattern = rf"(?m)(- name: endusercompute/{image}\n\s+newTag:\s*)[^\n]+"
+              updated, count = re.subn(
+                  pattern,
+                  lambda match: match.group(1) + sys.argv[1],
+                  updated,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit(f"Expected one {image} image entry in {path}, found {count}.")
           path.write_text(updated)
           PY
 
@@ -122,16 +148,22 @@ jobs:
           git commit -m "chore(deploy): use ${image_tag}"
           git push origin HEAD:refs/heads/main
 
-      - name: Report immutable image reference
+      - name: Report immutable image references
         if: steps.current.outputs.publish == 'true'
         env:
-          IMAGE: endusercompute/chargepilot
-          TAGS: ${{ steps.meta.outputs.tags }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          API_IMAGE: endusercompute/chargepilot-api
+          API_TAGS: ${{ steps.api-meta.outputs.tags }}
+          API_DIGEST: ${{ steps.api-build.outputs.digest }}
+          FRONTEND_IMAGE: endusercompute/chargepilot-frontend
+          FRONTEND_TAGS: ${{ steps.frontend-meta.outputs.tags }}
+          FRONTEND_DIGEST: ${{ steps.frontend-build.outputs.digest }}
         run: |
           {
-            echo "Published image: \`${IMAGE}\`"
-            echo "Tags: \`${TAGS}\`"
-            echo "Digest: \`${IMAGE}@${DIGEST}\`"
+            echo "Published API image: \`${API_IMAGE}\`"
+            echo "Tags: \`${API_TAGS}\`"
+            echo "Digest: \`${API_IMAGE}@${API_DIGEST}\`"
+            echo "Published frontend image: \`${FRONTEND_IMAGE}\`"
+            echo "Tags: \`${FRONTEND_TAGS}\`"
+            echo "Digest: \`${FRONTEND_IMAGE}@${FRONTEND_DIGEST}\`"
             echo "Argo CD will sync the k3s application from the updated main branch."
           } >> "$GITHUB_STEP_SUMMARY"

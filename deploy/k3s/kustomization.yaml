@@ -7,5 +7,7 @@ resources:
   - workloads.yaml
   - istio.yaml
 images:
-  - name: endusercompute/chargepilot
-    newTag: sha-4ecfc5425fa0525b7ff6c1de99bacc9fd3083584
+  - name: endusercompute/chargepilot-api
+    newTag: bootstrap-required
+  - name: endusercompute/chargepilot-frontend
+    newTag: bootstrap-required

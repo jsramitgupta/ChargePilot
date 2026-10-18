@@ -493,6 +493,11 @@ body.theme-dark .channel-state-label.is-on {
   background: rgba(56, 100, 76, .35);
 }
 
+body.theme-dark .mapping-threshold-marker.is-charging,
+body.theme-dark .mapping-threshold-legend .is-charging {
+  color: #9ac9df;
+}
+
 body.theme-dark .mapping-tenant-label {
   color: #add0df;
 }

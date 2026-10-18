@@ -248,10 +248,12 @@ preserves data; `docker compose down -v` deletes database and broker volumes.
 This single-host Compose topology is for development/smoke tests, not the
 10M-device production deployment.
 
-The `ChargePilot CI` workflow runs backend tests/lint and frontend lint/build on
-pull requests and main commits. Successful main CI builds a multi-platform
-`endusercompute/chargepilot:sha-<full-commit-sha>` image and updates the
-ArgoCD-deployed k3s manifests. The UI hostname is
+The `ChargePilot CI` workflow runs backend tests/lint, frontend lint/build,
+and independent API/frontend image builds on pull requests and main commits.
+Successful main CI publishes separate multi-platform API and frontend images
+(`endusercompute/chargepilot-api` and
+`endusercompute/chargepilot-frontend`) and updates the ArgoCD-deployed k3s
+manifests. The UI hostname is
 `console-chargepilot.endusercompute.in`; API and telemetry use
 `api-chargepilot.endusercompute.in`. See the
 [Docker Hub and k3s deployment guide](DOCKER_HUB_DEPLOYMENT.md) for required
@@ -268,11 +270,13 @@ Vite serves the frontend on `http://localhost:5173` and proxies application
 requests to FastAPI. Set `CHARGEPILOT_BACKEND_URL` to change the development
 proxy target.
 
-The Docker image builds the React bundle and serves FastAPI on port `8000` and
-the React application on port `5173`. Compose runs separate relay and
-automation-worker processes from the same image. `CHARGEPILOT_API_URL` and
-`CHARGEPILOT_FRONTEND_URL` are read when the container starts and injected into
-the frontend at runtime; changing them does not require rebuilding the image.
+The API image serves FastAPI on port `8000`; a separate frontend image serves
+the React application on port `5173`. Compose runs the outbox relay and
+automation worker from the API image. `CHARGEPILOT_API_URL` and
+`CHARGEPILOT_FRONTEND_URL` are read by the frontend container at startup and
+injected into its runtime configuration; changing them does not require
+rebuilding the image. Only the public Turnstile site key is exposed to the
+frontend; the private key remains in the API environment.
 Use browser-accessible public URLs, not Docker service names. For example:
 
 ```dotenv

@@ -1,10 +1,19 @@
 import json
+import os
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from app.core.config import settings
+
+class FrontendSettings:
+    api_url = os.getenv("CHARGEPILOT_API_URL", "")
+    frontend_url = os.getenv("CHARGEPILOT_FRONTEND_URL", "")
+    turnstile_site_key = os.getenv("CHARGEPILOT_TURNSTILE_SITE_KEY", "")
+    environment = os.getenv("CHARGEPILOT_ENVIRONMENT", "production")
+
+
+settings = FrontendSettings()
 
 
 FRONTEND_DIRECTORY = Path(__file__).resolve().parents[1] / "frontend-dist"
@@ -72,11 +81,7 @@ class FrontendRequestHandler(SimpleHTTPRequestHandler):
         config = {
             "apiBaseUrl": settings.api_url.rstrip("/"),
             "frontendUrl": settings.frontend_url.rstrip("/"),
-            "turnstileSiteKey": (
-                settings.turnstile_site_key
-                if settings.turnstile_secret_key.get_secret_value()
-                else ""
-            ),
+            "turnstileSiteKey": settings.turnstile_site_key,
         }
         payload = (
             "window.CHARGEPILOT_CONFIG = "

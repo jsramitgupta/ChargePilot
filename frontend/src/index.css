@@ -1988,34 +1988,56 @@ button, a {
 
 .mapping-threshold-marker {
   position: absolute;
-  top: -21px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
   color: var(--leaf);
-  font-size: 9px;
-  font-weight: 750;
-  white-space: nowrap;
-  transform: translateX(-2px);
-}
-
-.mapping-threshold-marker.is-off {
-  color: #ad753b;
-  transform: translateX(-100%);
-}
-
-.mapping-threshold-marker i {
-  position: absolute;
-  top: 27px;
-  left: 2px;
+  top: -4px;
   width: 2px;
-  height: 13px;
+  height: 16px;
+  transform: translateX(-50%);
   background: currentColor;
 }
 
-.mapping-threshold-marker.is-off i {
-  right: 2px;
-  left: auto;
+.mapping-threshold-marker.is-off {
+  color: var(--copper);
+}
+
+.mapping-threshold-marker.is-charging {
+  color: #527d96;
+}
+
+.mapping-threshold-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.mapping-threshold-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mapping-threshold-legend i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.mapping-threshold-legend .is-on {
+  color: var(--leaf);
+}
+
+.mapping-threshold-legend .is-off {
+  color: var(--copper);
+}
+
+.mapping-threshold-legend .is-charging {
+  color: #527d96;
 }
 
 .mapping-preview-scale {

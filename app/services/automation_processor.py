@@ -99,8 +99,12 @@ async def process_telemetry_event(
         decision = evaluate_battery_action(
             battery=payload.battery_percentage,
             current_state=current_state,
+            turn_on_enabled=mapping.turn_on_enabled,
+            is_charging=payload.charging,
+            turn_off_when_charging_enabled=mapping.turn_off_when_charging_enabled,
             on_threshold=mapping.on_threshold,
             off_threshold=mapping.off_threshold,
+            charging_off_threshold=mapping.charging_off_threshold,
             minimum_interval_seconds=mapping.minimum_state_change_interval,
             last_state_change_at=device.last_state_change_at,
             now=datetime.now(UTC),
@@ -109,12 +113,25 @@ async def process_telemetry_event(
             continue
 
         new_state = decision == "TURN_ON"
-        threshold = mapping.on_threshold if new_state else mapping.off_threshold
-        comparison = "at or below" if new_state else "at or above"
-        reason = (
-            f"Battery {payload.battery_percentage}% is {comparison} "
-            f"the turn-{ 'on' if new_state else 'off' } threshold of {threshold}%."
-        )
+        if new_state:
+            reason = (
+                f"Battery {payload.battery_percentage}% is at or below "
+                f"the turn-on threshold of {mapping.on_threshold}%."
+            )
+        elif (
+            mapping.turn_off_when_charging_enabled
+            and payload.charging
+            and payload.battery_percentage >= mapping.charging_off_threshold
+        ):
+            reason = (
+                f"Battery {payload.battery_percentage}% is charging and at or above "
+                f"the charging turn-off threshold of {mapping.charging_off_threshold}%."
+            )
+        else:
+            reason = (
+                f"Battery {payload.battery_percentage}% is at or above "
+                f"the turn-off threshold of {mapping.off_threshold}%."
+            )
 
         if device.connector_id:
             try:

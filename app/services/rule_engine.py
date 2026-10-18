@@ -13,8 +13,12 @@ def evaluate_battery_action(
     *,
     battery: int,
     current_state: bool,
+    turn_on_enabled: bool = True,
+    is_charging: bool = False,
+    turn_off_when_charging_enabled: bool = False,
     on_threshold: int = 79,
     off_threshold: int = 99,
+    charging_off_threshold: int = 99,
     minimum_interval_seconds: int = 300,
     last_state_change_at: datetime | None = None,
     now: datetime | None = None,
@@ -22,7 +26,7 @@ def evaluate_battery_action(
     if not 0 <= battery <= 100:
         raise ValueError("Battery percentage must be between 0 and 100.")
 
-    if on_threshold >= off_threshold:
+    if turn_on_enabled and on_threshold >= off_threshold:
         effective_on_threshold = max(0, off_threshold - 20)
     else:
         effective_on_threshold = on_threshold
@@ -37,8 +41,17 @@ def evaluate_battery_action(
         return "NO_ACTION"
 
     if current_state:
+        if (
+            turn_off_when_charging_enabled
+            and is_charging
+            and battery >= charging_off_threshold
+        ):
+            return "TURN_OFF"
         if battery >= off_threshold:
             return "TURN_OFF"
+        return "NO_ACTION"
+
+    if not turn_on_enabled:
         return "NO_ACTION"
 
     if battery <= effective_on_threshold:

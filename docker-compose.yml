@@ -42,7 +42,7 @@ services:
     restart: unless-stopped
 
   app:
-    image: ${CHARGEPILOT_IMAGE:-chargepilot:local}
+    image: ${CHARGEPILOT_API_IMAGE:-chargepilot-api:local}
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -76,7 +76,6 @@ services:
       CHARGEPILOT_KAFKA_SSL_CA_FILE: ${CHARGEPILOT_KAFKA_SSL_CA_FILE:-}
     ports:
       - "8000:8000"
-      - "5173:5173"
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -93,14 +92,48 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2); urllib.request.urlopen('http://127.0.0.1:5173/', timeout=2)"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)"
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
 
+  frontend:
+    image: ${CHARGEPILOT_FRONTEND_IMAGE:-chargepilot-frontend:local}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      CHARGEPILOT_ENVIRONMENT: production
+      CHARGEPILOT_API_URL: ${CHARGEPILOT_API_URL:-http://localhost:8000}
+      CHARGEPILOT_FRONTEND_URL: ${CHARGEPILOT_FRONTEND_URL:-http://localhost:5173}
+      CHARGEPILOT_TURNSTILE_SITE_KEY: ${CHARGEPILOT_TURNSTILE_SITE_KEY:-}
+    ports:
+      - "5173:5173"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5173/', timeout=2)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   outbox-relay:
-    image: ${CHARGEPILOT_IMAGE:-chargepilot:local}
+    image: ${CHARGEPILOT_API_IMAGE:-chargepilot-api:local}
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -135,7 +168,7 @@ services:
         condition: service_healthy
 
   automation-worker:
-    image: ${CHARGEPILOT_IMAGE:-chargepilot:local}
+    image: ${CHARGEPILOT_API_IMAGE:-chargepilot-api:local}
     build:
       context: .
       dockerfile: docker/Dockerfile

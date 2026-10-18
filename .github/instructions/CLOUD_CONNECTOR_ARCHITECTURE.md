@@ -91,8 +91,11 @@ HTTP contract versioned for later connector upgrades.
 
 1. The existing laptop agent continues to submit the existing telemetry
    payload and token.
-2. ChargePilot saves endpoint telemetry and evaluates the existing mapping,
-   threshold, hysteresis, and cooldown logic.
+2. ChargePilot saves endpoint telemetry and evaluates the mapping's
+   hysteresis and cooldown rules. Automatic turn-on can be disabled
+   independently of turn-off behavior. A separate charging-completion cutoff
+   can turn an on switch off at its configured battery threshold only when
+   telemetry reports `charging=true`; `ac_connected` alone is not sufficient.
 3. If an action is required, ChargePilot creates a durable command for the
    device's assigned connector. Avoid duplicate outstanding commands for the
    same device/channel.

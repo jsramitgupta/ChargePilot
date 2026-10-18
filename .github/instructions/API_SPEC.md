@@ -539,11 +539,24 @@ Example body:
   "device_id": "<device-uuid>",
   "channel_id": "<channel-uuid>",
   "enabled": true,
+  "turn_on_enabled": true,
   "on_threshold": 79,
   "off_threshold": 99,
+  "turn_off_when_charging_enabled": false,
+  "charging_off_threshold": 99,
   "minimum_state_change_interval": 300
 }
 ```
+
+`turn_on_enabled` controls only automatic switch turn-on; when false, the
+mapping may still turn an on switch off at `off_threshold`. The optional
+charging-completion cutoff is enabled by
+`turn_off_when_charging_enabled`. It uses the separate
+`charging_off_threshold` and applies only when telemetry reports
+`charging: true`; `ac_connected` alone does not activate it. Percentage
+thresholds must be between 0 and 100, and the minimum interval cannot be
+negative. Existing mappings default to turn-on enabled and charging cutoff
+disabled.
 
 ### 5.3 GET /api/v1/mappings/{mapping_id}
 

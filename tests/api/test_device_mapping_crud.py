@@ -18,7 +18,7 @@ from app.core.security import hash_password
 from app.main import app, generate_unique_agent_token
 from app.models.tenant import Tenant
 from app.models.user import User
-from conftest import api_login, register_tenant_admin
+from conftest import TEST_GLOBAL_AGENT_TOKEN, api_login, register_tenant_admin
 
 
 def _recent_timestamp(seconds_ago: int = 0) -> str:
@@ -136,6 +136,26 @@ def test_ensure_table_columns_adds_missing_device_channel_state_column():
     assert "current_state" in columns
 
     Base.metadata.create_all(bind=engine)
+
+
+def test_ensure_table_columns_adds_mapping_power_options():
+    with engine.begin() as conn:
+        for column in (
+            "turn_on_enabled",
+            "turn_off_when_charging_enabled",
+            "charging_off_threshold",
+        ):
+            conn.execute(text(f'ALTER TABLE "mappings" DROP COLUMN "{column}"'))
+
+    _ensure_table_columns()
+
+    columns = {
+        column["name"]: column
+        for column in inspect(engine).get_columns("mappings")
+    }
+    assert columns["turn_on_enabled"]["nullable"] is False
+    assert columns["turn_off_when_charging_enabled"]["nullable"] is False
+    assert columns["charging_off_threshold"]["nullable"] is False
 
 
 def test_endpoint_uuid_migration_keeps_existing_rows_and_adds_unique_index():
@@ -533,23 +553,47 @@ def test_mappings_page_exposes_editable_threshold_controls():
             "device_id": device["id"],
             "channel_id": channel["id"],
             "enabled": True,
+            "turn_on_enabled": False,
             "on_threshold": 35,
             "off_threshold": 90,
+            "turn_off_when_charging_enabled": True,
+            "charging_off_threshold": 85,
             "minimum_state_change_interval": 300,
         },
     )
     assert mapping_response.status_code == 201, mapping_response.text
     mapping = mapping_response.json()
     assert mapping["tenant_name"] == "threshold_admin tenant"
+    assert mapping["turn_on_enabled"] is False
+    assert mapping["turn_off_when_charging_enabled"] is True
+    assert mapping["charging_off_threshold"] == 85
 
     updated = client.put(
         f"/api/v1/mappings/{mapping['id']}",
-        json={"on_threshold": 40, "off_threshold": 85, "minimum_state_change_interval": 420},
+        json={
+            "turn_on_enabled": True,
+            "turn_off_when_charging_enabled": False,
+            "charging_off_threshold": 88,
+            "on_threshold": 40,
+            "off_threshold": 85,
+            "minimum_state_change_interval": 420,
+        },
     )
     assert updated.status_code == 200, updated.text
+    assert updated.json()["turn_on_enabled"] is True
+    assert updated.json()["turn_off_when_charging_enabled"] is False
+    assert updated.json()["charging_off_threshold"] == 88
     assert updated.json()["on_threshold"] == 40
     assert updated.json()["off_threshold"] == 85
     assert updated.json()["minimum_state_change_interval"] == 420
+    assert client.put(
+        f"/api/v1/mappings/{mapping['id']}",
+        json={"charging_off_threshold": 101},
+    ).status_code == 422
+    assert client.put(
+        f"/api/v1/mappings/{mapping['id']}",
+        json={"on_threshold": None},
+    ).status_code == 422
     cleared_channel = client.put(
         f"/api/v1/mappings/{mapping['id']}",
         json={"channel_id": None},
@@ -639,6 +683,9 @@ def test_endpoint_agent_config_returns_live_threshold_settings():
     assert any(item["id"] == mapping["id"] for item in payload["mappings"])
     assert payload["mappings"][0]["on_threshold"] == 25
     assert payload["mappings"][0]["off_threshold"] == 88
+    assert payload["mappings"][0]["turn_on_enabled"] is True
+    assert payload["mappings"][0]["turn_off_when_charging_enabled"] is False
+    assert payload["mappings"][0]["charging_off_threshold"] == 99
 
 
 def test_agent_config_lookup_by_hostname_and_token():
@@ -936,6 +983,9 @@ def test_mapping_defaults_follow_20_percent_hysteresis_gap():
     mapping = MappingBase(endpoint_id="ep-1", device_id="dev-1")
     assert mapping.off_threshold == 99
     assert mapping.on_threshold == 79
+    assert mapping.turn_on_enabled is True
+    assert mapping.turn_off_when_charging_enabled is False
+    assert mapping.charging_off_threshold == 99
 
 
 def test_individual_channel_controls_for_multi_gang_switch(monkeypatch):
@@ -1247,6 +1297,138 @@ def test_telemetry_turns_off_mapped_device_when_battery_exceeds_off_threshold(mo
     )
     assert off_event.reason == "Battery 99% is at or above the turn-off threshold of 99%."
 
+    session.close()
+
+
+def test_telemetry_supports_turn_off_only_and_charging_completion(monkeypatch):
+    _mock_tuya_service(monkeypatch)
+    client = _super_admin_client()
+    device_response = client.post(
+        "/api/v1/devices",
+        json={
+            "name": "Charge Completion Plug",
+            "device_id": "tuya-charge-completion",
+            "ip_address": "192.168.0.82",
+            "device_type": "switch",
+            "protocol_version": "3.1",
+            "enabled": True,
+            "encrypted_local_key": "charge-completion-key",
+        },
+    )
+    assert device_response.status_code == 201, device_response.text
+    device = device_response.json()
+
+    from app.core.database import SessionLocal
+    from app.models.device import Device
+    from app.models.endpoint import Endpoint
+    from app.models.event import AutomationEvent
+    from app.models.mapping import Mapping
+
+    session = SessionLocal()
+    first_telemetry = client.post(
+        "/api/v1/telemetry",
+        headers={"Authorization": f"Bearer {TEST_GLOBAL_AGENT_TOKEN}"},
+        json={
+            "hostname": "CHARGE-COMPLETION-ENDPOINT",
+            "hardware_uuid": "c19f1d84-0a2c-4a34-bf95-a61ff3231c4d",
+            "ip_address": "192.168.0.83",
+            "battery_percentage": 15,
+            "charging": False,
+            "ac_connected": False,
+            "timestamp": _recent_timestamp(60),
+            "agent_version": "1.0.0",
+        },
+    )
+    assert first_telemetry.status_code == 200, first_telemetry.text
+    endpoint = session.query(Endpoint).filter(
+        Endpoint.hostname == "CHARGE-COMPLETION-ENDPOINT"
+    ).one()
+    session.add(
+        Mapping(
+            endpoint_id=endpoint.id,
+            device_id=device["id"],
+            enabled=True,
+            turn_on_enabled=False,
+            on_threshold=20,
+            off_threshold=99,
+            turn_off_when_charging_enabled=True,
+            charging_off_threshold=85,
+            minimum_state_change_interval=30,
+        )
+    )
+    session.commit()
+
+    low_battery = client.post(
+        "/api/v1/telemetry",
+        headers={"Authorization": f"Bearer {TEST_GLOBAL_AGENT_TOKEN}"},
+        json={
+            "hostname": "CHARGE-COMPLETION-ENDPOINT",
+            "ip_address": "192.168.0.83",
+            "battery_percentage": 15,
+            "charging": False,
+            "ac_connected": False,
+            "timestamp": _recent_timestamp(),
+            "agent_version": "1.0.0",
+        },
+    )
+    assert low_battery.status_code == 200, low_battery.text
+    _process_telemetry_outbox(session, "CHARGE-COMPLETION-ENDPOINT")
+    assert session.query(Device).filter(Device.id == device["id"]).one().current_state is False
+    assert session.query(AutomationEvent).filter(
+        AutomationEvent.event_type == "TURN_ON",
+        AutomationEvent.endpoint_id == endpoint.id,
+    ).count() == 0
+
+    switched_device = session.query(Device).filter(Device.id == device["id"]).one()
+    switched_device.current_state = True
+    switched_device.last_state_change_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    session.commit()
+    not_charging_telemetry = client.post(
+        "/api/v1/telemetry",
+        headers={"Authorization": f"Bearer {TEST_GLOBAL_AGENT_TOKEN}"},
+        json={
+            "hostname": "CHARGE-COMPLETION-ENDPOINT",
+            "ip_address": "192.168.0.83",
+            "battery_percentage": 85,
+            "charging": False,
+            "ac_connected": True,
+            "timestamp": _recent_timestamp(),
+            "agent_version": "1.0.0",
+        },
+    )
+    assert not_charging_telemetry.status_code == 200, not_charging_telemetry.text
+    _process_telemetry_outbox(session, "CHARGE-COMPLETION-ENDPOINT")
+    assert session.query(Device).filter(Device.id == device["id"]).one().current_state is True
+    assert session.query(AutomationEvent).filter(
+        AutomationEvent.event_type == "TURN_OFF",
+        AutomationEvent.endpoint_id == endpoint.id,
+    ).count() == 0
+
+    charging_telemetry = client.post(
+        "/api/v1/telemetry",
+        headers={"Authorization": f"Bearer {TEST_GLOBAL_AGENT_TOKEN}"},
+        json={
+            "hostname": "CHARGE-COMPLETION-ENDPOINT",
+            "ip_address": "192.168.0.83",
+            "battery_percentage": 85,
+            "charging": True,
+            "ac_connected": True,
+            "timestamp": _recent_timestamp(),
+            "agent_version": "1.0.0",
+        },
+    )
+    assert charging_telemetry.status_code == 200, charging_telemetry.text
+    _process_telemetry_outbox(session, "CHARGE-COMPLETION-ENDPOINT")
+
+    updated_device = session.query(Device).filter(Device.id == device["id"]).one()
+    assert updated_device.current_state is False
+    event = session.query(AutomationEvent).filter(
+        AutomationEvent.event_type == "TURN_OFF",
+        AutomationEvent.endpoint_id == endpoint.id,
+    ).one()
+    assert event.reason == (
+        "Battery 85% is charging and at or above the charging turn-off threshold of 85%."
+    )
     session.close()
 
 

@@ -26,7 +26,7 @@ spec:
   http:
     - route:
         - destination:
-            host: chargepilot.chargepilot.svc.cluster.local
+            host: chargepilot-frontend.chargepilot.svc.cluster.local
             port:
               number: 5173
 ---
@@ -42,6 +42,6 @@ spec:
   http:
     - route:
         - destination:
-            host: chargepilot.chargepilot.svc.cluster.local
+            host: chargepilot-api.chargepilot.svc.cluster.local
             port:
               number: 8000

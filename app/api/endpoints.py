@@ -191,8 +191,11 @@ def _serialize_agent_config(endpoint: Endpoint, db: Session) -> dict[str, object
                 "device_id": mapping.device_id,
                 "channel_id": mapping.channel_id,
                 "enabled": mapping.enabled,
+                "turn_on_enabled": mapping.turn_on_enabled,
                 "on_threshold": mapping.on_threshold,
                 "off_threshold": mapping.off_threshold,
+                "turn_off_when_charging_enabled": mapping.turn_off_when_charging_enabled,
+                "charging_off_threshold": mapping.charging_off_threshold,
                 "minimum_state_change_interval": mapping.minimum_state_change_interval,
             }
             for mapping in mappings

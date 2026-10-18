@@ -118,9 +118,10 @@ docker compose config
 docker compose up --build -d
 ```
 
-Compose starts PostgreSQL 16, a single-node Kafka broker, the API/frontend,
-the outbox relay, and the automation worker. PostgreSQL and Kafka data use
-named volumes; only the API/frontend ports are published. The API and worker
+Compose starts PostgreSQL 16, a single-node Kafka broker, separate API and
+frontend containers, the outbox relay, and the automation worker. PostgreSQL
+and Kafka data use named volumes; only the API/frontend ports are published.
+The API and worker
 containers run as unprivileged users. Check `docker compose ps` and logs for
 `app`, `outbox-relay`, and `automation-worker`. `docker compose down` preserves
 database and broker volumes. `docker compose down -v` permanently deletes both
@@ -128,11 +129,13 @@ stores and all local data.
 
 `/health` reports process liveness. `/ready` executes a database query and returns HTTP 503 while PostgreSQL is unavailable.
 
-The API image serves FastAPI on container port `8000` and the built React
-frontend on `5173`. Compose publishes both ports. Configure the reverse proxy
-to route the frontend hostname to `5173` and JSON API calls and authenticated
-downloads to `8000`. React is the only browser UI; legacy page GETs redirect to
-the configured frontend origin.
+The API image serves FastAPI on container port `8000`; the frontend image
+serves the built React application on `5173`. Compose publishes both ports.
+Configure the reverse proxy to route the frontend hostname to `5173` and JSON
+API calls and authenticated downloads to `8000`. React is the only browser UI;
+legacy page GETs redirect to the configured frontend origin. The frontend
+receives only public runtime configuration, including the Turnstile site key;
+keep private Turnstile and other server secrets in the API environment.
 Set the public origins in `.env`; the
 frontend configuration is injected when the container starts, so changing
 these values does not require rebuilding the image:
@@ -166,8 +169,8 @@ edge proxy or explicitly configured at the ingress before HTTPS traffic reaches
 the cluster. Keep the browser-facing origins HTTPS.
 
 The checked-in k3s topology is sized for a single-node installation: one API,
-relay, automation consumer, PostgreSQL StatefulSet, and single-node Kafka
-StatefulSet. PostgreSQL and Kafka use private cluster services and
+one frontend, relay, automation consumer, PostgreSQL StatefulSet, and
+single-node Kafka StatefulSet. PostgreSQL and Kafka use private cluster services and
 `local-path` persistent volumes. Back up the data and keep the node available;
 this is not an HA or 10M-device topology. A node or disk failure can take down
 the stateful services. Do not expose PostgreSQL or Kafka through a
@@ -181,8 +184,9 @@ data untouched until the k3s instance has been independently validated.
 
 #### One-time GitHub setup
 
-1. Create the Docker Hub repository `endusercompute/chargepilot` and a
-   Docker Hub access token with permission to push images.
+1. Create Docker Hub repositories `endusercompute/chargepilot-api` and
+   `endusercompute/chargepilot-frontend`, plus a Docker Hub access token with
+   permission to push both images.
 2. In GitHub **Settings → Secrets and variables → Actions**, add repository
    secret `DOCKERHUB_TOKEN`. The workflows use Docker Hub username
    `endusercompute`; never put the token in a workflow or repository file.
@@ -197,11 +201,10 @@ data untouched until the k3s instance has been independently validated.
 
 First merge the CI/CD and manifest changes to `main`. Each main commit runs
 `ci.yml` (Python lint/tests and frontend lint/build). After successful CI,
-`publish-deploy.yml` builds and pushes the multi-platform app image to Docker
-Hub as `endusercompute/chargepilot:sha-<full-commit-sha>`, then commits that
-tag into the kustomization. The `sha-<full-commit-sha>` format intentionally
-matches the existing Docker Hub workflow. ArgoCD tracks `main` and automatically
-deploys the updated tag; CI-only commits do not publish an image.
+`publish-deploy.yml` builds and pushes multi-platform images to Docker Hub as
+`endusercompute/chargepilot-api:sha-<full-commit-sha>` and
+`endusercompute/chargepilot-frontend:sha-<full-commit-sha>`, then commits both
+tags into the kustomization. CI-only commits do not publish an image.
 
 Before syncing the ArgoCD Application, create the namespace secrets out of
 band. Use a private environment file `.env.k3s` (do not commit it) with these
@@ -258,9 +261,38 @@ sudo kubectl -n chargepilot get pods,pvc,services
 sudo kubectl -n chargepilot rollout status statefulset/chargepilot-postgres
 sudo kubectl -n chargepilot rollout status statefulset/chargepilot-kafka
 sudo kubectl -n chargepilot rollout status deployment/chargepilot-api
+sudo kubectl -n chargepilot rollout status deployment/chargepilot-frontend
 sudo kubectl -n chargepilot rollout status deployment/chargepilot-outbox-relay
 sudo kubectl -n chargepilot rollout status deployment/chargepilot-automation
 ```
+
+For an existing local k3s installation, retain its PostgreSQL and Kafka PVCs.
+Build local images and import them into the k3s containerd image store:
+
+```bash
+sudo docker build -t chargepilot-api:local -f docker/Dockerfile .
+sudo docker build -t chargepilot-frontend:local -f frontend/Dockerfile .
+sudo docker save chargepilot-api:local chargepilot-frontend:local \
+  | sudo k3s ctr images import -
+```
+
+To apply the checked-in manifests using those local tags, render the
+kustomization and replace only the two published image references:
+
+```bash
+sudo kubectl kustomize deploy/k3s \
+  | sed -E 's#endusercompute/chargepilot-api:[^[:space:]]+#chargepilot-api:local#g; s#endusercompute/chargepilot-frontend:[^[:space:]]+#chargepilot-frontend:local#g' \
+  | sudo kubectl apply -f -
+sudo kubectl -n chargepilot rollout status deployment/chargepilot-api
+sudo kubectl -n chargepilot rollout status deployment/chargepilot-frontend
+sudo kubectl -n chargepilot rollout status deployment/chargepilot-outbox-relay
+sudo kubectl -n chargepilot rollout status deployment/chargepilot-automation
+sudo kubectl -n chargepilot get pods,services
+```
+
+The local image override is not GitOps state: after a successful publish,
+ArgoCD should reconcile to the immutable Docker Hub tags. Keep automated sync
+disabled during an image bootstrap if either repository/tag is not available.
 
 In Cloudflare, create proxied DNS records for both hostnames to the public
 address that forwards TCP 443 to the k3s Istio ingress gateway. Set SSL/TLS

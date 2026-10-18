@@ -2,15 +2,16 @@
 
 This guide covers publishing ChargePilot images from GitHub Actions, deploying
 to k3s with ArgoCD, and using the image in a microservice Compose deployment.
-The app and connector images are published to the `endusercompute` Docker Hub
-namespace for `linux/amd64` and `linux/arm64`.
+The API, frontend, and connector images are published to the `endusercompute`
+Docker Hub namespace for `linux/amd64` and `linux/arm64`.
 
 ## Continuous integration, publishing, and deployment
 
 ### One-time setup
 
-1. Create the `chargepilot` and `chargepilot-connector` repositories under the
-   `endusercompute` Docker Hub account.
+1. Create the `chargepilot-api`, `chargepilot-frontend`, and
+   `chargepilot-connector` repositories under the `endusercompute` Docker Hub
+   account.
 2. Create a Docker Hub access token with permission to push those images.
 3. In GitHub **Settings → Secrets and variables → Actions**, add the
    repository secret `DOCKERHUB_TOKEN`. The workflows use username
@@ -21,17 +22,16 @@ namespace for `linux/amd64` and `linux/arm64`.
 
 ### Main-branch pipeline
 
-`.github/workflows/ci.yml` runs Python lint/tests and frontend lint/build for
-pull requests into `main` and pushes to `main`. A successful main-branch CI run
-triggers `.github/workflows/publish-deploy.yml`, which builds the tested source
-commit, pushes the multi-platform image, and updates `deploy/k3s/kustomization.yaml`.
-ArgoCD tracks the `main` branch and syncs this new immutable tag to k3s. CI
-skips commits that only change the generated image tag, preventing a publish
-loop.
+`.github/workflows/ci.yml` runs Python lint/tests, frontend lint/build, and
+builds API and frontend containers independently for pull requests into
+`main` and pushes to `main`. A successful main-branch CI run triggers
+`.github/workflows/publish-deploy.yml`, which publishes the tested source
+commit's API and frontend images and updates
+`deploy/k3s/kustomization.yaml`. ArgoCD tracks `main`; CI skips commits that
+only change the generated image tags, preventing a publish loop.
 
-The app tag format remains `sha-<full-commit-sha>`, as produced by the
-previous `type=sha,format=long` configuration. Workflow summaries include the
-image digest. The connector workflow separately publishes
+The API and frontend tag format is `sha-<full-commit-sha>`. Workflow summaries
+include separate digests for both images. The connector workflow separately publishes
 `endusercompute/chargepilot-connector:sha-<full-commit-sha>` when connector
 files change on `main`.
 
@@ -84,10 +84,12 @@ Copy-Item .env.example .env
 
 Edit `.env` and set strong, unique values for the required secrets and initial
 administrator credentials. Keep this file private and do not overwrite it when
-updating the app. Pin the published Docker Hub image under `CHARGEPILOT_IMAGE`:
+updating the app. To deploy published images, set the API and frontend image
+digests reported by the same successful workflow run:
 
 ```env
-CHARGEPILOT_IMAGE=endusercompute/chargepilot@sha256:<digest-from-workflow-summary>
+CHARGEPILOT_API_IMAGE=endusercompute/chargepilot-api@sha256:<api-digest>
+CHARGEPILOT_FRONTEND_IMAGE=endusercompute/chargepilot-frontend@sha256:<frontend-digest>
 ```
 
 Generate candidate secret values with Python, then copy them into the matching
@@ -100,44 +102,49 @@ python -c "import secrets; print('CHARGEPILOT_SECRET_KEY=' + secrets.token_urlsa
 Set `CHARGEPILOT_ADMIN_USERNAME` to the desired initial administrator name.
 Retain the secret and database values for subsequent restarts and upgrades.
 
-For a private Docker Hub repository, sign in first with `docker login` using an
-account that can pull the image. This architecture change is a breaking
-redesign: start with a fresh Compose project/database and do not reuse an
-earlier ChargePilot PostgreSQL volume. Retain the old deployment until the
-new stack has been validated and explicitly decide how to retire its data.
-Validate the Compose configuration and start the new project:
+For private Docker Hub repositories, sign in first with `docker login` using an
+account that can pull both images. The API/frontend split does not require a
+new database. Back up PostgreSQL before upgrading an existing installation;
+keep its Compose project and database volume. Validate the Compose configuration. With published image digests configured,
+pull and start or update the project:
 
 ```powershell
 docker compose config
-docker compose -p chargepilot-v2 pull app outbox-relay automation-worker
-docker compose -p chargepilot-v2 up -d --no-build
-docker compose -p chargepilot-v2 ps
+docker compose pull app frontend outbox-relay automation-worker
+docker compose up -d --no-build
+docker compose ps
 ```
 
-The API, outbox-relay, and automation-worker use the published ChargePilot
-image when `CHARGEPILOT_IMAGE` is set; Kafka and PostgreSQL are separate
-services. If the image setting is omitted, the stack builds `chargepilot:local`.
-Only API ports `8000` and `5173` are published. The Compose Kafka broker is
-single-node development infrastructure, not a production cluster.
+For a local source build instead, run `docker compose up --build -d`; do not
+pull the `:local` tags from Docker Hub.
 
-### Update a v2 installation
+The API, outbox-relay, and automation-worker use `CHARGEPILOT_API_IMAGE`; the
+frontend service uses `CHARGEPILOT_FRONTEND_IMAGE`. If either setting is
+omitted, Compose builds that service's local image. PostgreSQL and Kafka are
+separate services. Only API port `8000` and frontend port `5173` are
+published. The Compose Kafka broker is single-node development infrastructure,
+not a production cluster.
 
-1. Back up the v2 PostgreSQL database before applying an update. Keep the
-   `chargepilot-v2` project and its `.env`.
-2. To upgrade, replace `CHARGEPILOT_IMAGE` with the digest reported by the
-   successful workflow run for the intended commit. The Compose deployment is
-   deliberately pinned and will not silently move to a newer image.
+### Update an installation
+
+1. Back up PostgreSQL before applying an update. Keep the existing project and
+   its `.env`.
+2. Set `CHARGEPILOT_API_IMAGE` and `CHARGEPILOT_FRONTEND_IMAGE` to the
+   digests reported by the successful workflow run for the same commit. The
+   deployment is deliberately pinned and will not silently move to newer
+   images.
 3. From the directory containing the Compose file and `.env`, run:
 
    ```powershell
-   docker compose -p chargepilot-v2 pull app outbox-relay automation-worker
-   docker compose -p chargepilot-v2 up -d --no-build
-   docker compose -p chargepilot-v2 ps
-   docker compose -p chargepilot-v2 logs --tail 100 app outbox-relay automation-worker
+   docker compose pull app frontend outbox-relay automation-worker
+   docker compose up -d --no-build
+   docker compose ps
+   docker compose logs --tail 100 app frontend outbox-relay automation-worker
    ```
 
-4. Confirm API and workers are running and the readiness check succeeds at
-   `http://localhost:8000/ready`.
+4. Confirm API and workers are running, `/ready` succeeds at
+   `http://localhost:8000/ready`, and the frontend loads at
+   `http://localhost:5173`.
 
 Do not use `docker compose down -v` when updating: `-v` removes the database
 volume and permanently deletes stored ChargePilot data. A normal `docker
@@ -146,11 +153,11 @@ updates.
 
 ### Pin or roll back an image
 
-To pin a v2 deployment, set `CHARGEPILOT_IMAGE` in `.env` to the image digest
-reported by the workflow, then pull and recreate the API and worker services
-with the same project name. To roll back, restore the previous digest
-and repeat those commands. Keep a database backup: rolling back the container
-image does not reverse database changes.
+To pin an installation, set both image variables in `.env` to their digests
+from the same workflow run, then pull and recreate the API, frontend, and
+worker services. To roll back, restore the previous pair of image digests and
+repeat those commands. Keep a database backup: rolling back container images
+does not reverse database changes.
 
 ## Upgrade and security notes
 
@@ -158,10 +165,10 @@ image does not reverse database changes.
   `create_all()` and startup compatibility adjustments are not a general schema
   migration system. Review release notes for database changes before updating
   an existing installation; back up first and plan any required migration.
-- PostgreSQL and Kafka data are stored in named volumes. Do not reuse an older
-  ChargePilot deployment's PostgreSQL volume for this breaking redesign.
+- PostgreSQL and Kafka data are stored in named volumes. Preserve these
+  volumes during routine updates; do not run `docker compose down -v`.
 - Keep `.env`, backups, and Docker Hub access tokens private. Do not post the
   output of `docker compose config`, which may include expanded secrets.
-- Workflow runs publish immutable commit tags and report a digest suitable for
+- Workflow runs publish immutable commit tags and report digests suitable for
   reproducible deployment. Keep the digest with the release record for
   controlled rollouts and rollback.

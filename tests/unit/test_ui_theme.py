@@ -85,6 +85,19 @@ def test_mapping_wizard_and_switch_inventory_have_tenant_safe_theme_support():
     assert "body.theme-dark .switch-route-warning" in dark
 
 
+def test_mapping_threshold_preview_keeps_labels_clear_when_thresholds_coincide():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    dark = DARK_THEME.read_text(encoding="utf-8")
+
+    assert 'className="mapping-threshold-legend" role="group" aria-label="Automation thresholds"' in app
+    assert "Turn on at or below {onThreshold}%" in app
+    assert "Charging cutoff at or above {chargingOffThreshold}%" in app
+    assert ".mapping-threshold-legend {" in light
+    assert "flex-wrap: wrap;" in css_rule(light, ".mapping-threshold-legend")
+    assert "body.theme-dark .mapping-threshold-legend .is-charging" in dark
+
+
 def test_timezone_setting_uses_iana_dropdown_for_admin_accounts():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     api = (PROJECT_ROOT / "app" / "api" / "auth.py").read_text(encoding="utf-8")

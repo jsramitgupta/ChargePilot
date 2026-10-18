@@ -45,6 +45,11 @@ authenticated session. Keep tenant authorization and automation decisions in
 the backend; presentation must not become an authorization or rule boundary.
 Mapping setup advances only on an explicit user action and saves only from its
 explicit create/save action.
+The mapping rule editor can disable automatic turn-on independently from the
+regular turn-off threshold, and can enable a separate charging-completion
+cutoff that uses the laptop's `charging` telemetry flag. Show threshold labels
+in a wrapping legend rather than overlaid on the battery scale so coincident
+thresholds remain legible.
 
 ## Visual system
 

@@ -38,15 +38,25 @@ jobs:
       - name: Run Python tests
         run: python -m pytest -q
 
-  container:
-    name: Build application container
+  api-container:
+    name: Build API container
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Build container image
-        run: docker build --tag chargepilot:ci -f docker/Dockerfile .
+        run: docker build --tag chargepilot-api:ci -f docker/Dockerfile .
+
+  frontend-container:
+    name: Build frontend container
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Build frontend container image
+        run: docker build --tag chargepilot-frontend:ci -f frontend/Dockerfile .
 
   frontend:
     name: Frontend lint and production build

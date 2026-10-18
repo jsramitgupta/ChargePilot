@@ -204,8 +204,11 @@ type Mapping = {
   endpoint_id: string
   device_id: string
   channel_id?: string | null
+  turn_on_enabled: boolean
   on_threshold: number
   off_threshold: number
+  turn_off_when_charging_enabled: boolean
+  charging_off_threshold: number
   minimum_state_change_interval: number
   enabled: boolean
 }
@@ -214,8 +217,11 @@ type MappingFormValues = {
   endpoint_id: string
   device_id: string
   channel_id: string
+  turn_on_enabled: boolean
   on_threshold: number
   off_threshold: number
+  turn_off_when_charging_enabled: boolean
+  charging_off_threshold: number
   minimum_state_change_interval: number
   enabled: boolean
 }
@@ -1659,16 +1665,22 @@ function MappingsPage() {
       endpoint_id: '',
       device_id: '',
       channel_id: '',
+      turn_on_enabled: true,
       on_threshold: 79,
       off_threshold: 99,
+      turn_off_when_charging_enabled: false,
+      charging_off_threshold: 99,
       minimum_state_change_interval: 300,
       enabled: true,
     },
   })
   const selectedDeviceId = useWatch({ control: form.control, name: 'device_id' })
   const selectedEndpointId = useWatch({ control: form.control, name: 'endpoint_id' })
+  const turnOnEnabled = useWatch({ control: form.control, name: 'turn_on_enabled' })
   const onThreshold = useWatch({ control: form.control, name: 'on_threshold' })
   const offThreshold = useWatch({ control: form.control, name: 'off_threshold' })
+  const turnOffWhenChargingEnabled = useWatch({ control: form.control, name: 'turn_off_when_charging_enabled' })
+  const chargingOffThreshold = useWatch({ control: form.control, name: 'charging_off_threshold' })
   const availableChannels = devices?.find((device) => device.id === selectedDeviceId)?.channels ?? []
   const selectedEndpoint = endpoints?.find((endpoint) => endpoint.id === selectedEndpointId)
   const selectedDevice = devices?.find((device) => device.id === selectedDeviceId)
@@ -1725,8 +1737,11 @@ function MappingsPage() {
       endpoint_id: mapping.endpoint_id,
       device_id: mapping.device_id,
       channel_id: mapping.channel_id ?? '',
+      turn_on_enabled: mapping.turn_on_enabled,
       on_threshold: mapping.on_threshold,
       off_threshold: mapping.off_threshold,
+      turn_off_when_charging_enabled: mapping.turn_off_when_charging_enabled,
+      charging_off_threshold: mapping.charging_off_threshold,
       minimum_state_change_interval: mapping.minimum_state_change_interval,
       enabled: mapping.enabled,
     })
@@ -1878,7 +1893,16 @@ function MappingsPage() {
             </div>
             <div className="mapping-rule-layout">
               <div className="mapping-rule-fields">
-                <label className="mapping-rule-field" htmlFor="on-threshold"><span>Turn on at or below</span><span className="mapping-number-input"><input id="on-threshold" type="number" min={0} max={100} required {...form.register('on_threshold', { valueAsNumber: true, required: true, min: 0, max: 100 })} /><b>%</b></span></label>
+                <label className="mapping-enable-control" htmlFor="mapping-turn-on-enabled">
+                  <input id="mapping-turn-on-enabled" type="checkbox" {...form.register('turn_on_enabled')} />
+                  <span><strong>Enable automatic turn-on</strong><small>Turn the switch on when battery reaches the selected low threshold.</small></span>
+                </label>
+                <label className="mapping-rule-field" htmlFor="on-threshold"><span>Turn on at or below</span><span className="mapping-number-input"><input id="on-threshold" type="number" min={0} max={100} required={turnOnEnabled} disabled={!turnOnEnabled} {...form.register('on_threshold', { valueAsNumber: true, required: turnOnEnabled, min: 0, max: 100 })} /><b>%</b></span></label>
+                <label className="mapping-enable-control" htmlFor="mapping-charging-off-enabled">
+                  <input id="mapping-charging-off-enabled" type="checkbox" {...form.register('turn_off_when_charging_enabled')} />
+                  <span><strong>Turn off at charge completion</strong><small>When the laptop is charging, turn the switch off at its separate battery threshold.</small></span>
+                </label>
+                <label className="mapping-rule-field" htmlFor="charging-off-threshold"><span>Turn off while charging at or above</span><span className="mapping-number-input"><input id="charging-off-threshold" type="number" min={0} max={100} required={turnOffWhenChargingEnabled} disabled={!turnOffWhenChargingEnabled} {...form.register('charging_off_threshold', { valueAsNumber: true, required: turnOffWhenChargingEnabled, min: 0, max: 100 })} /><b>%</b></span></label>
                 <label className="mapping-rule-field" htmlFor="off-threshold"><span>Turn off at or above</span><span className="mapping-number-input"><input id="off-threshold" type="number" min={0} max={100} required {...form.register('off_threshold', { valueAsNumber: true, required: true, min: 0, max: 100 })} /><b>%</b></span></label>
                 <label className="mapping-rule-field" htmlFor="mapping-interval"><span>Minimum time between changes</span><span className="mapping-number-input"><input id="mapping-interval" type="number" min={0} required {...form.register('minimum_state_change_interval', { valueAsNumber: true, required: true, min: 0 })} /><b>sec</b></span></label>
                 <label className="mapping-enable-control" htmlFor="mapping-enabled">
@@ -1886,16 +1910,22 @@ function MappingsPage() {
                   <span><strong>Enable automation now</strong><small>The laptop will control this switch as soon as the mapping is saved.</small></span>
                 </label>
               </div>
-              <div className="mapping-rule-preview" aria-label={`Switch turns on at ${onThreshold} percent and off at ${offThreshold} percent`}>
+              <div className="mapping-rule-preview" aria-label={`Battery automation preview: ${turnOnEnabled ? `turn on at or below ${onThreshold} percent` : 'automatic turn-on disabled'}, turn off at or above ${offThreshold} percent${turnOffWhenChargingEnabled ? ` or while charging at or above ${chargingOffThreshold} percent` : ''}`}>
                 <div className="mapping-preview-heading"><BatteryCharging size={18} /><strong>Battery response</strong></div>
                 <div className="mapping-battery-track">
                   <span className="mapping-battery-fill" />
-                  <span className="mapping-threshold-marker is-on" style={{ left: `${onThreshold}%` }}><i />On · {onThreshold}%</span>
-                  <span className="mapping-threshold-marker is-off" style={{ left: `${offThreshold}%` }}><i />Off · {offThreshold}%</span>
+                  {turnOnEnabled && <span className="mapping-threshold-marker is-on" style={{ left: `${onThreshold}%` }} aria-hidden="true" />}
+                  <span className="mapping-threshold-marker is-off" style={{ left: `${offThreshold}%` }} aria-hidden="true" />
+                  {turnOffWhenChargingEnabled && <span className="mapping-threshold-marker is-charging" style={{ left: `${chargingOffThreshold}%` }} aria-hidden="true" />}
                 </div>
                 <div className="mapping-preview-scale"><span>0%</span><span>100%</span></div>
-                <p>On when battery falls to {onThreshold}% · Off when it reaches {offThreshold}%</p>
-                {offThreshold <= onThreshold && <span className="mapping-threshold-error" role="alert">The turn-off threshold must be higher than the turn-on threshold.</span>}
+                <div className="mapping-threshold-legend" role="group" aria-label="Automation thresholds">
+                  {turnOnEnabled && <span className="is-on"><i />Turn on at or below {onThreshold}%</span>}
+                  <span className="is-off"><i />Turn off at or above {offThreshold}%</span>
+                  {turnOffWhenChargingEnabled && <span className="is-charging"><i />Charging cutoff at or above {chargingOffThreshold}%</span>}
+                </div>
+                <p>{turnOnEnabled ? `On when battery falls to ${onThreshold}% or below. ` : 'Automatic turn-on is disabled. '}{turnOffWhenChargingEnabled ? `Off at ${chargingOffThreshold}% or above while charging. ` : ''}Off at {offThreshold}% or above.</p>
+                {turnOnEnabled && offThreshold <= onThreshold && <span className="mapping-threshold-error" role="alert">The turn-off threshold must be higher than the turn-on threshold.</span>}
               </div>
             </div>
             <div className="mapping-review-route">
@@ -1920,7 +1950,7 @@ function MappingsPage() {
               <button
                 type="button"
                 className="btn-primary"
-                disabled={mutation.isPending || !tenantsMatch || offThreshold <= onThreshold}
+                disabled={mutation.isPending || !tenantsMatch || (turnOnEnabled && offThreshold <= onThreshold)}
                 onClick={() => void form.handleSubmit((values) => mutation.mutate({ mappingId: editingMappingId, values }))()}
               >
                 {mutation.isPending ? 'Saving…' : editingMappingId ? 'Save changes' : 'Create mapping'}
@@ -1955,8 +1985,9 @@ function MappingsPage() {
                   </div>
                 </div>
                 <div className="mapping-rules">
-                  <div className="mapping-rule-summary"><span>Turn on</span><strong>{mapping.on_threshold}%</strong><small>or below</small></div>
+                  <div className="mapping-rule-summary"><span>Turn on</span><strong>{mapping.turn_on_enabled ? `${mapping.on_threshold}%` : 'Off'}</strong><small>{mapping.turn_on_enabled ? 'or below' : 'automatic'}</small></div>
                   <div className="mapping-rule-summary"><span>Turn off</span><strong>{mapping.off_threshold}%</strong><small>or above</small></div>
+                  {mapping.turn_off_when_charging_enabled && <div className="mapping-rule-summary"><span>Charging cutoff</span><strong>{mapping.charging_off_threshold}%</strong><small>or above while charging</small></div>}
                   <div className="mapping-rule-summary"><span>Cooldown</span><strong>{mapping.minimum_state_change_interval}s</strong><small>between changes</small></div>
                   <span className={`mapping-enabled-state ${mapping.enabled ? 'is-enabled' : ''}`}>{mapping.enabled ? 'Automation on' : 'Paused'}</span>
                   <span className="mapping-tenant-label">{mapping.tenant_name ?? 'Unassigned tenant'}</span>

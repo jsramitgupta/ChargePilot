@@ -39,9 +39,12 @@ work areas; card and list views remain available on small screens.
 The mapping wizard has no form submission side effect: Continue only advances
 the setup, and creating or editing a mapping requires its explicit save button.
 Step 3 reviews the selected laptop and switch alongside editable battery rules.
-Existing mappings can be edited or deleted; clearing a channel during an edit
-restores whole-switch control. Table text, emphasized cells, and status badges
-retain readable contrast in dark mode.
+Mappings can disable automatic turn-on independently and can enable a separate
+charging-completion shutoff threshold. The charging cutoff uses telemetry's
+`charging` flag, not `ac_connected`, and does not replace the ordinary turn-off
+threshold. Existing mappings can be edited or deleted; clearing a channel
+during an edit restores whole-switch control. Table text, emphasized cells,
+and status badges retain readable contrast in dark mode.
 The Site Connectors page presents Docker Compose for Linux hosts and a native
 Python process for Windows, Linux, or macOS, with a LAN-aware enrollment and
 startup walkthrough.
@@ -58,7 +61,9 @@ startup walkthrough.
    use the tenant-specific agent token.
 3. The outbox relay publishes events to Kafka in endpoint-key order.
 4. Automation consumers evaluate active mappings using battery hysteresis and
-   cooldown rules; connector commands remain durable in PostgreSQL.
+   cooldown rules. Mappings can disable turn-on independently and can enable a
+   separate charging-only cutoff; connector commands remain durable in
+   PostgreSQL.
 5. The assigned site connector controls the switch locally and acknowledges;
    resulting events/state are exposed in the UI.
    Endpoint and switch ownership must match before a mapping can be created.
@@ -114,11 +119,13 @@ are not yet implemented. Redis is not enabled because token/rule caching has
 not been shown to be a measured bottleneck.
 
 The delivery pipeline is split between `.github/workflows/ci.yml` (Python
-tests/lint and frontend lint/build) and
-`.github/workflows/publish-deploy.yml` (multi-platform Docker Hub publish and
-ArgoCD image-tag update after successful main CI). App images use the immutable
-`endusercompute/chargepilot:sha-<full-commit-sha>` format. The k3s manifests
-under `deploy/k3s/` configure Istio routes for
+tests/lint, frontend lint/build, and independent API/frontend container builds)
+and `.github/workflows/publish-deploy.yml` (multi-platform Docker Hub publish
+and ArgoCD image-tag update after successful main CI). API and frontend images
+use separate repositories and immutable
+`endusercompute/chargepilot-api:sha-<full-commit-sha>` and
+`endusercompute/chargepilot-frontend:sha-<full-commit-sha>` tags. The k3s
+manifests under `deploy/k3s/` configure Istio routes for
 `console-chargepilot.endusercompute.in` and `api-chargepilot.endusercompute.in`;
 runtime frontend and API origins use HTTPS on those hosts. ArgoCD bootstrapping
 is under `deploy/argocd/`.

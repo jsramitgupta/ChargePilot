@@ -18,8 +18,15 @@ class Mapping(Base):
     device_id: Mapped[str] = mapped_column(String(36), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
     channel_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("device_channels.id", ondelete="SET NULL"), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    turn_on_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="TRUE")
     on_threshold: Mapped[int] = mapped_column(Integer, default=79)
     off_threshold: Mapped[int] = mapped_column(Integer, default=99)
+    turn_off_when_charging_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="FALSE",
+    )
+    charging_off_threshold: Mapped[int] = mapped_column(Integer, default=99)
     minimum_state_change_interval: Mapped[int] = mapped_column(Integer, default=300)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

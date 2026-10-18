@@ -107,8 +107,11 @@ async def create_mapping(
         device_id=device_id,
         channel_id=channel_id,
         enabled=payload.enabled,
+        turn_on_enabled=payload.turn_on_enabled,
         on_threshold=payload.on_threshold,
         off_threshold=payload.off_threshold,
+        turn_off_when_charging_enabled=payload.turn_off_when_charging_enabled,
+        charging_off_threshold=payload.charging_off_threshold,
         minimum_state_change_interval=payload.minimum_state_change_interval,
     )
     db.add(mapping)
