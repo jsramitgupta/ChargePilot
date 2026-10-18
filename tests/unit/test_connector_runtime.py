@@ -71,9 +71,9 @@ class _FakeDevice:
         self.commanded_state = False
         return {"success": True}
 
-    def status(self, *, switch):
-        assert switch == 1
-        return {"dps": {"1": self.state}}
+    def status(self):
+        dps = self.state if isinstance(self.state, dict) else {"1": self.state}
+        return {"dps": dps}
 
 
 @pytest.mark.parametrize(
@@ -136,10 +136,15 @@ def test_connector_fails_when_device_readback_does_not_match_desired_state(monke
 
 def test_connector_does_not_treat_another_channel_as_requested_channel():
     device = _FakeDevice(True)
-    device.status = lambda *, switch: {"dps": {"1": True}}
 
     with pytest.raises(RuntimeError, match="unsupported channel state"):
         chargepilot_connector._read_device_state(device, 2)
+
+
+def test_connector_reads_selected_channel_from_unfiltered_status():
+    device = _FakeDevice({"1": False, "2": True})
+
+    assert chargepilot_connector._read_device_state(device, 2) is True
 
 
 @pytest.mark.parametrize(

@@ -114,7 +114,9 @@ remains public for manual installation.
 - app/services/tuya_service.py — local device control / discovery
 - connector/chargepilot_connector.py — site-side TinyTuya runtime; generic
   switch, plug, and outlet labels are normalized to the default OutletDevice
-  profile, matching the app's direct-control path
+  profile, matching the app's direct-control path. TinyTuya `status()` reads
+  all DPS values without a channel argument; the connector selects the
+  requested channel from that response.
 - app/services/smartlife_service.py — QR generation and linked-device polling
 - app/services/broadcaster.py — SSE updates
 - app/services/connector_service.py — connector identity, command queue, lease, and result handling

@@ -970,6 +970,31 @@ def test_tuya_service_normalizes_switch_device_type_to_default():
     assert service.device_type == "default"
 
 
+def test_tuya_service_reads_status_without_channel_argument(monkeypatch):
+    status_calls = []
+
+    class FakeOutletDevice:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def status(self):
+            status_calls.append("status")
+            return {"dps": {"1": False, "2": True}}
+
+    monkeypatch.setattr("app.services.tuya_service.OutletDevice", FakeOutletDevice)
+    service = __import__("app.services.tuya_service", fromlist=["TuyaService"]).TuyaService(
+        device_id="tuya-multichannel",
+        ip_address="192.168.1.45",
+        local_key="abc123",
+        device_type="switch",
+    )
+
+    result = asyncio.run(service.get_status("tuya-multichannel", channel=2))
+
+    assert status_calls == ["status"]
+    assert result == {"device_id": "tuya-multichannel", "channel": 2, "online": True, "state": True}
+
+
 def test_battery_hysteresis_turns_off_above_99_and_on_at_20_percent_below():
     from app.services.rule_engine import evaluate_battery_action
 

@@ -112,6 +112,34 @@ When a switch command fails or remains pending, check the following in order:
 10. Review connector logs for failure details only; do not log local keys or
    bearer credentials.
 
+The UI message `Local device operation failed; check connector and device
+logs.` means the command reached the site connector but local execution or
+state verification failed. The detailed exception is logged on the machine
+running that connector; it normally will not appear in the k3s API pod logs.
+For a Docker Compose connector, run this on the site-LAN host:
+
+```bash
+docker compose -f connector/docker-compose.yml logs --tail=100 chargepilot-connector
+```
+
+For a connector installed as a systemd service, use:
+
+```bash
+journalctl -u chargepilot-connector --since "15 minutes ago" --no-pager
+```
+
+Use the command ID and timestamp from the failed operation to correlate the
+connector log with `device_commands`. Do not share connector configuration,
+bearer tokens, or local keys when requesting help. If there is no connector
+log entry for the failed command, verify the connector is online, is assigned
+to that switch, and is polling the same ChargePilot API environment.
+
+If the connector log reports
+`status() got an unexpected keyword argument 'switch'`, update the site
+connector to a build that reads DPS values using TinyTuya's parameterless
+`status()` method, then retry the switch command. TinyTuya returns channel
+states in the DPS payload; the requested channel is selected from that result.
+
 The connector polls every few seconds. Commands expire after five minutes and
 are leased with bounded retries. A queued or leased command is not a successful
 device action. Enrollment codes are single-use and expire after 15 minutes.

@@ -202,7 +202,7 @@ class TuyaService:
             return {"device_id": device_id, "channel": channel, "online": True, "state": False}
 
         try:
-            data = await asyncio.to_thread(device.status, switch=channel)
+            data = await asyncio.to_thread(device.status)
             state = False
             dps = self._extract_dps(data)
             if dps:

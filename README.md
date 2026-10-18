@@ -23,7 +23,7 @@ The product contains:
 ## Runtime stack
 
 - Python 3.12+
-- FastAPI 0.115.0
+- FastAPI 0.134.0
 - SQLAlchemy 2.0.32
 - PostgreSQL / psycopg
 - Apache Kafka / aiokafka for asynchronous telemetry processing
@@ -50,14 +50,13 @@ The product contains:
 ├── agent/
 │   ├── BatteryAgent.ps1               # Windows laptop telemetry sender
 │   └── CreateAgentScheduledTask.ps1   # creates the recurring Windows task
-├── docker/
-│   ├── Dockerfile
-│   └── kubernetes.yaml      # stateless API and worker workloads
+├── connector/               # site-side Tuya discovery and control runtime
+├── deploy/k3s/               # Kubernetes workloads and service configuration
+├── docker/                   # API image and entrypoint
 ├── scripts/scale_test.py    # temporary PostgreSQL dataset above 10M rows
 ├── tests/scale_telemetry.js # configurable k6 ingestion load
 ├── tests/
 │   ├── api/
-│   ├── integration/
 │   └── unit/
 ├── docker-compose.yml
 ├── pyproject.toml
@@ -71,7 +70,6 @@ The product contains:
 │   ├── RUNBOOK.md
 │   ├── TLD.md
 │   └── ...
-└── alembic.ini
 ```
 
 ## Core runtime behavior
@@ -185,7 +183,7 @@ volume for the connector credential; no host data directory is needed.
 ```yaml
 services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:sha-1207f34e13246072fe9f4e384ab14e1c95a6760f
+    image: endusercompute/chargepilot-connector:sha-fd1816b565b790aa7a1c6885114af5ddc1435a83
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped

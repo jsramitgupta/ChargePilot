@@ -9,7 +9,7 @@ This document reflects the current implementation state of the repository. It co
 The project currently uses:
 
 - Python 3.12+
-- FastAPI 0.115+
+- FastAPI 0.134+
 - SQLAlchemy 2.x
 - PostgreSQL via psycopg
 - Kafka via `aiokafka` for asynchronous telemetry delivery
@@ -70,6 +70,8 @@ It encapsulates:
 
 - local discovery via `tinytuya.deviceScan()`
 - device state fetch and channel-aware `set_state()` calls
+- state reads through TinyTuya's parameterless `status()` call, followed by
+  requested-channel selection from the returned DPS payload
 - nested DPS extraction and payload normalization
 - error logging and command orchestration
 
@@ -289,7 +291,7 @@ The repo includes a small but important validation set:
 
 - threshold behavior and hysteresis rules: `tests/unit/test_rule_engine.py`
 - API and mapping CRUD behavior: `tests/api/test_device_mapping_crud.py`
-- additional Tuya-related checks under `tests/unit` and `tests/integration`
+- additional Tuya-related checks under `tests/unit`
 - outbox persistence and duplicate-event processing: `tests/api/test_telemetry_api.py`
   and `tests/unit/test_automation_processor.py`
 - a temporary PostgreSQL synthetic dataset above 10 million endpoint rows:
