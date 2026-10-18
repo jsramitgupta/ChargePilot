@@ -100,6 +100,25 @@ def test_dashboard_actions_and_mapping_wizard_share_responsive_theme_components(
     assert "--surface-muted" in dark
 
 
+def test_overview_and_switch_pages_have_responsive_operational_layouts():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    dark = DARK_THEME.read_text(encoding="utf-8")
+
+    assert 'className="dashboard-page"' in app
+    assert 'className="stats-grid" aria-label="Fleet summary"' in app
+    assert 'className="panel metric-card"' in app
+    assert 'className="switch-page"' in app
+    assert "className=\"switch-discovery-panel\"" in app
+    assert "className=\"switch-add-panel\"" in app
+    assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in css_rule(light, ".stats-grid")
+    assert "grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr));" in css_rule(light, ".switch-inventory-grid")
+    assert "@media (max-width: 860px)" in light
+    assert "@media (max-width: 400px)" in light
+    assert "body.theme-dark .switch-page-hero" in dark
+    assert "body.theme-dark .switch-discovery-panel" in dark
+
+
 def test_shared_controls_and_surfaces_use_theme_tokens():
     light = LIGHT_THEME.read_text(encoding="utf-8")
     dark = DARK_THEME.read_text(encoding="utf-8")

@@ -1184,16 +1184,16 @@ function DashboardPage() {
   const onlineCount = endpoints.filter((endpoint) => endpoint.status === 'online').length
 
   return (
-    <div className="space-y-6">
+    <div className="dashboard-page">
       <div className="page-header">
-        <div><p className="eyebrow">Overview</p><h1>Device-to-switch control</h1></div>
+        <div><p className="eyebrow">Overview</p><h1>Battery &amp; switch overview</h1></div>
         <span className="pill live-pill">Live telemetry</span>
       </div>
 
       <section className="hero-panel">
         <div className="hero-copy">
-          <p className="mini-label">Automation ready</p>
-          <h2>Map each laptop to the correct smart switch and keep battery logic responsive.</h2>
+          <p className="mini-label">Keep automation connected</p>
+          <h2>Link each laptop to its switch and keep battery rules working.</h2>
         </div>
         <div className="hero-actions">
           <NavLink className="primary-btn" to="/mappings">Create mapping</NavLink>
@@ -1201,12 +1201,12 @@ function DashboardPage() {
         </div>
       </section>
 
-      <div className="stats-grid">
+      <section className="stats-grid" aria-label="Fleet summary">
         <MetricCard label="Total endpoints" value={String(endpoints.length)} hint="laptops reporting" icon={MonitorSmartphone} />
         <MetricCard label="Online endpoints" value={String(onlineCount)} hint="seen in the last 10 minutes" icon={CheckCircle2} />
         <MetricCard label="Offline endpoints" value={String(endpoints.length - onlineCount)} hint="not recently reporting" icon={CircleDashed} />
         <MetricCard label="Smart switches" value={String(devices.length)} hint="configured devices" icon={PlugZap} />
-      </div>
+      </section>
 
       <section className="panel table-panel">
         <div className="panel-header"><h3>Endpoint activity</h3><NavLink to="/endpoints" className="secondary-btn">View endpoints</NavLink></div>
@@ -1459,11 +1459,11 @@ function DevicesPage() {
   })
 
   return (
-    <div className="space-y-6">
-      <header className="ui-page-hero rounded-[30px] p-6 sm:p-7">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div><p className="text-[11px] font-bold uppercase tracking-[0.26em] text-blue-200">Device control</p><h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Smart switches</h1></div>
-          <div className="grid grid-cols-3 gap-3 text-left">
+    <div className="switch-page">
+      <header className="switch-page-hero">
+        <div className="switch-page-heading">
+          <div className="switch-page-copy"><p className="switch-section-caption">Device control</p><h1>Smart switches</h1><p>Discover devices, confirm their connection route, and manage live state.</p></div>
+          <div className="switch-page-metrics">
             <MetricMini label="Total" value={String(data?.devices.length ?? 0)} />
             <MetricMini label="On" value={String(data?.devices.filter((device) => device.current_state).length ?? 0)} />
             <MetricMini label="Channels" value={String(channelCount)} />
@@ -1471,10 +1471,10 @@ function DevicesPage() {
         </div>
       </header>
 
-      <section className="ui-accent-surface rounded-[28px] p-5 sm:p-6">
-        <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div><p className="text-[11px] font-bold uppercase tracking-[0.24em] text-blue-700">Local device discovery</p><h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Scan a switch network</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Scan where ChargePilot runs, or choose an online site connector for a remote LAN.</p></div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+      <section className="switch-discovery-panel">
+        <div className="switch-discovery-heading">
+          <div><p className="switch-section-caption">Local device discovery</p><h2>Scan a switch network</h2><p>Scan where ChargePilot runs, or choose an online site connector for a remote LAN.</p></div>
+          <div className="switch-location-actions">
             <label className="label" htmlFor="scan-location">Scan location
               <select id="scan-location" className="field min-w-56" value={scanLocation} onChange={(event) => setScanLocation(event.target.value)}>
                 <option value="server">ChargePilot server network</option>
@@ -1511,9 +1511,9 @@ function DevicesPage() {
         {!connectors.some((connector) => connector.is_active && connector.is_enrolled) && <p className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">You can scan the ChargePilot server network now. To scan a remote site, <NavLink to="/connectors" className="font-semibold underline">enroll a site connector</NavLink>.</p>}
       </section>
 
-      <section className="rounded-[28px] border border-slate-200 bg-white/90 p-5 shadow-[0_20px_40px_rgba(15,23,42,0.04)] sm:p-6">
-        <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div><p className="text-[11px] font-bold uppercase tracking-[0.24em] text-slate-500">Add</p><h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Add a switch</h2><p className="mt-2 text-sm leading-6 text-slate-500">Select a scan result or enter its local connection details.</p></div>
+      <section className="switch-add-panel">
+        <div className="switch-add-heading">
+          <div><p className="switch-section-caption">Add to inventory</p><h2>Add a switch</h2><p>Select a scan result or enter its local connection details.</p></div>
           <button type="button" className="btn-secondary" onClick={() => {
             setSelectedLanDeviceId('')
             setManualOpen((open) => {
@@ -2717,7 +2717,7 @@ function FieldError({ children }: { children: ReactNode }) {
 }
 
 function MetricMini({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl border border-white/15 bg-white/10 px-3 py-2.5 backdrop-blur-sm"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-100">{label}</p><p className="mt-1 text-xl font-bold text-white">{value}</p></div>
+  return <div className="switch-metric"><p>{label}</p><strong>{value}</strong></div>
 }
 
 function LoadingScreen() {
@@ -2751,16 +2751,14 @@ function MetricCard({
   icon: typeof BatteryCharging
 }) {
   return (
-    <div className="panel p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
-          <p className="mt-3 text-3xl font-bold text-slate-900">{value}</p>
-          <p className="mt-1 text-sm text-slate-500">{hint}</p>
-        </div>
-        <div className="metric-icon">
-          <Icon size={22} />
-        </div>
+    <div className="panel metric-card">
+      <div className="metric-card-copy">
+        <p className="metric-card-label">{label}</p>
+        <p className="metric-card-value">{value}</p>
+        <p className="metric-card-hint">{hint}</p>
+      </div>
+      <div className="metric-icon">
+        <Icon size={21} />
       </div>
     </div>
   )

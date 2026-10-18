@@ -32,6 +32,10 @@ The canonical route inventory, typography scale, color tokens, theme behavior,
 responsive decisions, and UI change checklist are in
 `.github/instructions/FRONTEND_DESIGN.md`; update that reference with UI
 behavior changes so future agents can follow the established design.
+The Overview presents live endpoint and switch counts in a responsive summary
+grid above the endpoint activity table. The Smart switches page groups LAN
+discovery, manual setup, and the searchable/filterable inventory into clear
+work areas; card and list views remain available on small screens.
 The mapping wizard has no form submission side effect: Continue only advances
 the setup, and creating or editing a mapping requires its explicit save button.
 Step 3 reviews the selected laptop and switch alongside editable battery rules.

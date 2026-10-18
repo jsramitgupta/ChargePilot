@@ -332,6 +332,29 @@ body.theme-dark .ui-accent-surface {
   background: #192824;
 }
 
+body.theme-dark .switch-page-hero {
+  border-color: #35584b;
+  color: #e3eee8;
+  background: linear-gradient(115deg, #142f29, #1d4035);
+}
+
+body.theme-dark .switch-discovery-panel,
+body.theme-dark .switch-add-panel {
+  border-color: #34463e;
+  color: #dce9e1;
+  background: var(--surface);
+}
+
+body.theme-dark .switch-discovery-heading h2,
+body.theme-dark .switch-add-heading h2 {
+  color: #e1ece5;
+}
+
+body.theme-dark .switch-discovery-heading p:not(.switch-section-caption),
+body.theme-dark .switch-add-heading p:not(.switch-section-caption) {
+  color: #a4b5ac;
+}
+
 body.theme-dark .mapping-builder,
 body.theme-dark .mapping-list-panel,
 body.theme-dark .switch-inventory,

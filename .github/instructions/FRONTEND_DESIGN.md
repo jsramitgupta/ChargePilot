@@ -102,6 +102,13 @@ operational state colors for explicit status indicators.
   the story becomes a compact lead-in above the form.
 - Keep tables horizontally navigable when needed. Prefer readable semantic
   labels and stable columns over shrinking operational data to fit.
+- The Overview keeps the live telemetry context and mapping actions brief,
+  shows fleet metrics as a four-column desktop summary (two columns on
+  tablets, one on narrow phones), and follows with the endpoint activity table.
+- The Smart switches page orders discovery, manual setup, and inventory by
+  task. Keep scan location and action together, give inventory search and
+  filters usable tap targets, and let device cards collapse to one column
+  without narrowing a single result to an unused grid track.
 - Use surface, muted-surface, and line tokens for hierarchy. Reserve the
   mineral-green hero and navigation surfaces for strong anchors; do not turn
   every content group into an identical raised card.
