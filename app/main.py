@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -145,6 +145,10 @@ def _quote_powershell_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _escape_powershell_expandable(value: str) -> str:
+    return value.replace("`", "``").replace("$", "`$").replace('"', '`"')
+
+
 def _agent_server_url(request: Request) -> str:
     return settings.api_url.rstrip("/") if settings.api_url else str(request.base_url).rstrip("/")
 
@@ -211,14 +215,15 @@ async def get_agent_setup(
         raise HTTPException(status_code=500, detail="Could not generate an agent token.")
     response.headers["Cache-Control"] = "private, no-store"
     server_url = _agent_server_url(request)
+    install_url = f"{server_url}/agent/install.ps1"
     install_command = (
-        "powershell.exe -NoProfile -ExecutionPolicy Bypass -File "
-        + _quote_powershell_literal(".\\CreateAgentScheduledTask.ps1")
-        + " -ServerUrl "
-        + _quote_powershell_literal(server_url)
+        'iex "& { $(irm '
+        + _quote_powershell_literal(_escape_powershell_expandable(install_url))
+        + ") } -ServerUrl "
+        + _quote_powershell_literal(_escape_powershell_expandable(server_url))
         + " -EndpointToken "
-        + _quote_powershell_literal(token)
-        + " -AgentVersion '1.0.0'"
+        + _quote_powershell_literal(_escape_powershell_expandable(token))
+        + " -AgentVersion '1.0.0'\""
     )
     return {
         "token": token,
@@ -237,19 +242,7 @@ async def get_agent_setup(
 
 
 @app.get("/agent/download")
-async def download_agent_scripts(
-    user: User = Depends(get_authenticated_user),
-    db: Session = Depends(get_db),
-):
-    is_super_admin = is_super_admin_user(user)
-    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user.tenant_id else None
-    if tenant is None and not is_super_admin:
-        raise HTTPException(status_code=403, detail="An assigned tenant is required to download agent scripts.")
-    if tenant is not None:
-        ensure_tenant_agent_token(tenant, db)
-    else:
-        get_global_agent_token(db, create_if_missing=True)
-
+async def download_agent_scripts():
     agent_dir = BASE_DIR.parent / "agent"
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
@@ -264,14 +257,35 @@ async def download_agent_scripts(
         media_type="application/zip",
         headers={
             "Content-Disposition": 'attachment; filename="chargepilot-agent-scripts.zip"',
-            "Cache-Control": "private, no-store",
+            "Cache-Control": "public, max-age=300",
         },
     )
 
 
+@app.get("/agent/install.ps1", include_in_schema=False)
+async def download_agent_installer():
+    script_path = BASE_DIR.parent / "agent" / "CreateAgentScheduledTask.ps1"
+    if not script_path.is_file():
+        raise HTTPException(status_code=500, detail="The agent installer script is missing.")
+    return PlainTextResponse(
+        script_path.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@app.get("/agent/BatteryAgent.ps1", include_in_schema=False)
+async def download_battery_agent():
+    script_path = BASE_DIR.parent / "agent" / "BatteryAgent.ps1"
+    if not script_path.is_file():
+        raise HTTPException(status_code=500, detail="The battery agent script is missing.")
+    return PlainTextResponse(
+        script_path.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @app.get("/connectors/download")
-async def download_site_connector(user: User = Depends(get_authenticated_user)):
-    del user
+async def download_site_connector():
     archive = io.BytesIO()
     connector_dir = BASE_DIR.parent / "connector"
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as package:
@@ -282,6 +296,7 @@ async def download_site_connector(user: User = Depends(get_authenticated_user)):
             ("Dockerfile", "connector/Dockerfile"),
             ("docker-compose.yml", "docker-compose.yml"),
             (".env.example", ".env.example"),
+            ("install.sh", "install.sh"),
             ("README.md", "README.md"),
         ):
             package.write(connector_dir / source, name)
@@ -291,8 +306,21 @@ async def download_site_connector(user: User = Depends(get_authenticated_user)):
         media_type="application/zip",
         headers={
             "Content-Disposition": 'attachment; filename="chargepilot-site-connector.zip"',
-            "Cache-Control": "private, no-store",
+            "Cache-Control": "public, max-age=300",
         },
+    )
+
+
+@app.get("/connectors/install.sh", include_in_schema=False)
+async def download_site_connector_installer(request: Request):
+    script_path = BASE_DIR.parent / "connector" / "install.sh"
+    if not script_path.is_file():
+        raise HTTPException(status_code=500, detail="The site connector installer script is missing.")
+    server_url = _agent_server_url(request)
+    script = script_path.read_text(encoding="utf-8").replace("__CHARGEPILOT_SERVER_URL__", server_url)
+    return PlainTextResponse(
+        script,
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
     )
 
 

@@ -132,7 +132,8 @@ stores and all local data.
 The API image serves FastAPI on container port `8000`; the frontend image
 serves the built React application on `5173`. Compose publishes both ports.
 Configure the reverse proxy to route the frontend hostname to `5173` and JSON
-API calls and authenticated downloads to `8000`. React is the only browser UI;
+API calls, authenticated downloads, and public agent/connector source downloads
+to `8000`. React is the only browser UI;
 legacy page GETs redirect to the configured frontend origin. The frontend
 receives only public runtime configuration, including the Turnstile site key;
 keep private Turnstile and other server secrets in the API environment.
@@ -494,89 +495,91 @@ production rollout.
 
 ## 7. Site connector deployment
 
-In ChargePilot, open **Connectors**, create an enrollment code for the correct
-tenant, and download the connector package. On an always-on Windows, Linux, or
-Raspberry Pi host on that switch LAN, extract the ZIP and run:
+Create a one-time enrollment code in **Connectors** for the correct tenant.
+Use the published multi-platform Docker image on Linux, or the one-line Python
+installer on Linux/macOS. Both use the k3s API URL by default:
+`https://api-chargepilot.endusercompute.in`.
 
-```bash
-python -m pip install -r requirements.txt
-python -m connector.chargepilot_connector --server-url "https://YOUR-CHARGEPILOT-HOST"
+### Docker Compose on Linux
+
+Save this as `docker-compose.yml` beside `enrollment-code.txt`. The image is
+published for amd64 and arm64; Compose pulls it when starting.
+
+```yaml
+services:
+  chargepilot-connector:
+    image: endusercompute/chargepilot-connector:sha-6c647c97e88c1b0078bf9a7c000e36f76a52e86b
+    container_name: chargepilot-connector
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CHARGEPILOT_CONNECTOR_SERVER_URL: https://api-chargepilot.endusercompute.in
+      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE: /run/secrets/enrollment_code
+      CHARGEPILOT_CONNECTOR_CONFIG: /data/connector-config.json
+    secrets:
+      - enrollment_code
+    volumes:
+      - ./connector-data:/data
+
+secrets:
+  enrollment_code:
+    file: ./enrollment-code.txt
 ```
 
-The connector prompts for the one-time code, enrolls it once, then stores its
-credential in a connector-specific configuration file. On Windows this is
-under `%ProgramData%\ChargePilot`; on Linux it is under
-`~/.config/chargepilot`. The connector restricts access to this directory and
-file; run enrollment and the long-running connector under the same restricted
-host account. Production server URLs must use HTTPS (HTTP is accepted only for
-loopback development). Keep the connector on the same LAN as the switches,
-allow outbound HTTPS to ChargePilot, and permit TinyTuya LAN traffic (TinyTuya
-discovery uses UDP 6666, 6667, 7000 and TCP 6668; check device-specific network
-behavior).
+Put the one-time code in `enrollment-code.txt`, then run:
 
-Assign switches to the enrolled connector on the **Switches** page. The
-connector page reports last contact and version. If you revoke the connector,
-its credential is invalidated and assigned switches are unassigned.
-
-The connector requires Python 3.12+ and an installed TinyTuya. Use the service
-manager appropriate to the host to start at boot and restart on failure. Do
-not put the one-time code or permanent connector credential into source
-control, shared command history, or support logs.
-
-### Docker image for Linux amd64 and arm64
-
-The `connector/` folder contains a standalone Dockerfile and Compose file. The
-GitHub Actions workflow `.github/workflows/connector-multiarch.yml` builds and
-publishes `DOCKERHUB_USERNAME/chargepilot-connector` for `linux/amd64` and
-`linux/arm64` on pushes to `main` that change `connector/**`. It also supports
-manual runs. Configure the repository secrets `DOCKERHUB_USERNAME` and
-`DOCKERHUB_TOKEN`.
-
-The downloadable connector ZIP includes the Compose file, `.env.example`, and
-README. Docker Compose supports a local image build from the package or the
-published immutable image digest. For a local build, set
-`CHARGEPILOT_CONNECTOR_IMAGE=chargepilot-connector:local` in `.env`; for a
-published image, use the digest reported by the successful connector image
-workflow. In both cases set the ChargePilot HTTPS URL, enrollment-code file
-path, and persistent data path. Create the enrollment code file using the
-one-time code generated in ChargePilot. Before starting Compose, restrict the
-code file so only the container's unprivileged UID can read it. Then create
-the persistent data directory and grant it to the same UID:
-
-```bash
+```sh
 sudo chown 10001:10001 enrollment-code.txt
 sudo chmod 0400 enrollment-code.txt
 mkdir -p connector-data
 sudo chown 10001:10001 connector-data
-docker build -f connector/Dockerfile -t chargepilot-connector:local .
 docker compose up -d
 ```
 
-Compose uses `network_mode: host` for Linux LAN discovery and persists the
-connector credential under `/data`. The one-time enrollment code is mounted
-as a Compose secret and read only if no connector credential exists yet. For a
-published image, run `docker compose pull` before `docker compose up -d`; the
-digest reference is immutable and does not silently follow a moving `latest`
-tag.
+### Python on Linux or macOS
 
-The Switches page can also scan directly from the ChargePilot app's network
-without a connector. This scans from the app runtime itself: for Docker
-deployments, configure the container/network and host firewall to allow LAN
-reachability and TinyTuya discovery traffic (UDP 6666, 6667, 7000 and TCP
-6668). Use an online site connector in the scan-location selector when devices
-are on a different LAN or the app host cannot reach the switch network.
+Install Python 3.12+, `curl`, and `unzip`. Run this on the switch LAN and
+enter the one-time enrollment code when prompted:
 
-## 8. Windows laptop agent deployment
-
-The PowerShell agent is located at `agent/BatteryAgent.ps1`.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\agent\BatteryAgent.ps1 -ServerUrl "http://YOUR_SERVER:8000" -EndpointToken "YOUR_ENDPOINT_TOKEN" -AgentVersion "1.0.0"
+```sh
+curl -fsSL https://api-chargepilot.endusercompute.in/connectors/install.sh | sh
 ```
 
-Use `agent/CreateAgentScheduledTask.ps1` to register the recurring Windows task. The agent sends hostname, IP address, battery percentage, charging/AC state, switch state, timestamp, and agent version.
+The installer downloads the public source package over HTTPS, creates a
+virtual environment, and saves the connector credential under
+`~/.local/share/chargepilot/site-connector/`. Keep the process running or
+configure your OS service manager to start it at boot. The command executes an
+installer from your ChargePilot server; use it only if you trust that server.
 
-Agent tokens are generated randomly for new installations and can be viewed or rotated from the authenticated **Install Agent** page. The global Super Admin token registers unassigned endpoints only; tenant-assigned endpoints must use their tenant-specific token. Super Admins can select a tenant on the Install Agent page to generate the matching command. Existing deployments initialized with the historical `test-endpoint-token` should rotate it after upgrading.
+For Windows Python hosts, download and extract the public source package, then
+run these commands from the extracted folder and enter the one-time code when
+prompted:
+
+```powershell
+python -m pip install -r requirements.txt
+python -m connector.chargepilot_connector --server-url "https://api-chargepilot.endusercompute.in"
+```
+
+### Windows laptop agent
+
+On **Install Agent**, select the correct tenant and copy the generated
+PowerShell command. It downloads the installer and agent over HTTPS and
+registers the recurring task. The command uses `iex`; run it only against a
+ChargePilot server you trust. The agent and connector archives are public
+source downloads and contain no credentials. Setup APIs and token management
+remain authenticated. Tenant-assigned laptops must use their tenant's agent
+token; the global token is only for unassigned endpoints.
+
+Keep the connector on the switch LAN and allow outbound HTTPS plus local Tuya
+traffic (UDP 6666, 6667, 7000 and TCP 6668). Assign switches to the enrolled
+connector on the **Switches** page.
 
 ## 9. Device and mapping workflow
 

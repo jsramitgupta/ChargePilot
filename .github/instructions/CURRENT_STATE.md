@@ -23,8 +23,10 @@ provides sign-in/registration, dashboard, switches, mappings, endpoints,
 events, connector administration, profile, user/tenant administration, agent
 setup, and super-admin account pages. Authenticated in-app navigation stays
 within React Router, with the dev server serving the SPA for direct page loads.
-FastAPI serves JSON APIs and authenticated ZIP downloads; the built React app
-is the only browser UI. Legacy page GETs redirect to the matching React route.
+FastAPI serves JSON APIs and downloads; agent and connector source archives and
+their bootstrap scripts are public, while setup APIs and all credential
+management remain authenticated. The built React app is the only browser UI.
+Legacy page GETs redirect to the matching React route.
 React admin pages use authenticated, tenant-scoped API data and preserve
 server-side authorization and business rules. The UI has responsive
 left-rail navigation and light/dark theme parity.
@@ -45,9 +47,10 @@ charging-completion shutoff threshold. The charging cutoff uses telemetry's
 threshold. Existing mappings can be edited or deleted; clearing a channel
 during an edit restores whole-switch control. Table text, emphasized cells,
 and status badges retain readable contrast in dark mode.
-The Site Connectors page presents Docker Compose for Linux hosts and a native
-Python process for Windows, Linux, or macOS, with a LAN-aware enrollment and
-startup walkthrough.
+The Site Connectors page presents a prebuilt Docker Compose deployment for
+Linux hosts and a one-line Python installer for Linux/macOS. The Python
+installer prompts for the one-time enrollment code and saves its credential
+locally. The source archive remains public for manual installation.
 
 ## Current primary workflows
 1. PowerShell agent posts its hardware UUID, current hostname, and battery
@@ -129,6 +132,9 @@ manifests under `deploy/k3s/` configure Istio routes for
 `console-chargepilot.endusercompute.in` and `api-chargepilot.endusercompute.in`;
 runtime frontend and API origins use HTTPS on those hosts. ArgoCD bootstrapping
 is under `deploy/argocd/`.
+`.github/workflows/connector-multiarch.yml` separately publishes the
+multi-platform site connector image. The Connectors page uses that immutable
+published image by default and also offers a one-line Python installer.
 The checked-in k3s PostgreSQL and Kafka services are single-replica,
 single-node starting components and are not highly available.
 
@@ -166,6 +172,8 @@ The full connector design, operational contract, and deployment plan is
 documented in [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md).
 
 ## Persistent implementation guidance
+- Always post a concise completion update by default, reporting the work done,
+  actual validation results, and whether it was committed, pushed, or deployed.
 - Preserve ChargePilot product terminology and business rules. Keep React as
   the only browser UI; add JSON API operations before changing user-facing
   workflows. Keep pages responsive and aligned in both light and dark themes.

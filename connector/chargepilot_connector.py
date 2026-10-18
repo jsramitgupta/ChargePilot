@@ -280,7 +280,7 @@ def main() -> None:
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
-        enrollment_code = args.enrollment_code
+        enrollment_code = args.enrollment_code or os.environ.pop("CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE", None)
         if args.enrollment_code_file and not args.config.exists():
             enrollment_code = Path(args.enrollment_code_file).read_text(encoding="utf-8").strip()
             if not enrollment_code:

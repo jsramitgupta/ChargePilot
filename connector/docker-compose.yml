@@ -1,6 +1,6 @@
 services:
   chargepilot-connector:
-    image: ${CHARGEPILOT_CONNECTOR_IMAGE:?Set CHARGEPILOT_CONNECTOR_IMAGE in .env}
+    image: endusercompute/chargepilot-connector:sha-6c647c97e88c1b0078bf9a7c000e36f76a52e86b
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped
@@ -12,14 +12,14 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      CHARGEPILOT_CONNECTOR_SERVER_URL: ${CHARGEPILOT_CONNECTOR_SERVER_URL:?Set CHARGEPILOT_CONNECTOR_SERVER_URL in .env}
+      CHARGEPILOT_CONNECTOR_SERVER_URL: ${CHARGEPILOT_CONNECTOR_SERVER_URL:-https://api-chargepilot.endusercompute.in}
       CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE: /run/secrets/enrollment_code
       CHARGEPILOT_CONNECTOR_CONFIG: /data/connector-config.json
     secrets:
       - enrollment_code
     volumes:
-      - ${CHARGEPILOT_CONNECTOR_DATA_DIR:?Set CHARGEPILOT_CONNECTOR_DATA_DIR in .env}:/data
+      - ${CHARGEPILOT_CONNECTOR_DATA_DIR:-./connector-data}:/data
 
 secrets:
   enrollment_code:
-    file: ${CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE:?Set CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE in .env}
+    file: ${CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE:-./enrollment-code.txt}

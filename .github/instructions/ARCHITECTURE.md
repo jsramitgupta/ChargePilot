@@ -65,8 +65,10 @@ The HTTP API modules are in `app/api/`:
 
 The React frontend is the only browser UI and owns dashboard, switch, mapping,
 endpoint, event, connector, profile, user, tenant, agent setup, and account
-navigation. `app/main.py` bootstraps FastAPI and serves authenticated downloads;
-legacy page paths redirect to React, and form-based mutations use JSON APIs.
+navigation. `app/main.py` bootstraps FastAPI and serves downloads; agent and
+connector source archives and bootstrap scripts are public, while
+credential-bearing setup endpoints remain authenticated. Legacy page paths
+redirect to React, and form-based mutations use JSON APIs.
 
 ### 3.2 Core layer
 

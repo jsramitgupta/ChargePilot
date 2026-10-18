@@ -2194,7 +2194,33 @@ function ConnectorsPage() {
   const tenants = tenantsQuery.data ?? []
   const actionError = createMutation.error ?? revokeMutation.error ?? deleteMutation.error
   const canManageConnectors = user?.role === 'super_admin' || user?.role === 'tenant_admin' || user?.role === 'manager'
-  const connectorServerUrl = API_BASE_URL || window.location.origin
+  const connectorServerUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, '')
+  const pythonInstallCommand = `curl -fsSL ${connectorServerUrl}/connectors/install.sh | sh`
+  const composeYaml = `services:
+  chargepilot-connector:
+    image: endusercompute/chargepilot-connector:sha-6c647c97e88c1b0078bf9a7c000e36f76a52e86b
+    container_name: chargepilot-connector
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CHARGEPILOT_CONNECTOR_SERVER_URL: ${connectorServerUrl}
+      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE: /run/secrets/enrollment_code
+      CHARGEPILOT_CONNECTOR_CONFIG: /data/connector-config.json
+    secrets:
+      - enrollment_code
+    volumes:
+      - ./connector-data:/data
+
+secrets:
+  enrollment_code:
+    file: ./enrollment-code.txt`
 
   return (
     <div className="space-y-6">
@@ -2216,13 +2242,13 @@ function ConnectorsPage() {
             <span className="connector-method-name">Docker Compose</span><span>Linux server, NAS, or Raspberry Pi</span>
           </button>
           <button type="button" className={`connector-method-option ${deploymentMethod === 'python' ? 'is-selected' : ''}`} aria-pressed={deploymentMethod === 'python'} onClick={() => setDeploymentMethod('python')}>
-            <span className="connector-method-name">Python process</span><span>Windows, Linux, or macOS</span>
+            <span className="connector-method-name">Python process</span><span>Linux or macOS terminal</span>
           </button>
         </div>
         <div className="connector-deploy-steps" aria-live="polite">
           <article className="connector-deploy-step">
             <span className="connector-step-number">1</span>
-            <div><h3>Get the connector files</h3><p>Download and extract the package on the computer that can reach the switches.</p><a href={backendUrl('/connectors/download')} className="connector-download-link">Download connector package</a></div>
+            <div><h3>Prepare the connector host</h3><p>Use an always-on computer on the switch LAN. Python installs directly from ChargePilot; Docker pulls the published image.</p><a href={backendUrl('/connectors/download')} className="connector-download-link">Download source package (optional)</a></div>
           </article>
           <article className="connector-deploy-step">
             <span className="connector-step-number">2</span>
@@ -2231,15 +2257,33 @@ function ConnectorsPage() {
           <article className="connector-deploy-step">
             <span className="connector-step-number">3</span>
             <div>
-              <h3>{deploymentMethod === 'docker' ? 'Build and start with Docker' : 'Install and start Python'}</h3>
+              <h3>{deploymentMethod === 'docker' ? 'Start the published Docker image' : 'Install and start Python'}</h3>
               {deploymentMethod === 'docker' ? <>
-                <p>Copy <code>.env.example</code> to <code>.env</code> and set <code>CHARGEPILOT_CONNECTOR_SERVER_URL</code>, <code>CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE</code>, and <code>CHARGEPILOT_CONNECTOR_DATA_DIR</code>. Use the local image name shown below.</p>
-                <pre className="connector-command"><code>CHARGEPILOT_CONNECTOR_IMAGE=chargepilot-connector:local{"\n"}docker build -f connector/Dockerfile -t chargepilot-connector:local .{"\n"}docker compose up -d</code></pre>
-                <p className="connector-step-note">Put the one-time code in the configured file first. Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668). The package README covers file permissions and logs.</p>
+                <p>Save this as <code>docker-compose.yml</code> beside <code>enrollment-code.txt</code>, containing the one-time code. It uses the published image and this ChargePilot API URL; no image build or environment file is needed.</p>
+                <pre className="connector-command"><code>{composeYaml}</code></pre>
+                <button type="button" className="btn-secondary mt-2" onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(composeYaml)
+                    setCopyStatus('Compose YAML copied.')
+                  } catch {
+                    setCopyStatus('Copy was blocked. Select the YAML and copy it manually.')
+                  }
+                }}>Copy Compose YAML</button>
+                <p className="mt-1 text-xs text-slate-500" role="status">{copyStatus}</p>
+                <p className="connector-step-note">Before starting, run <code>mkdir -p connector-data &amp;&amp; sudo chown 10001:10001 enrollment-code.txt connector-data &amp;&amp; sudo chmod 0400 enrollment-code.txt</code>, then <code>docker compose up -d</code>. Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668).</p>
               </> : <>
-                <p>Install Python 3.12+, then run these commands from the extracted folder. Enter the one-time code when prompted.</p>
-                <pre className="connector-command"><code>python -m pip install -r requirements.txt{"\n"}python -m connector.chargepilot_connector --server-url "{connectorServerUrl}"</code></pre>
-                <p className="connector-step-note">Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668). Keep it running with your operating system's service manager to start it at boot.</p>
+                <p>On Linux or macOS, install Python 3.12+, <code>curl</code>, and <code>unzip</code>. Run this command on the switch LAN and enter only the one-time enrollment code when prompted. Windows users can download the source package for manual Python setup.</p>
+                <pre className="connector-command"><code>{pythonInstallCommand}</code></pre>
+                <button type="button" className="btn-secondary mt-2" onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(pythonInstallCommand)
+                    setCopyStatus('Python install command copied.')
+                  } catch {
+                    setCopyStatus('Copy was blocked. Select the command and copy it manually.')
+                  }
+                }}>Copy install command</button>
+                <p className="mt-1 text-xs text-slate-500" role="status">{copyStatus}</p>
+                <p className="connector-step-note">This runs the installer provided by your ChargePilot server; use it only if you trust that server. It stores the credential in your user configuration directory. Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668). Keep the process running or configure your OS service manager.</p>
               </>}
             </div>
           </article>
@@ -2689,7 +2733,7 @@ function AgentSetupPage() {
   if (setupQuery.isLoading) return <LoadingCard />
   if (setupQuery.error) return <ErrorCard message={setupQuery.error.message} />
   return <div className="space-y-6">
-    <PageHeader eyebrow="Endpoint setup" title="Install the laptop agent" description="Download the Windows scripts, extract them, and run the command on each laptop you want ChargePilot to monitor." />
+    <PageHeader eyebrow="Endpoint setup" title="Install the laptop agent" description="Run one PowerShell command on each Windows laptop you want ChargePilot to monitor." />
     {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
     {mutation.error && <ErrorCard message={mutation.error.message} />}
     {data?.is_super_admin && <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
@@ -2712,15 +2756,15 @@ function AgentSetupPage() {
     </section>}
     <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
       <div className="grid lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="ui-modal-heading p-6 text-white sm:p-8"><h2 className="text-2xl font-bold">Get the Windows scripts</h2><p className="mt-2 text-sm leading-6 text-slate-300">The ZIP contains the telemetry agent and scheduled-task installer. Your token is not embedded in the archive.</p><a href={backendUrl('/agent/download')} className="mt-6 inline-flex items-center justify-center rounded-xl bg-blue-500 px-4 py-3 text-sm font-bold text-white hover:bg-blue-400">Download agent scripts</a><p className="mt-3 text-xs text-slate-400">ZIP archive · PowerShell · Windows 10/11</p></div>
-        <div className="p-6 sm:p-8"><h2 className="text-2xl font-bold tracking-tight text-slate-900">Run the setup command</h2><p className="mt-2 text-sm leading-6 text-slate-600">Extract the ZIP, open PowerShell in that folder, and run this command.</p><div className="mt-5 break-all rounded-xl border border-slate-200 bg-slate-50 p-4"><code className="font-mono text-sm text-slate-800">{data?.install_command}</code></div><button type="button" className="btn-secondary mt-3" onClick={async () => {
+        <div className="ui-modal-heading p-6 text-white sm:p-8"><h2 className="text-2xl font-bold">Optional script download</h2><p className="mt-2 text-sm leading-6 text-slate-300">The ZIP contains the telemetry agent and scheduled-task installer. It does not contain your token.</p><a href={backendUrl('/agent/download')} className="mt-6 inline-flex items-center justify-center rounded-xl bg-blue-500 px-4 py-3 text-sm font-bold text-white hover:bg-blue-400">Download agent scripts</a><p className="mt-3 text-xs text-slate-400">Public source archive · PowerShell · Windows 10/11</p></div>
+        <div className="p-6 sm:p-8"><h2 className="text-2xl font-bold tracking-tight text-slate-900">Run the setup command</h2><p className="mt-2 text-sm leading-6 text-slate-600">Open PowerShell on the laptop and run this one-line installer. It downloads the scripts from this ChargePilot server and registers the scheduled task.</p><div className="mt-5 break-all rounded-xl border border-slate-200 bg-slate-50 p-4"><code className="font-mono text-sm text-slate-800">{data?.install_command}</code></div><button type="button" className="btn-secondary mt-3" onClick={async () => {
           try {
             await navigator.clipboard.writeText(data?.install_command ?? '')
             setCopyStatus('Install command copied.')
           } catch {
             setCopyStatus('Copy was blocked. Select the command and copy it manually.')
           }
-        }}>Copy command</button><p className="mt-2 min-h-4 text-xs text-slate-500" role="status">{copyStatus}</p><div className="mt-6 border-t border-slate-200 pt-5"><p className="text-xs font-bold text-slate-500">{data?.token_scope}</p><p className="mt-1 text-xs text-slate-500">Keep this private. Regenerating it stops agents using the previous token.</p><code className="mt-3 block break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm text-slate-800">{data?.token}</code>{data?.can_rotate_tenant_token && <button type="button" className="btn-secondary mt-3" onClick={() => { if (window.confirm('Regenerate this tenant token? Agents using the old token will stop authenticating.')) mutation.mutate({ path: '/api/v1/admin/tenant-agent-token', body: {} }) }}>Regenerate tenant token</button>}</div></div>
+        }}>Copy command</button><p className="mt-2 min-h-4 text-xs text-slate-500" role="status">{copyStatus}</p><p className="mt-3 text-xs text-amber-800">The command uses PowerShell IEX to run the installer from this HTTPS server. Run it only if you trust this ChargePilot server. Keep the command and token private.</p><div className="mt-6 border-t border-slate-200 pt-5"><p className="text-xs font-bold text-slate-500">{data?.token_scope}</p><p className="mt-1 text-xs text-slate-500">Keep this private. Regenerating it stops agents using the previous token.</p><code className="mt-3 block break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm text-slate-800">{data?.token}</code>{data?.can_rotate_tenant_token && <button type="button" className="btn-secondary mt-3" onClick={() => { if (window.confirm('Regenerate this tenant token? Agents using the old token will stop authenticating.')) mutation.mutate({ path: '/api/v1/admin/tenant-agent-token', body: {} }) }}>Regenerate tenant token</button>}</div></div>
       </div>
     </section>
     <p className="text-sm text-slate-500">After the first report, the laptop appears on the <NavLink to="/endpoints" className="font-semibold text-blue-700 underline">Endpoints</NavLink> page.</p>

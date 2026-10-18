@@ -43,11 +43,13 @@ def test_agent_setup_api_and_download_provide_tenant_installation(monkeypatch):
     download = client.get("/agent/download")
     assert download.status_code == 200
     assert download.headers["content-type"].startswith("application/zip")
-    assert "no-store" in download.headers["cache-control"]
+    assert download.headers["cache-control"] == "public, max-age=300"
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
         assert set(archive.namelist()) == {"BatteryAgent.ps1", "CreateAgentScheduledTask.ps1"}
         assert b"hardware_uuid = $hardwareUuid" in archive.read("BatteryAgent.ps1")
         assert payload["token"].encode() not in archive.read("CreateAgentScheduledTask.ps1")
+    assert "iex" in payload["install_command"]
+    assert "$(irm" in payload["install_command"]
 
 
 def test_agent_setup_uses_configured_public_api_origin(monkeypatch):
@@ -61,10 +63,17 @@ def test_agent_setup_uses_configured_public_api_origin(monkeypatch):
     assert "-ServerUrl 'https://api.example.test'" in setup.json()["install_command"]
 
 
-def test_agent_setup_and_download_require_authentication():
+def test_agent_setup_requires_authentication_but_agent_sources_are_public():
     client = TestClient(app)
     assert client.get("/api/v1/agent/setup").status_code == 401
-    assert client.get("/agent/download", follow_redirects=False).status_code == 401
+    assert client.get("/agent/download", follow_redirects=False).status_code == 200
+    installer = client.get("/agent/install.ps1")
+    battery_script = client.get("/agent/BatteryAgent.ps1")
+    assert installer.status_code == 200
+    assert battery_script.status_code == 200
+    assert "public" in installer.headers["cache-control"]
+    assert "Invoke-WebRequest" in installer.text
+    assert "Invoke-WebRequest" in battery_script.text or "Get-BatteryStatus" in battery_script.text
 
 
 def test_standard_user_can_download_but_cannot_rotate_tenant_token():

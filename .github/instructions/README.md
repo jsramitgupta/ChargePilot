@@ -31,7 +31,7 @@ The project is a cloud-capable, local-first battery automation platform for Wind
 
 - Runtime stack: Python 3.12, FastAPI, SQLAlchemy 2.x, PostgreSQL, Kafka/aiokafka,
   TinyTuya, tuya-device-sharing-sdk, pytest.
-- App entrypoint: `app/main.py` registers JSON APIs, serves authenticated downloads, and redirects legacy page paths to React routes.
+- App entrypoint: `app/main.py` registers JSON APIs, serves public agent/connector source downloads and bootstrap scripts, and redirects legacy page paths to React routes.
 - Settings prefix: `CHARGEPILOT_` via `app/core/config.py`.
 - Database bootstrap: `create_db_and_tables()` runs on startup and ensures missing columns are added.
 - Telemetry auth: bearer token validation is still kept simple and should be

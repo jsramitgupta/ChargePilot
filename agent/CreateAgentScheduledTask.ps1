@@ -98,7 +98,13 @@ function Install-ChargePilotAgent {
     New-Item -ItemType Directory -Path $DestinationDir -Force | Out-Null
 
     $agentDestination = Join-Path $DestinationDir "BatteryAgent.ps1"
-    Copy-Item -Path $SourceScriptPath -Destination $agentDestination -Force
+    if (-not [string]::IsNullOrWhiteSpace($SourceScriptPath) -and (Test-Path -LiteralPath $SourceScriptPath)) {
+        Copy-Item -Path $SourceScriptPath -Destination $agentDestination -Force
+    }
+    else {
+        $agentScriptUri = "$($ServerUrlValue.TrimEnd('/'))/agent/BatteryAgent.ps1"
+        Invoke-WebRequest -Uri $agentScriptUri -OutFile $agentDestination -UseBasicParsing
+    }
 
     $configDir = Split-Path -Parent $ConfigFilePath
     if (-not (Test-Path -Path $configDir)) {
@@ -117,9 +123,11 @@ function Install-ChargePilotAgent {
     Write-Host "Config stored at: $ConfigFilePath"
 }
 
-$scriptPath = Join-Path $PSScriptRoot "BatteryAgent.ps1"
-if (-not (Test-Path -LiteralPath $scriptPath)) {
-    throw "BatteryAgent.ps1 was not found at '$scriptPath'."
+$scriptPath = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+    Join-Path $PSScriptRoot "BatteryAgent.ps1"
+}
+else {
+    ""
 }
 
 if ($DeleteOnly) {

@@ -113,31 +113,47 @@ def test_agent_setup_api_supplies_tenant_scoped_install_command(monkeypatch):
     payload = response.json()
     assert payload["token"]
     assert payload["token_scope"] == "tenant: react_agent_setup site"
-    assert "-ServerUrl " in payload["install_command"]
+    assert payload["install_command"].startswith('iex "& { $(irm ')
     assert "-ServerUrl 'https://api.example.test'" in payload["install_command"]
     assert "-EndpointToken " in payload["install_command"]
     assert payload["can_rotate_tenant_token"] is True
 
 
 def test_connector_download_contains_runtime_and_pinned_requirements():
-    client = _tenant_admin_client("connector_package_owner")
+    client = TestClient(app)
     response = client.get("/connectors/download")
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=300"
     with ZipFile(BytesIO(response.content)) as package:
         assert "connector/chargepilot_connector.py" in package.namelist()
         assert "requirements.txt" in package.namelist()
         assert "README.md" in package.namelist()
+        assert "install.sh" in package.namelist()
         assert "connector/Dockerfile" in package.namelist()
         assert "docker-compose.yml" in package.namelist()
         assert ".env.example" in package.namelist()
         assert "CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE" in package.read("docker-compose.yml").decode()
         assert "network_mode: host" in package.read("docker-compose.yml").decode()
+        assert "endusercompute/chargepilot-connector:sha-" in package.read("docker-compose.yml").decode()
         assert "httpx==0.27.0" in package.read("requirements.txt").decode()
         readme = package.read("README.md").decode()
-        assert "Docker deployment (Linux, amd64 or arm64)" in readme
+        assert "Docker Compose (Linux)" in readme
         assert "docker compose up -d" in readme
         assert "permanent credential" in readme
+
+
+def test_connector_installer_is_public_and_uses_configured_api_url(monkeypatch):
+    monkeypatch.setattr(settings, "api_url", "https://api.example.test")
+
+    response = TestClient(app).get("/connectors/install.sh")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert '"$SERVER_URL/connectors/download"' in response.text
+    assert "https://api.example.test" in response.text
+    assert "__CHARGEPILOT_SERVER_URL__" not in response.text
+    assert "getpass.getpass" in response.text
 
 
 def test_enrollment_code_is_single_use_and_commands_wait_for_connector_ack():

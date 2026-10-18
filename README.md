@@ -95,7 +95,7 @@ Expected payload:
 }
 ```
 
-The request is authenticated with the tenant's agent token in the `Authorization` bearer header. The API commits the latest endpoint snapshot and a transactional outbox event together. A relay publishes the event to Kafka; automation consumers then evaluate mappings asynchronously. An HTTP accepted response confirms durable ingestion, not completed switch control. Monitor outbox age, consumer lag, dead-letter events, and connector command outcomes. Sign in to ChargePilot and open **Install Agent** in the top navigation to download the Windows scripts and get the PowerShell installation command for the current token. Tenant admins can regenerate the tenant token there; existing agents must be reconfigured after rotation. Super Admins can update or regenerate the installation-wide global agent token from the same page. A random global token is created during fresh database initialization and is stored in the database for tenantless Super Admin installations.
+The request is authenticated with the tenant's agent token in the `Authorization` bearer header. The API commits the latest endpoint snapshot and a transactional outbox event together. A relay publishes the event to Kafka; automation consumers then evaluate mappings asynchronously. An HTTP accepted response confirms durable ingestion, not completed switch control. Monitor outbox age, consumer lag, dead-letter events, and connector command outcomes. Sign in to ChargePilot and open **Install Agent** in the top navigation to copy the one-line PowerShell installer for the current token; the page also links to a public source ZIP. The command uses `iex` to download scripts from your configured HTTPS ChargePilot server, so run it only when you trust that server. Tenant admins can regenerate the tenant token there; existing agents must be reconfigured after rotation. Super Admins can update or regenerate the installation-wide global agent token from the same page. A random global token is created during fresh database initialization and is stored in the database for tenantless Super Admin installations.
 
 Extract `chargepilot-agent-scripts.zip`, open PowerShell in that folder, and run the displayed command. The installer saves the token in the local agent configuration and registers the recurring scheduled task. The ZIP download requires an authenticated ChargePilot session and does not contain the tenant token.
 
@@ -173,48 +173,79 @@ including the local IP address, come from the LAN scan (or manual entry).
 
 ## Site connector
 
-Open **Connectors**, download the connector package, and create an enrollment
-code for the tenant. The ZIP includes a README, Python runtime, and Docker
-deployment files.
+Create a one-time enrollment code in **Connectors** for the tenant. The
+published Docker image and Python installer use the k3s API URL by default:
+`https://api-chargepilot.endusercompute.in`.
 
-### Docker on Linux (amd64 or arm64)
+### Docker Compose on Linux
 
-On an always-on Linux host on the switch LAN, copy `.env.example` to `.env` in
-the extracted package directory. Set the image to
-`DOCKERHUB_USERNAME/chargepilot-connector@sha256:<digest-from-workflow-summary>`,
-your HTTPS ChargePilot URL, and the enrollment-code file path. Create that
-file with the one-time code shown in ChargePilot, then create and grant
-ownership of the persistent data directory to container UID 10001:
+Save this `docker-compose.yml` beside `enrollment-code.txt` containing the
+one-time code:
+
+```yaml
+services:
+  chargepilot-connector:
+    image: endusercompute/chargepilot-connector:sha-6c647c97e88c1b0078bf9a7c000e36f76a52e86b
+    container_name: chargepilot-connector
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CHARGEPILOT_CONNECTOR_SERVER_URL: https://api-chargepilot.endusercompute.in
+      CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE_FILE: /run/secrets/enrollment_code
+      CHARGEPILOT_CONNECTOR_CONFIG: /data/connector-config.json
+    secrets:
+      - enrollment_code
+    volumes:
+      - ./connector-data:/data
+
+secrets:
+  enrollment_code:
+    file: ./enrollment-code.txt
+```
+
+Then start it on an always-on Linux host on the switch LAN:
 
 ```sh
+sudo chown 10001:10001 enrollment-code.txt
+sudo chmod 0400 enrollment-code.txt
 mkdir -p connector-data
 sudo chown 10001:10001 connector-data
 docker compose up -d
-docker compose logs -f chargepilot-connector
 ```
 
-The published multi-platform image supports both `linux/amd64` and
-`linux/arm64`. The included Compose service uses host networking so TinyTuya
-LAN discovery works on Linux. Protect the enrollment-code file and persistent
-connector data directory.
+### Python on Linux or macOS
 
-### Python runtime
+Install Python 3.12+, `curl`, and `unzip`. Run this on the switch LAN and enter
+the one-time code when prompted:
 
-For Windows, Linux, or macOS, install dependencies in the extracted package:
+```sh
+curl -fsSL https://api-chargepilot.endusercompute.in/connectors/install.sh | sh
+```
+
+The installer creates a private virtual environment and stores its permanent
+credential under `~/.local/share/chargepilot/site-connector/`. Keep the
+process running or configure your OS service manager to start it at boot. The
+command runs an installer served by ChargePilot; use it only if you trust
+that HTTPS server.
+
+The public source archive for manual installation is available at
+`https://api-chargepilot.endusercompute.in/connectors/download`. Downloads
+contain no enrollment or connector credentials. On Windows, extract the
+archive and run:
 
 ```powershell
 python -m pip install -r requirements.txt
+python -m connector.chargepilot_connector --server-url "https://api-chargepilot.endusercompute.in"
 ```
 
-Then run:
-
-```powershell
-python -m connector.chargepilot_connector --server-url "https://YOUR-CHARGEPILOT-HOST"
-```
-
-The connector prompts securely for the one-time code and saves its
-connector-specific credential outside the repository. Reuse the same host
-account to run it after enrollment.
+Enter the one-time code when prompted.
 
 Assign switches to that connector on the **Switches** page. Confirm that the
 connector reports online, then use LAN scan or switch controls. The connector
@@ -288,7 +319,8 @@ CHARGEPILOT_SESSION_COOKIE_SAMESITE=lax
 
 Configure the reverse proxy to send the frontend hostname to container port
 `5173` and the API hostname to port `8000`. The API hostname must proxy the
-JSON API and authenticated downloads used by React. The backend permits credentialed
+JSON API, authenticated downloads, and public agent/connector source downloads.
+The backend permits credentialed
 browser requests only from the configured frontend origin. For frontend and API
 hostnames on different registrable domains, set
 `CHARGEPILOT_SESSION_COOKIE_SAMESITE=none`; secure cookies are required for

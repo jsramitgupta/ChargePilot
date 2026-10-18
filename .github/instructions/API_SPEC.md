@@ -200,8 +200,21 @@ response is marked `private, no-store`.
 Returns the authenticated user's agent install command and token for the React
 agent setup page. Requires an assigned tenant, except for the Super Admin. A
 Super Admin may pass `tenant_id` to select that tenant's token; the response
-includes the system-wide token separately as `global_token`. The response is
-marked `private, no-store`.
+includes the system-wide token separately as `global_token`. The generated
+one-line PowerShell command downloads the installer over HTTPS and uses
+`iex`; the response is marked `private, no-store`.
+
+The following source downloads do not require a browser session and contain no
+credentials:
+
+- `GET /agent/download` returns the PowerShell source ZIP.
+- `GET /agent/install.ps1` returns the scheduled-task installer used by the
+  one-line command.
+- `GET /agent/BatteryAgent.ps1` returns the telemetry script fetched by the
+  installer.
+- `GET /connectors/download` returns the Python/Docker source ZIP.
+- `GET /connectors/install.sh` returns the Python bootstrap script; it prompts
+  locally for the one-time connector enrollment code.
 
 ## 3. Endpoint reference
 

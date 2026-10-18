@@ -12,8 +12,10 @@ battery state, and automation outcomes easy to scan without obscuring the
 underlying device relationships. Keep actions explicit and explain unavailable
 or empty states with the next useful step.
 
-The UI is React-only. FastAPI supplies JSON APIs and authenticated downloads;
-do not add a second browser UI or use mock data to fill gaps in API workflows.
+The UI is React-only. FastAPI supplies JSON APIs and downloads; agent and
+connector source archives are public, while setup APIs and credential
+management require authentication. Do not add a second browser UI or use mock
+data to fill gaps in API workflows.
 Authenticated navigation remains left-aligned in a responsive rail.
 
 ## Routes and page responsibilities
@@ -43,6 +45,12 @@ browser interactions:
 All routes except sign-in, registration, and email verification require the
 authenticated session. Keep tenant authorization and automation decisions in
 the backend; presentation must not become an authorization or rule boundary.
+The Install Agent page provides a one-line PowerShell `iex` command from its
+authenticated setup API; it links to public source downloads but never embeds
+the agent token in those archives. The Connectors page supports a published
+Docker Compose image and a one-line Python installer that prompts locally for
+the enrollment code. Connector and agent source downloads are public; code
+creation and credential management remain authenticated.
 Mapping setup advances only on an explicit user action and saves only from its
 explicit create/save action.
 The mapping rule editor can disable automatic turn-on independently from the
