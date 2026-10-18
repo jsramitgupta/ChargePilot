@@ -2228,7 +2228,7 @@ function ConnectorsPage() {
   const pythonInstallCommand = `curl -fsSL ${connectorServerUrl}/connectors/install.sh | sh`
   const composeYaml = `services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:sha-fd1816b565b790aa7a1c6885114af5ddc1435a83
+    image: endusercompute/chargepilot-connector:sha-922f4aac9cef35276eef7814620f38d674720f73
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped

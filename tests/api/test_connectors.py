@@ -200,7 +200,7 @@ def test_connector_download_contains_runtime_and_pinned_requirements():
         assert "ENROLLMENT_CODE_FILE" not in compose
         assert "enrollment-code.txt" not in compose
         assert "network_mode: host" in compose
-        assert "endusercompute/chargepilot-connector:sha-fd1816b565b790aa7a1c6885114af5ddc1435a83" in compose
+        assert "endusercompute/chargepilot-connector:sha-922f4aac9cef35276eef7814620f38d674720f73" in compose
         assert "httpx==0.27.0" in package.read("requirements.txt").decode()
         readme = package.read("README.md").decode()
         assert "Docker Compose (Linux)" in readme
