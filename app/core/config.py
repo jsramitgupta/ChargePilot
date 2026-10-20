@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     telemetry_max_age_seconds: int = Field(default=604800, ge=1)
     telemetry_max_future_skew_seconds: int = Field(default=300, ge=0)
     telemetry_automation_max_age_seconds: int = Field(default=600, ge=1)
-    telemetry_enabled_platforms: str = "windows,macos"
+    telemetry_enabled_platforms: str = "windows,macos,android,ios"
     telemetry_automation_enabled_platforms: str = "windows,macos"
     api_v1_prefix: str = "/api/v1"
     api_url: str = ""

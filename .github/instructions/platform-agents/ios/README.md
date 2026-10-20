@@ -1,14 +1,14 @@
 # iOS Agent Stream
 
 This stream specifies the planned iOS telemetry companion. The platform-aware
-backend schema and enrollment flow are implemented, but no iOS client is
-shipped and iOS enrollment remains disabled by default.
+backend schema and reusable enrollment flow are implemented; the shared API
+accepts iOS enrollment, but no native iOS client is shipped or validated.
 
 ## Scope
 
 - collect battery level and charging state using public iOS APIs
-- send HTTPS telemetry through the current backend contract after iOS
-  enrollment is enabled by a server operator
+- send HTTPS telemetry through the current backend contract using the
+  tenant-scoped enrollment token
 - adapt the app to the privacy and background limitations of iOS
 - use a random installation UUID and per-install credential; do not
   collect hardware identifiers

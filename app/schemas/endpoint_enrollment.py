@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -10,15 +10,34 @@ DeviceClass = Literal["laptop", "desktop", "phone", "tablet"]
 
 
 class EndpointEnrollmentCreate(BaseModel):
-    platform: Platform = "macos"
     tenant_id: UUID | None = None
 
 
 class EndpointEnrollmentCreated(BaseModel):
     id: UUID
-    platform: Platform
     enrollment_code: str
     expires_at: datetime
+
+    @field_validator("expires_at", mode="before")
+    @classmethod
+    def normalize_expiration_timezone(cls, value: datetime) -> datetime:
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+class EndpointEnrollmentInfo(BaseModel):
+    id: UUID
+    created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+    enrollment_count: int
+    last_used_at: datetime | None
+
+    @field_validator("created_at", "expires_at", "revoked_at", "last_used_at", mode="before")
+    @classmethod
+    def normalize_datetime_timezone(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 class EndpointEnrollmentExchange(BaseModel):

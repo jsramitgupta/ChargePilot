@@ -1,8 +1,8 @@
 # macOS Agent
 
 The first macOS client is implemented in `agent/macos` as a Swift foreground
-CLI. It uses the platform-aware backend contract, tenant-scoped one-time
-enrollment, and a Keychain credential.
+CLI. It uses the platform-aware backend contract, reusable tenant-scoped
+24-hour enrollment tokens, and a per-install Keychain credential.
 
 ## Scope
 

@@ -163,7 +163,7 @@ def test_react_admin_api_limits_user_and_tenant_data_to_authorized_roles():
     assert tenants.status_code == 403
 
 
-def test_agent_setup_api_supplies_tenant_scoped_install_command(monkeypatch):
+def test_agent_setup_api_supplies_token_free_install_command(monkeypatch):
     monkeypatch.setattr(settings, "api_url", "https://api.example.test")
     client = _tenant_admin_client("react_agent_setup")
 
@@ -172,12 +172,10 @@ def test_agent_setup_api_supplies_tenant_scoped_install_command(monkeypatch):
     assert response.status_code == 200, response.text
     assert response.headers["cache-control"] == "private, no-store"
     payload = response.json()
-    assert payload["token"]
-    assert payload["token_scope"] == "tenant: react_agent_setup site"
+    assert set(payload) == {"install_command", "is_super_admin"}
     assert payload["install_command"].startswith('iex "& { $(irm ')
     assert "-ServerUrl 'https://api.example.test'" in payload["install_command"]
-    assert "-EndpointToken " in payload["install_command"]
-    assert payload["can_rotate_tenant_token"] is True
+    assert "-EndpointToken " not in payload["install_command"]
 
 
 def test_connector_download_contains_runtime_and_pinned_requirements():

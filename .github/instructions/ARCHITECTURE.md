@@ -98,8 +98,8 @@ The model set in `app/models/` includes:
   Windows agents or a per-install UUID and hash-only credential for enrolled
   agents. Hostname/label remains mutable display metadata. An unassigned
   Windows endpoint can be assigned once to a tenant by the Super Admin.
-- `EndpointEnrollment` — tenant-scoped, hash-only, single-use 15-minute
-  enrollment code with a platform restriction
+- `EndpointEnrollment` — tenant-scoped, hash-only, reusable 24-hour
+  platform-independent enrollment token with revocation and usage metadata
 - `Device` — local smart switch metadata and current state
 - `DeviceChannel` — channel-specific state
 - `Mapping` — endpoint-to-device threshold mapping
@@ -116,9 +116,10 @@ The model set in `app/models/` includes:
   delivery and per-endpoint consumer ordering/idempotency
 
 Endpoint rows store platform, optional device class and installation ID,
-nullable AC state, and explicit automation eligibility. Android/iOS schema
-support is present, but those platforms are disabled for enrollment by default
-until native clients are ready.
+nullable AC state, and explicit automation eligibility. All four platforms
+can use the universal enrollment exchange by default. Android/iOS native
+clients are not shipped; telemetry and enrollment support does not imply a
+validated client or automation eligibility.
 
 ### 3.4 Service layer
 
@@ -136,10 +137,10 @@ Current services include:
 
 ### Telemetry request flow
 
-1. Windows PowerShell posts its existing payload with the tenant/global token.
-   The macOS Swift CLI exchanges a one-time tenant enrollment code for a
-   backend endpoint ID and per-install credential, then posts platform-aware
-   telemetry with an explicit label.
+1. New Windows PowerShell and macOS Swift clients exchange a tenant-scoped,
+   reusable 24-hour enrollment token for a backend endpoint ID and per-install
+   credential, then post platform-aware telemetry. Existing Windows agents
+   using the legacy tenant/global token remain compatible during migration.
 2. `receive_telemetry()` resolves either legacy Windows auth or the
    per-install credential, validates the enrolled platform and installation
    identity, and enforces the ingress age/future-skew limits.

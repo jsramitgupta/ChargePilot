@@ -1,7 +1,7 @@
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
@@ -19,10 +19,11 @@ from app.schemas.endpoint_enrollment import (
     EndpointEnrollmentCreated,
     EndpointEnrollmentCredentials,
     EndpointEnrollmentExchange,
+    EndpointEnrollmentInfo,
 )
 
 router = APIRouter(tags=["endpoint enrollment"])
-ENROLLMENT_TTL = timedelta(minutes=15)
+ENROLLMENT_TTL = timedelta(hours=24)
 
 
 def _require_admin(user: User) -> None:
@@ -53,11 +54,6 @@ async def create_endpoint_enrollment(
     db: Session = Depends(get_db),
 ):
     _require_admin(user)
-    if payload.platform not in settings.enabled_telemetry_platforms:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Enrollment for {payload.platform} is disabled by server configuration.",
-        )
 
     if is_super_admin_user(user):
         tenant_id = str(payload.tenant_id) if payload.tenant_id else None
@@ -79,7 +75,7 @@ async def create_endpoint_enrollment(
     enrollment = EndpointEnrollment(
         tenant_id=tenant_id,
         created_by_user_id=user.id,
-        platform=payload.platform,
+        platform=None,
         code_hash=hashlib.sha256(raw_code.encode("utf-8")).hexdigest(),
         expires_at=expires_at,
     )
@@ -89,10 +85,30 @@ async def create_endpoint_enrollment(
     response.headers["Cache-Control"] = "private, no-store"
     return EndpointEnrollmentCreated(
         id=enrollment.id,
-        platform=enrollment.platform,
         enrollment_code=raw_code,
         expires_at=expires_at,
     )
+
+
+@router.get("/admin/endpoint-enrollments", response_model=list[EndpointEnrollmentInfo])
+async def list_endpoint_enrollments(
+    response: Response,
+    tenant_id: UUID | None = None,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    _require_admin(user)
+    query = tenant_scoped_query(db.query(EndpointEnrollment), EndpointEnrollment, user)
+    if tenant_id is not None:
+        if not is_super_admin_user(user) and str(tenant_id) != user.tenant_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant access denied.")
+        query = query.filter(EndpointEnrollment.tenant_id == str(tenant_id))
+    enrollments = query.order_by(EndpointEnrollment.created_at.desc()).limit(50).all()
+    response.headers["Cache-Control"] = "private, no-store"
+    return [
+        EndpointEnrollmentInfo.model_validate(enrollment, from_attributes=True)
+        for enrollment in enrollments
+    ]
 
 
 @router.post(
@@ -121,14 +137,14 @@ async def exchange_endpoint_enrollment(
     now = datetime.now(UTC)
     if (
         enrollment is None
-        or enrollment.used_at is not None
         or enrollment.revoked_at is not None
         or _utc(enrollment.expires_at) <= now
-        or enrollment.platform != payload.platform
+        or (enrollment.platform is not None and enrollment.used_at is not None)
+        or (enrollment.platform is not None and enrollment.platform != payload.platform)
     ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Enrollment code is invalid, expired, already used, or for a different platform.",
+            detail="Enrollment token is invalid, expired, revoked, or for a different platform.",
         )
 
     credential = secrets.token_urlsafe(32)
@@ -147,7 +163,10 @@ async def exchange_endpoint_enrollment(
         automation_enabled=False,
         token_hash=hashlib.sha256(credential.encode("utf-8")).hexdigest(),
     )
-    enrollment.used_at = now
+    if enrollment.platform is not None:
+        enrollment.used_at = now
+    enrollment.enrollment_count += 1
+    enrollment.last_used_at = now
     db.add(endpoint)
     try:
         db.commit()
@@ -181,8 +200,8 @@ async def revoke_endpoint_enrollment(
     )
     if enrollment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollment not found.")
-    if enrollment.used_at is not None or enrollment.revoked_at is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Enrollment is no longer active.")
+    if enrollment.revoked_at is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Enrollment token is already revoked.")
     enrollment.revoked_at = datetime.now(UTC)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

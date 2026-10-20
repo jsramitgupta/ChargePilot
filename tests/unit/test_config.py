@@ -13,7 +13,7 @@ def test_dotenv_path_is_anchored_to_project_root():
 def test_platform_telemetry_defaults_and_allow_lists_are_validated():
     settings = Settings(_env_file=None)
 
-    assert settings.enabled_telemetry_platforms == {"windows", "macos"}
+    assert settings.enabled_telemetry_platforms == {"windows", "macos", "android", "ios"}
     assert settings.automation_telemetry_platforms == {"windows", "macos"}
     assert settings.telemetry_automation_max_age_seconds == 600
 

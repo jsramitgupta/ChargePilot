@@ -192,12 +192,17 @@ type AccountInvitationInfo = {
 }
 
 type AgentSetup = {
-  token: string
-  global_token?: string | null
-  token_scope: string
   install_command: string
   is_super_admin: boolean
-  can_rotate_tenant_token: boolean
+}
+
+type EndpointEnrollment = {
+  id: string
+  created_at: string
+  expires_at: string
+  revoked_at?: string | null
+  enrollment_count: number
+  last_used_at?: string | null
 }
 
 type SmartLifeDevice = {
@@ -2770,106 +2775,156 @@ function AgentSetupPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tenantId = searchParams.get('tenant_id') ?? ''
   const { data: user } = useSession()
+  const isSuperAdmin = user?.role === 'super_admin'
+  const canManageEnrollments = isSuperAdmin || user?.role === 'tenant_admin' || user?.role === 'manager'
   const tenantsQuery = useQuery({
     queryKey: ['admin-tenants'],
     queryFn: () => apiFetch<TenantInfo[]>('/api/v1/admin/tenants'),
-    enabled: user?.role === 'super_admin',
+    enabled: isSuperAdmin,
   })
   const setupQuery = useQuery({
     queryKey: ['agent-setup', tenantId],
     queryFn: () => apiFetch<AgentSetup>(`/api/v1/agent/setup${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''}`),
   })
-  const [statusMessage, setStatusMessage] = useState('')
   const [copyStatus, setCopyStatus] = useState('')
-  const [macEnrollmentCode, setMacEnrollmentCode] = useState('')
-  const [macEnrollmentId, setMacEnrollmentId] = useState('')
-  const macServerUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, '')
-  const mutation = useMutation({
-    mutationFn: async ({ path, body }: { path: string; body: Record<string, unknown> }) =>
-      apiFetch<{ message: string }>(path, { method: 'PUT', body: JSON.stringify(body) }),
-    onSuccess: ({ message }) => {
-      setStatusMessage(message)
-      return queryClient.invalidateQueries({ queryKey: ['agent-setup'] })
-    },
+  const [enrollmentCode, setEnrollmentCode] = useState('')
+  const [createdEnrollmentId, setCreatedEnrollmentId] = useState('')
+  const tokenQuery = useQuery({
+    queryKey: ['endpoint-enrollments', tenantId],
+    queryFn: () => apiFetch<EndpointEnrollment[]>(
+      `/api/v1/admin/endpoint-enrollments${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''}`,
+    ),
+    enabled: Boolean(canManageEnrollments) && (!isSuperAdmin || Boolean(tenantId)),
   })
-  const macEnrollmentMutation = useMutation({
+  const createEnrollmentMutation = useMutation({
     mutationFn: () => apiFetch<{ id: string; enrollment_code: string; expires_at: string }>('/api/v1/admin/endpoint-enrollments', {
       method: 'POST',
-      body: JSON.stringify({ platform: 'macos', ...(tenantId ? { tenant_id: tenantId } : {}) }),
+      body: JSON.stringify(tenantId ? { tenant_id: tenantId } : {}),
     }),
     onSuccess: ({ id, enrollment_code }) => {
-      setMacEnrollmentId(id)
-      setMacEnrollmentCode(enrollment_code)
+      setCreatedEnrollmentId(id)
+      setEnrollmentCode(enrollment_code)
+      setCopyStatus('')
+      void queryClient.invalidateQueries({ queryKey: ['endpoint-enrollments'] })
     },
   })
-  const revokeMacEnrollmentMutation = useMutation({
+  const revokeEnrollmentMutation = useMutation({
     mutationFn: (enrollmentId: string) =>
       apiFetch<void>(`/api/v1/admin/endpoint-enrollments/${enrollmentId}`, { method: 'DELETE' }),
     onSuccess: () => {
-      setMacEnrollmentId('')
-      setMacEnrollmentCode('')
+      setCreatedEnrollmentId('')
+      setEnrollmentCode('')
+      void queryClient.invalidateQueries({ queryKey: ['endpoint-enrollments'] })
     },
   })
   const data = setupQuery.data
   if (setupQuery.isLoading) return <LoadingCard />
   if (setupQuery.error) return <ErrorCard message={setupQuery.error.message} />
+  const serverUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, '')
+  const copyText = async (text: string, copiedMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyStatus(copiedMessage)
+    } catch {
+      setCopyStatus('Copy was blocked. Select the text and copy it manually.')
+    }
+  }
   return <div className="space-y-6">
-    <PageHeader eyebrow="Endpoint setup" title="Install the laptop agent" description="Run one PowerShell command on each Windows laptop you want ChargePilot to monitor." />
-    {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
-    {mutation.error && <ErrorCard message={mutation.error.message} />}
-    {macEnrollmentMutation.error && <ErrorCard message={macEnrollmentMutation.error.message} />}
-    {revokeMacEnrollmentMutation.error && <ErrorCard message={revokeMacEnrollmentMutation.error.message} />}
-    {data?.is_super_admin && <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-      <h2 className="font-bold text-slate-900">Choose endpoint tenant</h2>
-      <p className="mt-1 text-sm text-slate-600">Use the tenant-specific agent token for laptops assigned to a tenant. The global token only registers unassigned endpoints.</p>
+    <PageHeader eyebrow="Endpoint setup" title="Enroll a device" description="Create one private token for your workspace, then use it to enroll devices across supported platforms." />
+    {isSuperAdmin && <section className="panel max-w-3xl p-5 sm:p-6">
+      <h2 className="text-lg font-bold text-slate-900">Choose a workspace</h2>
+      <p className="mt-1 text-sm text-slate-600">Every device enrolled with this token will belong to the selected workspace.</p>
       {tenantsQuery.error && <div className="mt-3"><ErrorCard message={tenantsQuery.error.message} /></div>}
-      <label className="label mt-4" htmlFor="agent-tenant">Agent token scope
-        <select id="agent-tenant" className="field" value={tenantId} onChange={(event) => {
-          const value = event.target.value
-          setSearchParams(value ? { tenant_id: value } : {})
+      <label className="label mt-4" htmlFor="enrollment-tenant">Workspace
+        <select id="enrollment-tenant" className="field mt-1" value={tenantId} onChange={(event) => {
+          setEnrollmentCode('')
+          setCreatedEnrollmentId('')
+          setSearchParams(event.target.value ? { tenant_id: event.target.value } : {})
         }}>
-          <option value="">System-wide unassigned endpoints</option>
+          <option value="">Select a workspace</option>
           {(tenantsQuery.data ?? []).map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
         </select>
       </label>
     </section>}
-    {data?.is_super_admin && <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold text-slate-900">Global agent token</h2><p className="mt-1 text-sm text-slate-600">This token registers unassigned endpoints. Use tenant-specific tokens for assigned laptops. Regenerating stops agents using the previous value.</p></div><button type="button" className="btn-secondary" onClick={() => { if (window.confirm('Regenerate the global agent token? Existing agents using it will stop authenticating.')) mutation.mutate({ path: '/api/v1/admin/global-agent-token', body: { action: 'regenerate' } }) }}>Regenerate token</button></div>
-      <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={(event) => { event.preventDefault(); mutation.mutate({ path: '/api/v1/admin/global-agent-token', body: { action: 'save', token: String(new FormData(event.currentTarget).get('token') ?? '') } }) }}><input name="token" defaultValue={data?.global_token ?? ''} required minLength={16} maxLength={512} autoComplete="off" spellCheck={false} className="field min-w-0 flex-1 font-mono" aria-label="Global agent token" /><button type="submit" className="btn-primary">Save token</button></form>
-    </section>}
-    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div className="grid lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="ui-modal-heading p-6 text-white sm:p-8"><h2 className="text-2xl font-bold">Optional script download</h2><p className="mt-2 text-sm leading-6 text-slate-300">The ZIP contains the telemetry agent and scheduled-task installer. It does not contain your token.</p><a href={backendUrl('/agent/download')} className="mt-6 inline-flex items-center justify-center rounded-xl bg-blue-500 px-4 py-3 text-sm font-bold text-white hover:bg-blue-400">Download agent scripts</a><p className="mt-3 text-xs text-slate-400">Public source archive · PowerShell · Windows 10/11</p></div>
-        <div className="p-6 sm:p-8"><h2 className="text-2xl font-bold tracking-tight text-slate-900">Run the setup command</h2><p className="mt-2 text-sm leading-6 text-slate-600">Open PowerShell on the laptop and run this one-line installer. It downloads the scripts from this ChargePilot server and registers the scheduled task.</p><div className="mt-5 break-all rounded-xl border border-slate-200 bg-slate-50 p-4"><code className="font-mono text-sm text-slate-800">{data?.install_command}</code></div><button type="button" className="btn-secondary mt-3" onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(data?.install_command ?? '')
-            setCopyStatus('Install command copied.')
-          } catch {
-            setCopyStatus('Copy was blocked. Select the command and copy it manually.')
-          }
-        }}>Copy command</button><p className="mt-2 min-h-4 text-xs text-slate-500" role="status">{copyStatus}</p><p className="mt-3 text-xs text-amber-800">The command uses PowerShell IEX to run the installer from this HTTPS server. Run it only if you trust this ChargePilot server. Keep the command and token private.</p><div className="mt-6 border-t border-slate-200 pt-5"><p className="text-xs font-bold text-slate-500">{data?.token_scope}</p><p className="mt-1 text-xs text-slate-500">Keep this private. Regenerating it stops agents using the previous token.</p><code className="mt-3 block break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm text-slate-800">{data?.token}</code>{data?.can_rotate_tenant_token && <button type="button" className="btn-secondary mt-3" onClick={() => { if (window.confirm('Regenerate this tenant token? Agents using the old token will stop authenticating.')) mutation.mutate({ path: '/api/v1/admin/tenant-agent-token', body: {} }) }}>Regenerate tenant token</button>}</div></div>
-      </div>
-    </section>
-    <section className="panel p-5 sm:p-6">
+    {createEnrollmentMutation.error && <ErrorCard message={createEnrollmentMutation.error.message} />}
+    {revokeEnrollmentMutation.error && <ErrorCard message={revokeEnrollmentMutation.error.message} />}
+    {canManageEnrollments && <section className="panel max-w-3xl p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div><p className="eyebrow">Native macOS agent</p><h2 className="mt-1 text-xl font-bold">Enroll a Mac</h2><p className="mt-2 max-w-2xl text-sm text-slate-600">The Swift agent reports battery telemetry while the Mac is awake and the agent is running. It uses a per-install credential stored in Keychain; new Mac endpoints begin telemetry-only.</p></div>
-        <a className="btn-secondary" href={backendUrl('/agent/macos/download')}>Download macOS agent source</a>
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Enrollment token</h2>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">This high-entropy token works for any enabled platform and can enroll multiple devices for 24 hours. The token is shown only once.</p>
+        </div>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={createEnrollmentMutation.isPending || (isSuperAdmin && !tenantId)}
+          onClick={() => {
+            setEnrollmentCode('')
+            setCreatedEnrollmentId('')
+            createEnrollmentMutation.mutate()
+          }}
+        >
+          {createEnrollmentMutation.isPending ? 'Creating token…' : 'Create enrollment token'}
+        </button>
       </div>
-      <button type="button" className="btn-primary mt-4" disabled={macEnrollmentMutation.isPending || Boolean(macEnrollmentId) || (user?.role === 'super_admin' && !tenantId)} onClick={() => {
-        setMacEnrollmentCode('')
-        setMacEnrollmentId('')
-        macEnrollmentMutation.mutate()
-      }}>
-        {macEnrollmentMutation.isPending ? 'Creating code…' : macEnrollmentId ? 'Revoke the active code to create another' : 'Create 15-minute enrollment code'}
-      </button>
-      {macEnrollmentCode && <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-        <p className="text-sm font-semibold text-slate-800">Use this code once in the macOS agent. It expires in 15 minutes.</p>
-        <code className="mt-2 block break-all font-mono text-sm text-slate-700">{macEnrollmentCode}</code>
-        <p className="mt-3 text-xs text-slate-600">Extract the source archive, then run <code>swift run -c release --package-path ./chargepilot-macos-agent ChargePilotAgent enroll --server-url {macServerUrl} --label "My Mac"</code> and enter the code when prompted. Start reporting with the agent’s <code>swift run -c release --package-path ./chargepilot-macos-agent ChargePilotAgent run</code> command after enrollment.</p>
-        {macEnrollmentId && <button type="button" className="danger-btn small-btn mt-3" disabled={revokeMacEnrollmentMutation.isPending} onClick={() => revokeMacEnrollmentMutation.mutate(macEnrollmentId)}>Revoke unused code</button>}
+      {isSuperAdmin && !tenantId && <p className="mt-3 text-sm text-amber-800">Select a workspace before creating a token.</p>}
+      {enrollmentCode && <div className="mt-5 border-l-4 border-[var(--copper)] bg-[var(--surface-muted)] p-4 sm:p-5">
+        <p className="text-sm font-semibold text-[var(--ink)]">Copy this token now. It cannot be retrieved again.</p>
+        <code className="mt-3 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3 font-mono text-sm text-[var(--ink)]">{enrollmentCode}</code>
+        <p className="mt-2 text-sm text-[var(--muted)]">Expires {formatTimestamp((createEnrollmentMutation.data?.expires_at) ?? '')}. Revoke it to stop future enrollments; devices already enrolled keep working until their endpoint credentials are revoked.</p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button type="button" className="btn-secondary" onClick={() => void copyText(enrollmentCode, 'Enrollment token copied.')}>Copy enrollment token</button>
+          <button
+            type="button"
+            className="btn-secondary border-red-200 text-red-700"
+            disabled={revokeEnrollmentMutation.isPending}
+            onClick={() => createdEnrollmentId && revokeEnrollmentMutation.mutate(createdEnrollmentId)}
+          >
+            Revoke token
+          </button>
+        </div>
+        <p className="mt-2 min-h-5 text-xs text-[var(--muted)]" role="status">{copyStatus}</p>
       </div>}
+      {tokenQuery.error && <div className="mt-4"><ErrorCard message={tokenQuery.error.message} /></div>}
+      {tokenQuery.isLoading && <p className="mt-4 text-sm text-[var(--muted)]">Loading enrollment tokens…</p>}
+      {!tokenQuery.isLoading && tokenQuery.data && <div className="mt-6 border-t border-[var(--line)] pt-5">
+        <h3 className="font-semibold text-[var(--ink)]">Recent tokens</h3>
+        {tokenQuery.data.length ? <ul className="mt-3 divide-y divide-[var(--line)]">
+          {tokenQuery.data.map((token) => {
+            return <li key={token.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+              <div>
+                <p className="text-sm font-medium text-[var(--ink)]">{token.revoked_at ? 'Revoked' : `Expires ${formatTimestamp(token.expires_at)}`}</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">Created {formatTimestamp(token.created_at)} · {token.enrollment_count} device{token.enrollment_count === 1 ? '' : 's'} enrolled</p>
+              </div>
+              {!token.revoked_at && <button type="button" className="danger-btn small-btn" disabled={revokeEnrollmentMutation.isPending} onClick={() => revokeEnrollmentMutation.mutate(token.id)}>Revoke</button>}
+            </li>
+          })}
+        </ul> : <p className="mt-2 text-sm text-[var(--muted)]">No enrollment tokens yet.</p>}
+      </div>}
+    </section>}
+    <section className="max-w-3xl space-y-4">
+      <div className="panel p-5 sm:p-6">
+        <h2 className="text-lg font-bold text-slate-900">Windows</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Copy this command to PowerShell on the device. The installer asks for the enrollment token without echoing it, then saves the endpoint credential using Windows user protection.</p>
+        <code className="mt-4 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{data?.install_command}</code>
+        <button type="button" className="btn-secondary mt-3" onClick={() => void copyText(data?.install_command ?? '', 'Windows install command copied.')}>Copy install command</button>
+        <p className="mt-2 min-h-5 text-xs text-[var(--muted)]" role="status">{copyStatus}</p>
+        <a className="btn-secondary mt-2 inline-flex" href={backendUrl('/agent/download')}>Download Windows agent scripts</a>
+        <p className="mt-3 text-xs text-amber-800">The command downloads and runs scripts from this HTTPS server. Run it only if you trust this ChargePilot server.</p>
+      </div>
+      <div className="panel p-5 sm:p-6">
+        <h2 className="text-lg font-bold text-slate-900">macOS</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600">The foreground Swift agent stores its persistent endpoint credential in the macOS Keychain. It reports while running and while the Mac is awake.</p>
+        <a className="btn-secondary mt-3 inline-flex" href={backendUrl('/agent/macos/download')}>Download macOS agent source</a>
+        <code className="mt-4 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">swift run -c release ChargePilotAgent enroll --server-url {serverUrl} --label "Office Mac"</code>
+        <p className="mt-2 text-sm text-[var(--muted)]">Paste the enrollment token when prompted, then start reporting with <code>swift run -c release ChargePilotAgent run</code>.</p>
+      </div>
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-4 text-sm leading-6 text-[var(--muted)]">
+        Android and iOS can use the same enrollment exchange, but native clients are not yet shipped. Do not install third-party agents with workspace tokens. New endpoints start with automation off; an administrator can opt in after a fresh reading.
+      </div>
+      {!canManageEnrollments && <p className="text-sm text-[var(--muted)]">An administrator must create an enrollment token for this workspace.</p>}
+      <p className="text-sm text-[var(--muted)]">After the first report, review devices on the <NavLink to="/endpoints" className="font-semibold text-[var(--leaf)] underline">Endpoints</NavLink> page.</p>
     </section>
-    <p className="text-sm text-slate-500">After the first report, the laptop appears on the <NavLink to="/endpoints" className="font-semibold text-blue-700 underline">Endpoints</NavLink> page.</p>
   </div>
 }
 

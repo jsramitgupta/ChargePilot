@@ -1,0 +1,8 @@
+BEGIN;
+
+ALTER TABLE endpoint_enrollments
+    ALTER COLUMN platform DROP NOT NULL,
+    ADD COLUMN IF NOT EXISTS enrollment_count INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;
+
+COMMIT;

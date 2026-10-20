@@ -1,10 +1,11 @@
 # Platform Agent Streams
 
 This directory tracks ChargePilot's cross-platform telemetry work. The
-platform-aware backend contract and a foreground Swift macOS CLI are
-implemented. Windows remains supported through the existing PowerShell agent.
-Android and iOS native clients are planned and gated from enrollment by server
-configuration until their implementations are validated.
+platform-aware backend contract, Windows PowerShell enrollment, and a
+foreground Swift macOS CLI are implemented. Existing Windows agents remain
+compatible with the shared-token flow. Android and iOS native clients are
+planned; the shared enrollment and telemetry APIs accept them, but no native
+client is shipped or validated.
 
 ## Objectives
 
@@ -30,8 +31,9 @@ Key rules to preserve:
 - endpoint control remains server-authoritative and site-connector-driven
 - telemetry agents send readings only; they do not issue switch commands
 - tenant boundaries and bearer-token assignment remain enforced by the server
-- Windows can retain its existing tenant-token and `hardware_uuid` flow;
-  enrolled clients must use the new tenant-bound per-install credential.
+- New Windows installs use the universal tenant-bound enrollment token and
+  per-install credential; existing Windows installs can retain the
+  `hardware_uuid`/shared-token flow during migration.
 - An installation UUID is not hardware identity. Do not collect serials,
   IMEI, Wi-Fi identifiers, or location.
 - mobile agents must treat background reporting as best-effort and not as guaranteed real-time automation
@@ -52,7 +54,7 @@ reference is [API_SPEC.md](../API_SPEC.md).
 ## Execution policy for downstream AI work
 
 Build Android and iOS as separate projects/tasks with native acceptance tests
-and distribution plans. Coordinate against the shared API contract; their
-platforms remain disabled until a client is ready. Keep new endpoint
+and distribution plans. Coordinate against the shared API contract; enrollment
+support does not mean a native client is available. Keep new endpoint
 automation disabled until explicit server-authorized opt-in, and do not ship
 local Tuya control in an endpoint agent.

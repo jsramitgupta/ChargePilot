@@ -12,7 +12,7 @@ from app.services.endpoint_service import authenticate_endpoint_token
 from conftest import register_tenant_admin
 
 
-def test_enrollment_is_tenant_bound_single_use_and_returns_installation_credential_once():
+def test_enrollment_is_tenant_bound_reusable_across_platforms_and_returns_credentials_once():
     client = TestClient(app)
     register_tenant_admin(
         client,
@@ -23,11 +23,13 @@ def test_enrollment_is_tenant_bound_single_use_and_returns_installation_credenti
 
     created = client.post(
         "/api/v1/admin/endpoint-enrollments",
-        json={"platform": "macos"},
+        json={},
     )
     assert created.status_code == 201, created.text
     assert created.headers["Cache-Control"] == "private, no-store"
     code = created.json()["enrollment_code"]
+    expires_at = datetime.fromisoformat(created.json()["expires_at"])
+    assert timedelta(hours=23, minutes=59) < expires_at - datetime.now(UTC) < timedelta(hours=24, minutes=1)
 
     installation_id = str(uuid4())
     exchanged = client.post(
@@ -51,7 +53,10 @@ def test_enrollment_is_tenant_bound_single_use_and_returns_installation_credenti
         tenant_id = enrollment.tenant_id
         endpoint = db.query(Endpoint).one()
         assert enrollment.tenant_id == tenant_id
-        assert enrollment.used_at is not None
+        assert enrollment.platform is None
+        assert enrollment.used_at is None
+        assert enrollment.enrollment_count == 1
+        assert enrollment.last_used_at is not None
         assert enrollment.code_hash == hashlib.sha256(code.encode()).hexdigest()
         assert endpoint.tenant_id == tenant_id
         assert endpoint.automation_enabled is False
@@ -59,7 +64,23 @@ def test_enrollment_is_tenant_bound_single_use_and_returns_installation_credenti
         assert endpoint.token_hash == hashlib.sha256(result["credential"].encode()).hexdigest()
         assert authenticate_endpoint_token(f"Bearer {result['credential']}", db) == (False, None)
 
-    replay = client.post(
+    second_installation_id = str(uuid4())
+    second_exchange = client.post(
+        "/api/v1/endpoint-enrollment/exchange",
+        json={
+            "code": code,
+            "platform": "windows",
+            "installation_id": second_installation_id,
+            "hostname": "Office Laptop",
+            "device_class": "laptop",
+        },
+    )
+    assert second_exchange.status_code == 201, second_exchange.text
+    assert second_exchange.json()["platform"] == "windows"
+    with SessionLocal() as db:
+        assert db.query(EndpointEnrollment).one().enrollment_count == 2
+
+    duplicate_installation = client.post(
         "/api/v1/endpoint-enrollment/exchange",
         json={
             "code": code,
@@ -68,7 +89,50 @@ def test_enrollment_is_tenant_bound_single_use_and_returns_installation_credenti
             "hostname": "Office Mac",
         },
     )
-    assert replay.status_code == 422
+    assert duplicate_installation.status_code == 409
+
+
+def test_existing_platform_scoped_enrollments_remain_single_use():
+    client = TestClient(app)
+    register_tenant_admin(
+        client,
+        "legacy-enrollment-admin",
+        "legacy-enrollment-password",
+        "Legacy Enrollment Tenant",
+    )
+    created = client.post("/api/v1/admin/endpoint-enrollments", json={})
+    assert created.status_code == 201, created.text
+    enrollment = created.json()
+
+    with SessionLocal() as db:
+        stored = db.get(EndpointEnrollment, enrollment["id"])
+        stored.platform = "macos"
+        db.commit()
+
+    def exchange(platform: str, installation_id: str):
+        return client.post(
+            "/api/v1/endpoint-enrollment/exchange",
+            json={
+                "code": enrollment["enrollment_code"],
+                "platform": platform,
+                "installation_id": installation_id,
+                "hostname": "Legacy Mac",
+                "device_class": "laptop",
+            },
+        )
+
+    mismatched_platform = exchange("windows", str(uuid4()))
+    assert mismatched_platform.status_code == 422
+
+    successful_exchange = exchange("macos", str(uuid4()))
+    assert successful_exchange.status_code == 201, successful_exchange.text
+    reused_token = exchange("macos", str(uuid4()))
+    assert reused_token.status_code == 422
+
+    with SessionLocal() as db:
+        stored = db.get(EndpointEnrollment, enrollment["id"])
+        assert stored.used_at is not None
+        assert stored.enrollment_count == 1
 
 
 def test_enrolled_telemetry_accepts_optional_ip_and_revocation_stops_reports():
@@ -81,7 +145,7 @@ def test_enrolled_telemetry_accepts_optional_ip_and_revocation_stops_reports():
     )
     enrollment = client.post(
         "/api/v1/admin/endpoint-enrollments",
-        json={"platform": "macos"},
+        json={},
     ).json()
     installation_id = str(uuid4())
     credentials = client.post(
@@ -136,7 +200,7 @@ def test_enrollment_credentials_cannot_spoof_platform_or_installation():
     )
     enrollment = client.post(
         "/api/v1/admin/endpoint-enrollments",
-        json={"platform": "macos"},
+        json={},
     ).json()
     installation_id = str(uuid4())
     credentials = client.post(
@@ -166,7 +230,7 @@ def test_enrollment_credentials_cannot_spoof_platform_or_installation():
     assert response.status_code == 403
 
 
-def test_android_enrollment_is_disabled_by_default_and_unused_codes_can_be_revoked():
+def test_universal_token_can_enroll_android_then_be_revoked():
     client = TestClient(app)
     register_tenant_admin(
         client,
@@ -175,30 +239,130 @@ def test_android_enrollment_is_disabled_by_default_and_unused_codes_can_be_revok
         "Platform Tenant",
     )
 
-    disabled = client.post(
+    created = client.post(
         "/api/v1/admin/endpoint-enrollments",
-        json={"platform": "android"},
+        json={},
     )
-    assert disabled.status_code == 409
-
-    enrollment = client.post(
-        "/api/v1/admin/endpoint-enrollments",
-        json={"platform": "macos"},
-    ).json()
+    assert created.status_code == 201, created.text
+    enrollment = created.json()
+    installation_id = str(uuid4())
+    exchange = client.post(
+        "/api/v1/endpoint-enrollment/exchange",
+        json={
+            "code": enrollment["enrollment_code"],
+            "platform": "android",
+            "installation_id": installation_id,
+            "hostname": "Android tablet",
+            "device_class": "tablet",
+        },
+    )
+    assert exchange.status_code == 201, exchange.text
+    ios_exchange = client.post(
+        "/api/v1/endpoint-enrollment/exchange",
+        json={
+            "code": enrollment["enrollment_code"],
+            "platform": "ios",
+            "installation_id": str(uuid4()),
+            "hostname": "iOS phone",
+            "device_class": "phone",
+        },
+    )
+    assert ios_exchange.status_code == 201, ios_exchange.text
+    mobile_automation = client.patch(
+        f"/api/v1/endpoints/{exchange.json()['endpoint_id']}/automation",
+        json={"enabled": True},
+    )
+    assert mobile_automation.status_code == 409
     revoked = client.delete(
         f"/api/v1/admin/endpoint-enrollments/{enrollment['id']}"
     )
     assert revoked.status_code == 204
-    replay = client.post(
+    further_enrollment = client.post(
         "/api/v1/endpoint-enrollment/exchange",
         json={
             "code": enrollment["enrollment_code"],
-            "platform": "macos",
+            "platform": "ios",
             "installation_id": str(uuid4()),
-            "hostname": "Unenrolled Mac",
+            "hostname": "iOS phone",
+            "device_class": "phone",
         },
     )
-    assert replay.status_code == 422
+    assert further_enrollment.status_code == 422
+    credential_revoked = client.post(
+        f"/api/v1/endpoints/{exchange.json()['endpoint_id']}/credential/revoke"
+    )
+    assert credential_revoked.status_code == 200
+
+
+def test_expired_universal_enrollment_token_cannot_be_exchanged():
+    client = TestClient(app)
+    register_tenant_admin(
+        client,
+        "expired-enrollment-admin",
+        "expired-enrollment-password",
+        "Expired Enrollment Tenant",
+    )
+    created = client.post("/api/v1/admin/endpoint-enrollments", json={})
+    assert created.status_code == 201, created.text
+    enrollment = created.json()
+
+    with SessionLocal() as db:
+        stored = db.get(EndpointEnrollment, enrollment["id"])
+        stored.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        db.commit()
+
+    exchange = client.post(
+        "/api/v1/endpoint-enrollment/exchange",
+        json={
+            "code": enrollment["enrollment_code"],
+            "platform": "ios",
+            "installation_id": str(uuid4()),
+            "hostname": "Expired iPhone",
+            "device_class": "phone",
+        },
+    )
+    assert exchange.status_code == 422
+
+
+def test_enrollment_listing_is_tenant_scoped_and_does_not_reveal_token():
+    client = TestClient(app)
+    register_tenant_admin(
+        client,
+        "enrollment-list-owner",
+        "enrollment-list-password",
+        "Enrollment List Tenant",
+    )
+    created = client.post("/api/v1/admin/endpoint-enrollments", json={})
+    assert created.status_code == 201, created.text
+    enrollment = created.json()
+
+    listed = client.get("/api/v1/admin/endpoint-enrollments")
+    assert listed.status_code == 200, listed.text
+    assert listed.headers["cache-control"] == "private, no-store"
+    assert listed.json() == [
+        {
+            "id": enrollment["id"],
+            "created_at": listed.json()[0]["created_at"],
+            "expires_at": enrollment["expires_at"],
+            "revoked_at": None,
+            "enrollment_count": 0,
+            "last_used_at": None,
+        }
+    ]
+    assert "enrollment_code" not in listed.json()[0]
+    assert "code_hash" not in listed.json()[0]
+
+    other_client = TestClient(app)
+    register_tenant_admin(
+        other_client,
+        "other-enrollment-list-owner",
+        "other-enrollment-list-password",
+        "Other Enrollment Tenant",
+    )
+    assert other_client.get("/api/v1/admin/endpoint-enrollments").json() == []
+    assert other_client.delete(
+        f"/api/v1/admin/endpoint-enrollments/{enrollment['id']}"
+    ).status_code == 404
 
 
 def test_automation_enable_requires_fresh_sample_and_enrolled_macos_endpoint():
@@ -211,7 +375,7 @@ def test_automation_enable_requires_fresh_sample_and_enrolled_macos_endpoint():
     )
     enrollment = client.post(
         "/api/v1/admin/endpoint-enrollments",
-        json={"platform": "macos"},
+        json={},
     ).json()
     installation_id = str(uuid4())
     credentials = client.post(

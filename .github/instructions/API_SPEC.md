@@ -198,11 +198,12 @@ response is marked `private, no-store`.
 ### 2.7 GET /api/v1/agent/setup
 
 Returns the authenticated user's agent install command and token for the React
-agent setup page. Requires an assigned tenant, except for the Super Admin. A
-Super Admin may pass `tenant_id` to select that tenant's token; the response
-includes the system-wide token separately as `global_token`. The generated
-one-line PowerShell command downloads the installer over HTTPS and uses
-`iex`; the response is marked `private, no-store`.
+setup page. Requires an assigned tenant, except for the Super Admin. A Super
+Admin may pass `tenant_id` to select a workspace. The response contains only
+the generated one-line PowerShell install command and whether the user is a
+Super Admin; it does not expose tenant or global agent credentials. The
+command downloads the installer over HTTPS and uses `iex`; the response is
+marked `private, no-store`.
 
 The following source downloads do not require a browser session and contain no
 credentials:
@@ -339,31 +340,40 @@ not infer that rule evaluation or device control completed from the HTTP
 acceptance response. Monitor outbox age, Kafka consumer lag, dead-letter volume,
 and command completion.
 
-The PowerShell telemetry payload now includes `hardware_uuid`; its bearer-token
-flow is unchanged.
+Legacy PowerShell telemetry includes `hardware_uuid` and continues to use the
+existing tenant/global bearer-token flow. New Windows installs use
+platform-independent enrollment and a per-install credential instead.
 Kafka-specific service settings use the `CHARGEPILOT_` prefix.
 
-The first macOS client is a Swift foreground CLI in `agent/macos`. It reads
-power state through Apple's power-source APIs, stores the per-install
-credential in Keychain, sends no system hostname/IP/serial, and reports every
-five minutes while it is running. Signed menu-bar/login-item distribution
-remains future work. Android and iOS use the same backend schema but have no
-native clients yet; enrollment is disabled for them by default. Their
-platforms can be enabled with `CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS` after
-their client and real-device behavior are reviewed.
+The PowerShell and macOS agents exchange a tenant-scoped enrollment token for
+a per-install credential. Windows protects the saved credential with Windows
+user-scoped DPAPI; macOS stores it in Keychain. New Windows enrollments use an
+installation UUID rather than a hardware UUID. Existing Windows agents using
+the legacy shared token remain compatible during migration. Android and iOS
+native clients are not shipped, although the exchange and telemetry contracts
+accept all four platforms by default. Automation remains separately gated to
+the configured Windows/macOS allow-list.
 
 #### Endpoint enrollment and automation operations
 
 - `POST /api/v1/admin/endpoint-enrollments` creates a tenant-scoped,
-  platform-specific, 15-minute single-use code. Tenant admins/managers are
-  scoped to their tenant; Super Admins must select a tenant. The raw code is
-  returned once with `Cache-Control: private, no-store`.
+  high-entropy, platform-independent token valid for 24 hours. One token can
+  enroll multiple devices until expiry or revocation. Tenant admins/managers
+  are scoped to their tenant; Super Admins must select a tenant. The raw token
+  is returned once with `Cache-Control: private, no-store`.
+- `GET /api/v1/admin/endpoint-enrollments` lists the latest 50 token records
+  for the authorized tenant scope, including expiry, revocation, and usage
+  metadata. Raw tokens and hashes are never returned.
 - `DELETE /api/v1/admin/endpoint-enrollments/{enrollment_id}` revokes an
-  unused code before it expires.
+  enrollment token, including after it has enrolled devices. Revocation stops
+  future exchanges only; revoke individual endpoint credentials to stop
+  already-enrolled devices.
 - `POST /api/v1/endpoint-enrollment/exchange` exchanges the code for a
   backend-created endpoint ID and per-install credential. The raw credential
-  is returned once; only its SHA-256 hash is stored. The app must store it in
-  Keychain/Keystore. Codes cannot be replayed or used for another platform.
+  is returned once; only its SHA-256 hash is stored. Agents persist the
+  credential locally (Windows user-scoped DPAPI or macOS Keychain). Each
+  exchange creates a distinct endpoint identity bound to the request's
+  platform and installation UUID.
 - `POST /api/v1/endpoints/{endpoint_id}/credential/revoke` invalidates an
   enrolled endpoint credential and disables its automation. Re-enrollment
   currently requires deleting the old endpoint and creating a new
@@ -371,10 +381,12 @@ their client and real-device behavior are reviewed.
 - `PATCH /api/v1/endpoints/{endpoint_id}/automation` accepts
   `{"enabled":true|false}`. Enabling requires a recent sample and a platform
   allowed by `CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`.
-- Defaults are configured in `.env.example`: `windows,macos` are enabled for
-  telemetry and automation; Android/iOS remain disabled. Automation max age
-  defaults to 600 seconds, ingress max age to seven days, and future skew to
-  300 seconds.
+- Defaults are configured in `.env.example`: Windows, macOS, Android, and iOS
+  are enabled for enrollment and telemetry. Automation remains limited to
+  Windows/macOS by default; every enrolled endpoint starts with automation
+  disabled and requires explicit admin opt-in after a fresh sample. Automation
+  max age defaults to 600 seconds, ingress max age to seven days, and future
+  skew to 300 seconds.
 
 ### 3.4 GET /api/v1/endpoints
 
@@ -421,6 +433,16 @@ assignment, reconfigure the laptop agent with the tenant-specific token.
 ```json
 {"tenant_id": "<tenant-uuid>"}
 ```
+
+### 3.6 GET /api/v1/endpoints/agent-config
+
+Returns the endpoint's current agent configuration and mappings. Newly enrolled
+agents authenticate with their per-install credential and must supply the
+matching `endpoint_id` query parameter. The credential resolves to one endpoint
+and tenant; a mismatched endpoint ID is not disclosed. Legacy Windows agents
+may continue authenticating with their tenant/global token and identifying the
+endpoint by `hardware_uuid` or hostname during migration. This route never
+returns an endpoint credential.
 
 ## 4. Device API
 

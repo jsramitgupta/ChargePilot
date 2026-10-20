@@ -38,22 +38,26 @@ browser interactions:
 | `/profile` | Manage account details, display time zone, and password |
 | `/users` | Invite people by email and manage roles and accounts |
 | `/tenants` | Manage tenants as a Super Admin |
-| `/agent` | Install and configure the laptop telemetry agent |
+| `/agent` | Create device enrollment tokens and install available telemetry agents |
 | `/account` | Redirect to the shared account settings page |
 | `/support` | Send a support request |
 
 All routes except sign-in, registration, and email verification require the
 authenticated session. Keep tenant authorization and automation decisions in
 the backend; presentation must not become an authorization or rule boundary.
-The Set up a laptop page supports the Windows PowerShell agent and the
-foreground macOS Swift CLI. Windows keeps its authenticated one-line installer
-and tenant token flow. macOS uses a 15-minute, single-use enrollment code and
-an endpoint-scoped credential; the source archive contains no credentials.
-Android and iOS native clients remain planned and must not be shown as
-available installation choices until their clients are validated. The
-Endpoints page shows platform and enrollment state, offers credential
-revocation, and allows admins to opt endpoints into automation only when the
-backend reports an allowed platform and fresh sample. The Connectors page supports a published
+The Set up a device page creates a tenant-scoped, platform-independent,
+high-entropy enrollment token, shown once and valid for 24 hours across
+multiple devices. Windows and macOS agents exchange it for a per-install
+credential and persist that credential using Windows user-scoped DPAPI or
+macOS Keychain. Existing Windows agents using shared tenant tokens remain
+compatible during migration. Android and iOS may use the backend exchange
+contract, but native clients are not shipped and must not be presented as
+available installers. The page lists token expiry, revocation, and enrollment
+count without exposing raw tokens. Revoking a token prevents new exchanges;
+admins separately revoke already-issued endpoint credentials. The Endpoints
+page shows platform and enrollment state and allows admins to opt endpoints
+into automation only when the backend reports an allowed platform and fresh
+sample. The Connectors page supports a published
 Docker Compose image with environment-based one-time enrollment and
 Docker-managed persistent storage, and a one-line Python installer that
 prompts locally for the enrollment code. Connector and agent source downloads

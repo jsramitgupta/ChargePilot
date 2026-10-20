@@ -320,11 +320,11 @@ These tests are the baseline regression suite for the core automation path and s
 ## 10. Cross-platform telemetry status
 
 The live telemetry schema supports `windows`, `macos`, `android`, and `ios`
-metadata while retaining the legacy Windows payload and tenant-token flow.
-Enrolled platforms exchange a short-lived, single-use tenant code for a
-backend endpoint ID and hash-only per-install credential. Windows and macOS
-are enabled by default; Android and iOS are gated until their clients are
-implemented and validated.
+metadata while retaining the legacy Windows payload for existing agents.
+New agents exchange a reusable, 24-hour, tenant-scoped token for a backend
+endpoint ID and hash-only per-install credential. All four platforms are
+enabled for enrollment and telemetry by default; Android and iOS native
+clients have not been implemented or validated.
 
 New enrolled endpoints default to automation disabled. An authorized admin
 must enable endpoint automation after a fresh report; API and worker enforce

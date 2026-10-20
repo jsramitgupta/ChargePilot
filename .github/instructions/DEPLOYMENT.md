@@ -520,6 +520,15 @@ It removes enrollment rows and platform identity/eligibility data and converts
 unknown AC values to `false`; only use it after disabling new clients and
 accepting that data loss. Test both scripts against a backup before production.
 
+Universal endpoint enrollment adds a nullable enrollment platform and
+`enrollment_count` / `last_used_at` metadata so one hash-only token can enroll
+multiple devices across platforms for 24 hours. For existing PostgreSQL
+deployments, back up and verify the database, then apply
+`deploy/migrations/20261020_universal_endpoint_enrollment.sql` through the
+private database service before deploying the application. Its rollback
+invalidates all universal tokens and converts them to expired Windows-scoped
+records; already enrolled endpoint credentials remain intact.
+
 Laptop endpoints are identified by the Windows
 `Win32_ComputerSystemProduct.UUID`; hostname remains mutable display and
 diagnostic data. The endpoint `hardware_uuid` column is nullable for existing
@@ -644,14 +653,17 @@ token; the global token is only for unassigned endpoints.
 
 ### macOS agent
 
-On **Set up a laptop**, choose the correct tenant and create a one-time
-15-minute macOS enrollment code. Download the source ZIP, build with Swift 5.9+
-on macOS 13+, and follow `agent/macos/README.md`. The code is entered
-interactively and is not saved; the per-install credential is stored in the
-user's Keychain. The CLI reports only while running and the Mac is awake; a
-signed login-item app is not yet included. Revoke an enrolled credential from
-the **Endpoints** page. New Mac endpoints remain telemetry-only until an
-authorized admin enables automation after a fresh sample.
+On **Set up a device**, choose the correct tenant and create a reusable
+24-hour enrollment token. The same token can enroll multiple devices across
+enabled platforms until it expires or is revoked. The raw value is shown once.
+Download the macOS source ZIP, build with Swift 5.9+ on macOS 13+, and follow
+`agent/macos/README.md`. Enter the token interactively; it is not saved. The
+per-install credential is stored in the user's Keychain. The CLI reports only
+while running and the Mac is awake; a signed login-item app is not included.
+Revoke a token to prevent new enrollments and revoke individual endpoint
+credentials from the **Endpoints** page to stop already-enrolled devices.
+New endpoints remain telemetry-only until an authorized admin enables
+automation after a fresh sample.
 
 Keep the connector on the switch LAN and allow outbound HTTPS plus local Tuya
 traffic (UDP 6666, 6667, 7000 and TCP 6668). Assign switches to the enrolled

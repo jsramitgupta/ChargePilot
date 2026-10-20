@@ -80,9 +80,10 @@ The product contains:
 
 ### Telemetry ingestion
 
-The Windows agent posts JSON telemetry to `/api/v1/telemetry` using the
-existing tenant token. Enrolled macOS agents use a tenant-scoped one-time
-enrollment code and a per-install credential stored in Keychain.
+New Windows and macOS agents exchange a tenant-scoped, reusable 24-hour
+enrollment token for a per-install credential; Windows protects it with
+user-scoped DPAPI and macOS stores it in Keychain. Existing Windows agents
+using tenant-wide tokens remain compatible during migration.
 
 Expected payload:
 
@@ -107,20 +108,27 @@ consumers require endpoint opt-in, an allowed platform, and a fresh sample
 before evaluating mappings. An HTTP accepted response confirms durable
 ingestion, not completed switch control. Monitor outbox age, consumer lag,
 dead-letter events, and connector command outcomes. Sign in to ChargePilot and
-open **Set up a laptop** to access the Windows installer or create a
-single-use macOS enrollment code. Windows token rotation behavior remains
-unchanged.
+open **Set up a device** to create a reusable, 24-hour enrollment token. It
+can enroll multiple devices across platforms and is shown only once; revoke
+the token to prevent future exchanges. Existing Windows agents remain
+compatible with legacy tenant tokens while new installs use per-install
+credentials.
 
-Extract `chargepilot-agent-scripts.zip`, open PowerShell in that folder, and run the displayed command. The installer saves the token in the local agent configuration and registers the recurring scheduled task. The ZIP download requires an authenticated ChargePilot session and does not contain the tenant token.
+Extract `chargepilot-agent-scripts.zip`, open PowerShell in that folder, and
+run the displayed command. The installer prompts for the enrollment token,
+exchanges it for a per-install credential, protects that credential with
+Windows user-scoped DPAPI, and registers the recurring scheduled task. The ZIP
+download requires an authenticated ChargePilot session and contains no
+credential.
 
-For macOS, the setup page provides the Swift source archive and a 15-minute
-enrollment code. Build the package with Swift 5.9+ on macOS 13+, enroll using
-the explicit device label, and start its foreground reporting process. The
-agent omits IP address and system hostname, stores the credential in Keychain,
-and sends no report while the Mac sleeps or the process is stopped. New Mac
-endpoints remain telemetry-only until an authorized administrator enables
-automation after a fresh report. Android/iOS clients are not yet implemented
-and their enrollment is disabled by default.
+For macOS, the setup page provides the Swift source archive. Build the package
+with Swift 5.9+ on macOS 13+, enter the enrollment token when prompted, enroll
+using the explicit device label, and start its foreground reporting process.
+The agent omits IP address and system hostname, stores the credential in
+Keychain, and sends no report while the Mac sleeps or the process is stopped.
+New endpoints remain telemetry-only until an authorized administrator
+enables automation after a fresh report. Android/iOS native clients are not
+yet implemented, although the enrollment and telemetry API accepts them.
 
 ### Tenant isolation and administrator assignment
 

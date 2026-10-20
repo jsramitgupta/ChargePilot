@@ -3,9 +3,9 @@
 ## 1. Product goal
 
 Create an iOS telemetry companion for ChargePilot that sends battery readings
-when active. Backend enrollment and schema are implemented; iOS enrollment
-must be enabled only after client and real-device validation. Background
-delivery remains opportunistic.
+when active. Backend enrollment and schema are implemented; the shared API
+accepts iOS enrollment, but the native client must be validated before release.
+Background delivery remains opportunistic.
 
 ## 2. User value
 

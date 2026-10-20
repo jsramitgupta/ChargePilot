@@ -20,7 +20,7 @@ def test_docker_image_includes_scripts_required_by_agent_download():
     assert "COPY agent ./agent" in dockerfile.read_text(encoding="utf-8")
 
 
-def test_agent_setup_api_and_download_provide_tenant_installation(monkeypatch):
+def test_agent_setup_api_returns_credential_free_install_command_and_enrollment_agent(monkeypatch):
     client = TestClient(app)
     username = f"agent_setup_{uuid4().hex[:8]}"
     register_tenant_admin(client, username, "tenant-agent-password")
@@ -33,10 +33,12 @@ def test_agent_setup_api_and_download_provide_tenant_installation(monkeypatch):
     assert setup.status_code == 200, setup.text
     assert setup.headers["cache-control"] == "private, no-store"
     payload = setup.json()
-    assert payload["token"]
-    assert payload["token_scope"] == f"tenant: {username} tenant"
-    assert f"-EndpointToken '{payload['token']}'" in payload["install_command"]
-    assert payload["can_rotate_tenant_token"] is True
+    assert set(payload) == {"install_command", "is_super_admin"}
+    assert "-ServerUrl " in payload["install_command"]
+    assert "-EndpointToken " not in payload["install_command"]
+    with SessionLocal() as db:
+        tenant = db.query(Tenant).filter(Tenant.name == f"{username} tenant").one()
+        assert tenant.agent_token == ""
     monkeypatch.setattr(settings, "frontend_url", "")
     assert client.get("/agent", follow_redirects=False).headers["location"] == "/agent"
 
@@ -46,8 +48,11 @@ def test_agent_setup_api_and_download_provide_tenant_installation(monkeypatch):
     assert download.headers["cache-control"] == "public, max-age=300"
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
         assert set(archive.namelist()) == {"BatteryAgent.ps1", "CreateAgentScheduledTask.ps1"}
-        assert b"hardware_uuid = $hardwareUuid" in archive.read("BatteryAgent.ps1")
-        assert payload["token"].encode() not in archive.read("CreateAgentScheduledTask.ps1")
+        battery_agent = archive.read("BatteryAgent.ps1")
+        installer = archive.read("CreateAgentScheduledTask.ps1")
+        assert b"installation_id = $InstallationId" in battery_agent
+        assert b"protectedEndpointToken" in installer
+        assert b"-EndpointToken " not in installer
     assert "iex" in payload["install_command"]
     assert "$(irm" in payload["install_command"]
 
@@ -61,6 +66,7 @@ def test_agent_setup_uses_configured_public_api_origin(monkeypatch):
 
     assert setup.status_code == 200
     assert "-ServerUrl 'https://api.example.test'" in setup.json()["install_command"]
+    assert "-EndpointToken " not in setup.json()["install_command"]
 
 
 def test_agent_setup_requires_authentication_but_agent_sources_are_public():

@@ -116,8 +116,9 @@ If this project has to be rebuilt from scratch, the safe order is:
 7. add SmartLife QR onboarding and local-key matching flow
 8. add the React UI and SSE for operational visibility; follow FRONTEND_DESIGN.md for route, typography, and theme decisions
 9. Android and iOS native reporters can use the shipped platform-aware
-   backend, but remain disabled by default until each client, data privacy
-   behavior, and real-device reporting cadence are reviewed and validated
+   backend contract. Their API platform values are enabled by default, but
+   native clients remain unavailable until privacy behavior and real-device
+   reporting cadence are reviewed and validated.
 
 This order preserves the local-first architecture and prevents planned mobile
 designs from being mistaken for working server features.

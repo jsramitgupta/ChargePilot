@@ -1,8 +1,9 @@
 # Android Agent Stream
 
 This stream specifies the planned native Android telemetry client. The
-platform-aware backend schema and enrollment flow are implemented, but no
-Android client is shipped and Android enrollment remains disabled by default.
+platform-aware backend schema and reusable enrollment flow are implemented;
+the shared API accepts Android enrollment, but no native Android client is
+shipped or validated.
 
 ## Scope
 
@@ -10,8 +11,7 @@ Android client is shipped and Android enrollment remains disabled by default.
 - use Android battery APIs and WorkManager for best-effort uploads
 - use a random installation UUID and the per-install enrollment
   credential; do not collect hardware identifiers
-- use the live ChargePilot schema after an operator enables Android in
-  `CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS`
+- use the live ChargePilot schema and tenant-scoped enrollment token
 - show local last-success status; backend reporting dashboards require
   separate server/UI implementation
 

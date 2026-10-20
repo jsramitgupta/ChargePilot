@@ -1,7 +1,6 @@
 [CmdletBinding()]
 param(
     [string]$ServerUrl = "http://localhost:8000",
-    [string]$EndpointToken = "test-endpoint-token",
     [string]$AgentVersion = "1.0.0",
     [int]$IntervalMinutes = 5,
     [string]$TaskName = "ChargePilotBatteryAgent",
@@ -38,16 +37,12 @@ function Get-CurrentTaskUserId {
 }
 
 function Remove-ChargePilotTask {
-    param(
-        [string]$TaskNameToRemove
-    )
+    param([string]$TaskNameToRemove)
 
     $taskExists = Get-ScheduledTask -TaskName $TaskNameToRemove -ErrorAction SilentlyContinue
-    if (-not $taskExists) {
-        return
+    if ($taskExists) {
+        Unregister-ScheduledTask -TaskName $TaskNameToRemove -Confirm:$false -ErrorAction Stop | Out-Null
     }
-
-    Unregister-ScheduledTask -TaskName $TaskNameToRemove -Confirm:$false -ErrorAction Stop | Out-Null
 }
 
 function Remove-ChargePilotFiles {
@@ -57,30 +52,126 @@ function Remove-ChargePilotFiles {
         [string]$LegacyConfigFilePath
     )
 
-    if (Test-Path -LiteralPath $DestinationDir) {
-        Remove-Item -LiteralPath $DestinationDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
-
-    if (Test-Path -LiteralPath $ConfigFilePath) {
-        Remove-Item -LiteralPath $ConfigFilePath -Force -ErrorAction SilentlyContinue
-    }
-
-    if (Test-Path -LiteralPath $LegacyConfigFilePath) {
-        Remove-Item -LiteralPath $LegacyConfigFilePath -Force -ErrorAction SilentlyContinue
+    foreach ($path in @($DestinationDir, $ConfigFilePath, $LegacyConfigFilePath)) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+        }
     }
 }
 
-function Sanitize-ConfigValue {
-    param(
-        [AllowEmptyString()]
-        [string]$Value
-    )
+function Protect-AgentCredential {
+    param([string]$Value)
 
-    if ($null -eq $Value) {
-        return ""
+    $secureValue = ConvertTo-SecureString -String $Value -AsPlainText -Force
+    return ConvertFrom-SecureString -SecureString $secureValue
+}
+
+function ConvertFrom-SecureInput {
+    param([Security.SecureString]$Value)
+
+    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Value)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+    }
+    finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+    }
+}
+
+function Set-PrivateConfigPermissions {
+    param([string]$ConfigDirectory, [string]$ConfigFilePath)
+
+    $userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $userGrant = "*${userSid}:(OI)(CI)F"
+    & icacls.exe $ConfigDirectory /inheritance:r /grant:r $userGrant | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to restrict access to the ChargePilot credential directory."
+    }
+    if (Test-Path -LiteralPath $ConfigFilePath) {
+        & icacls.exe $ConfigFilePath /inheritance:r /grant:r "*${userSid}:F" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Unable to restrict access to the ChargePilot credential file."
+        }
+    }
+}
+
+function Get-EnrolledAgentConfig {
+    param([string]$ServerUrlValue, [string]$ConfigFilePath, [string]$AgentVersionValue)
+
+    if (Test-Path -LiteralPath $ConfigFilePath) {
+        $existing = Get-Content -LiteralPath $ConfigFilePath -Raw | ConvertFrom-Json
+        if (
+            $existing.endpointId -and
+            $existing.installationId -and
+            $existing.protectedEndpointToken -and
+            ([string]$existing.serverUrl).TrimEnd("/") -eq $ServerUrlValue.TrimEnd("/")
+        ) {
+            $existing.agentVersion = $AgentVersionValue
+            return $existing
+        }
     }
 
-    return $Value.Trim().Trim("'").Trim('"')
+    $serverUri = [Uri]$ServerUrlValue
+    $isLocalhost = $serverUri.Host -in @("localhost", "127.0.0.1", "::1")
+    if ($serverUri.Scheme -ne "https" -and -not $isLocalhost) {
+        throw "Enrollment requires HTTPS. Plain HTTP is allowed only for localhost development."
+    }
+
+    $secureCode = Read-Host "Paste the 24-hour ChargePilot enrollment token" -AsSecureString
+    try {
+        $enrollmentCode = ConvertFrom-SecureInput -Value $secureCode
+    }
+    finally {
+        $secureCode.Dispose()
+    }
+    if ([string]::IsNullOrWhiteSpace($enrollmentCode)) {
+        throw "An enrollment token is required."
+    }
+
+    $installationId = [guid]::NewGuid().ToString("D").ToLowerInvariant()
+    $requestBody = @{
+        code = $enrollmentCode
+        platform = "windows"
+        installation_id = $installationId
+        hostname = $env:COMPUTERNAME
+        device_class = "laptop"
+    } | ConvertTo-Json -Compress
+    $enrollmentCode = $null
+
+    try {
+        $result = Invoke-RestMethod `
+            -Uri "$($ServerUrlValue.TrimEnd('/'))/api/v1/endpoint-enrollment/exchange" `
+            -Method Post `
+            -ContentType "application/json" `
+            -Body $requestBody `
+            -TimeoutSec 30
+    }
+    catch {
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+        if ($statusCode) {
+            throw "Enrollment failed with HTTP $statusCode. Check the token, expiry, server URL, and enabled platform settings."
+        }
+        throw "Enrollment failed: $($_.Exception.Message)"
+    }
+    finally {
+        $requestBody = $null
+    }
+
+    if (-not $result.endpoint_id -or -not $result.installation_id -or -not $result.credential) {
+        throw "The server returned an incomplete endpoint credential response."
+    }
+
+    return [pscustomobject]@{
+        serverUrl = $ServerUrlValue.TrimEnd("/")
+        endpointId = [string]$result.endpoint_id
+        installationId = [string]$result.installation_id
+        platform = "windows"
+        protectedEndpointToken = Protect-AgentCredential -Value ([string]$result.credential)
+        agentVersion = $AgentVersionValue
+    }
 }
 
 function Install-ChargePilotAgent {
@@ -89,12 +180,17 @@ function Install-ChargePilotAgent {
         [string]$SourceScriptPath,
         [string]$ConfigFilePath,
         [string]$ServerUrlValue,
-        [string]$EndpointTokenValue,
         [string]$AgentVersionValue
     )
 
-    Remove-ChargePilotFiles -DestinationDir $DestinationDir -ConfigFilePath $ConfigFilePath -LegacyConfigFilePath $LegacyConfigPath
+    $agentConfig = Get-EnrolledAgentConfig `
+        -ServerUrlValue $ServerUrlValue `
+        -ConfigFilePath $ConfigFilePath `
+        -AgentVersionValue $AgentVersionValue
 
+    if (Test-Path -LiteralPath $DestinationDir) {
+        Remove-Item -LiteralPath $DestinationDir -Recurse -Force -ErrorAction Stop
+    }
     New-Item -ItemType Directory -Path $DestinationDir -Force | Out-Null
 
     $agentDestination = Join-Path $DestinationDir "BatteryAgent.ps1"
@@ -107,20 +203,18 @@ function Install-ChargePilotAgent {
     }
 
     $configDir = Split-Path -Parent $ConfigFilePath
-    if (-not (Test-Path -Path $configDir)) {
+    if (-not (Test-Path -LiteralPath $configDir)) {
         New-Item -ItemType Directory -Path $configDir -Force | Out-Null
     }
 
-    $config = [ordered]@{
-        serverUrl = Sanitize-ConfigValue -Value $ServerUrlValue
-        endpointToken = Sanitize-ConfigValue -Value $EndpointTokenValue
-        agentVersion = Sanitize-ConfigValue -Value $AgentVersionValue
+    $agentConfig | ConvertTo-Json -Depth 5 | Set-Content -Path $ConfigFilePath -Encoding UTF8
+    Set-PrivateConfigPermissions -ConfigDirectory $configDir -ConfigFilePath $ConfigFilePath
+    if (Test-Path -LiteralPath $LegacyConfigPath) {
+        Remove-Item -LiteralPath $LegacyConfigPath -Force -ErrorAction Stop
     }
 
-    $config | ConvertTo-Json -Depth 5 | Set-Content -Path $ConfigFilePath -Encoding UTF8
-
     Write-Host "Agent installed to: $DestinationDir"
-    Write-Host "Config stored at: $ConfigFilePath"
+    Write-Host "Per-install credential stored with Windows user protection at: $ConfigFilePath"
 }
 
 $scriptPath = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
@@ -140,23 +234,26 @@ if ($DeleteOnly) {
 if ($DeleteExisting) {
     Remove-ChargePilotTask -TaskNameToRemove $TaskName
 }
-else {
-    $existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-    if ($existingTask) {
-        Remove-ChargePilotTask -TaskNameToRemove $TaskName
-    }
+
+Install-ChargePilotAgent `
+    -DestinationDir $InstallDir `
+    -SourceScriptPath $scriptPath `
+    -ConfigFilePath $ConfigPath `
+    -ServerUrlValue $ServerUrl `
+    -AgentVersionValue $AgentVersion
+
+$existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if ($existingTask) {
+    Remove-ChargePilotTask -TaskNameToRemove $TaskName
 }
 
-Install-ChargePilotAgent -DestinationDir $InstallDir -SourceScriptPath $scriptPath -ConfigFilePath $ConfigPath -ServerUrlValue $ServerUrl -EndpointTokenValue $EndpointToken -AgentVersionValue $AgentVersion
-
 $installedScriptPath = Join-Path $InstallDir "BatteryAgent.ps1"
-$taskAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument (
-    ('-NoProfile -ExecutionPolicy Bypass -File "{0}" -ServerUrl "{1}" -EndpointToken "{2}" -AgentVersion "{3}"' -f
-        $installedScriptPath,
-        $ServerUrl,
-        $EndpointToken,
-        $AgentVersion)
-)
+$taskArguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -ServerUrl "{1}" -AgentVersion "{2}" -ConfigPath "{3}"' -f `
+    $installedScriptPath,
+    $ServerUrl,
+    $AgentVersion,
+    $ConfigPath
+$taskAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArguments
 
 $firstRunTime = (Get-Date).AddSeconds(10)
 $taskTrigger = New-ScheduledTaskTrigger -Once -At $firstRunTime -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)

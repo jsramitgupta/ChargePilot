@@ -143,7 +143,11 @@ states in the DPS payload; the requested channel is selected from that result.
 
 The connector polls every few seconds. Commands expire after five minutes and
 are leased with bounded retries. A queued or leased command is not a successful
-device action. Enrollment codes are single-use and expire after 15 minutes.
+device action. Connector enrollment codes are single-use and expire after 15
+minutes. Endpoint enrollment tokens are different: they are tenant-scoped,
+platform-independent, reusable for 24 hours, and can be revoked to prevent
+future endpoint exchanges. Revoke individual endpoint credentials to stop
+devices that already enrolled.
 
 ## 6. Real payload debugging facts from the codebase
 
@@ -214,16 +218,21 @@ uvicorn app.main:app --host 127.0.0.1 --port 8010
   evaluation; devices without a connector retain the direct local-host path.
 - `CHARGEPILOT_ENCRYPTION_KEY` must match the key used to encrypt stored local
   keys. Restore it with database backups.
-- Windows uses the existing tenant-token PowerShell agent. macOS uses the
-  foreground Swift CLI and per-install Keychain credential; new Mac endpoints
-  start with automation disabled. Android/iOS clients remain planned and
-  enrollment is disabled by default. See
+- New Windows agents use reusable 24-hour enrollment tokens and
+  per-install credentials protected with Windows user-scoped DPAPI; existing
+  Windows shared-token agents remain compatible during migration. macOS uses
+  the foreground Swift CLI and per-install Keychain credential. New endpoints
+  start with automation disabled. Android/iOS native clients remain planned,
+  although the API accepts their platform values by default. See
   `.github/instructions/platform-agents/SERVER_SIDE_CONFIG.md` for current
   configuration and rollout behavior.
 - For an existing PostgreSQL database, apply
   `deploy/migrations/20261020_cross_platform_telemetry.sql` from a backup
   before deploying the new code. Startup `create_all()` is not a substitute
   for this reviewed migration.
+- Apply `deploy/migrations/20261020_universal_endpoint_enrollment.sql` from a
+  verified backup before deploying universal multi-device 24-hour enrollment
+  to an existing PostgreSQL database.
 - If telemetry is accepted but an endpoint does not change a switch, check
   endpoint opt-in, platform allow-list, sample age, and worker lag before
   changing battery thresholds.

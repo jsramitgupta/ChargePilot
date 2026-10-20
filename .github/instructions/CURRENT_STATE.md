@@ -4,13 +4,13 @@ This file is the short operational summary for the repository as it stands today
 
 ## Product
 ChargePilot is a cloud-capable, local-first battery automation platform. The
-backend supports Windows and enrolled macOS telemetry. The Windows PowerShell
-agent remains compatible with tenant-wide tokens; the first macOS client is a
-Swift foreground CLI using one-time tenant-scoped enrollment and a revocable
-per-install credential. Android and iOS use the additive API contract but
-their native clients are still planned. The backend monitors endpoint battery
-state and controls local Tuya switches through an outbound-HTTPS site
-connector on each device LAN.
+backend supports Windows and enrolled macOS telemetry. New Windows and macOS
+installs use a tenant-scoped, reusable 24-hour enrollment token to obtain a
+revocable per-install credential; existing Windows agents remain compatible
+with tenant-wide tokens during migration. Android and iOS can use the shared
+enrollment/telemetry contract, but their native clients are still planned.
+The backend monitors endpoint battery state and controls local Tuya switches
+through an outbound-HTTPS site connector on each device LAN.
 
 ## Core runtime stack
 - FastAPI
@@ -67,27 +67,30 @@ accepts the one-time enrollment code through
 in a Docker-managed volume without host-directory setup. The Python installer
 prompts for the code and saves its credential locally. The source archive
 remains public for manual installation.
-The Set up a laptop page retains the existing Windows installer and can create
-a single-use macOS enrollment code. The public macOS source ZIP contains no
-credentials. Enrolled Mac endpoints begin with automation disabled; admins
-can opt in only after a fresh sample and when the platform is in the server
-automation allow-list.
+The Set up a device page creates a platform-independent enrollment token,
+shows its raw value once, and lists expiry, revocation, and usage metadata.
+Tokens can enroll multiple endpoints for 24 hours and admins can revoke them
+to prevent further exchanges. Windows stores its endpoint credential with
+Windows user-scoped DPAPI; macOS stores it in Keychain. New endpoints begin
+with automation disabled; admins can opt in only after a fresh sample and
+when the platform is in the server automation allow-list.
 
 ## Current primary workflows
-1. The Windows PowerShell agent posts its hardware UUID, current hostname, and
-   battery telemetry to `/api/v1/telemetry` using the tenant token. The macOS
-   Swift CLI exchanges a tenant-scoped one-time code for a backend endpoint ID
-   and per-install credential, stores the credential in Keychain, and uploads
-   explicit-label battery telemetry while running.
+1. New Windows and macOS agents exchange a tenant-scoped, reusable 24-hour
+   enrollment token for a backend endpoint ID and per-install credential.
+   Windows protects the credential with user-scoped DPAPI; macOS uses Keychain.
+   Existing Windows agents continue using the legacy shared-token protocol
+   until reinstalled with a new enrollment token.
 2. API validates the legacy Windows token or resolves the per-install
    credential to its endpoint and tenant. It validates timestamp age/future
    skew, prevents delayed samples from regressing the current snapshot, and
    atomically stores the snapshot plus a
    transactional outbox event in PostgreSQL. Existing UUID-less endpoints are
    retained and linked to a UUID on matching tenant-scoped telemetry.
-   The global Super Admin token registers unassigned endpoints only. A Super
-   Admin can assign an unassigned endpoint to a tenant; that laptop must then
-   use the tenant-specific agent token.
+   Legacy global-token telemetry registers unassigned endpoints only. A Super
+   Admin can assign an unassigned endpoint to a tenant; existing legacy agents
+   must then use that tenant's token. Newly enrolled devices remain
+   tenant-bound to the enrollment token's workspace.
 3. The outbox relay publishes events to Kafka in endpoint-key order.
 4. Automation consumers evaluate active mappings using battery hysteresis and
    cooldown rules only when the endpoint is opted in, its platform is
@@ -207,18 +210,20 @@ documented in [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md)
 ## Remaining platform-agent work
 
 Android and iOS native clients remain follow-up work. Their platform values
-are accepted only when explicitly enabled in server configuration; they are
-not yet offered for enrollment by default. Read
+are accepted by the shared enrollment and telemetry APIs by default; they are
+not yet available as native agents. Read
 [platform-agents/README.md](platform-agents/README.md) and
 [platform-agents/SERVER_SIDE_CONFIG.md](platform-agents/SERVER_SIDE_CONFIG.md)
 for the implemented API contract, rollout controls, and client-specific
 constraints. Mobile reports remain subject to endpoint opt-in and server-side
 freshness gates; do not claim reliable background reporting.
 
-The current schema keeps Windows fields compatible while allowing optional
-IP/AC metadata, platform and device-class metadata, and an installation UUID.
-New native clients must use tenant-scoped enrollment and per-install
-credentials, not the shared Windows token.
+The current schema keeps the legacy Windows payload compatible while allowing
+optional IP/AC metadata, platform and device-class metadata, and an
+installation UUID. New clients must use the reusable tenant-scoped enrollment
+token and per-install credentials, not the shared Windows token. Enrollment
+and telemetry accept all four platforms by default; Android/iOS clients are
+not shipped, and automation remains separately allow-listed.
 
 ## Persistent implementation guidance
 - Always post a concise completion update by default, reporting the work done,

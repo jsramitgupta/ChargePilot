@@ -222,14 +222,18 @@ This is the product model that future Claude-driven rebuilds should preserve.
 ## 11. Cross-platform telemetry status
 
 The backend now supports a backward-compatible platform-aware telemetry
-schema, tenant-scoped one-time enrollment, hash-only per-install credentials,
-credential revocation, stale/future timestamp handling, and explicit
-endpoint-level automation opt-in with a server freshness gate. Windows
-continues to use its current PowerShell agent and shared tenant token. A Swift
-foreground CLI reports macOS battery telemetry using Keychain credentials.
+schema, tenant-scoped reusable 24-hour enrollment tokens, hash-only
+per-install credentials, credential revocation, stale/future timestamp
+handling, and explicit endpoint-level automation opt-in with a server
+freshness gate. New Windows PowerShell and macOS Swift agents exchange the
+token for an endpoint credential persisted locally (Windows user-scoped
+DPAPI, macOS Keychain); existing Windows shared-token agents remain
+compatible during migration.
 
 Android and iOS native clients remain planned in
-`platform-agents/{android,ios}/` and are disabled for enrollment by default.
-They require platform-specific privacy and real-device background behavior
-validation. macOS reports only while awake and running; no native client
-guarantees a real-time reporting interval.
+`platform-agents/{android,ios}/`. The shared enrollment and telemetry APIs
+accept both platforms, but native clients still require platform-specific
+privacy and real-device background behavior validation. macOS reports only
+while awake and running; no native client guarantees a real-time reporting
+interval. Automation remains separately allow-listed and requires explicit
+admin opt-in.

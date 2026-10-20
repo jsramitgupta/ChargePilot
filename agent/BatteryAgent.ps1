@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$ServerUrl = "http://localhost:8000",
-    [string]$EndpointToken = "test-endpoint-token",
+    [string]$EndpointToken = "",
     [string]$AgentVersion = "1.0.0",
     [string]$ConfigPath = ""
 )
@@ -30,6 +30,28 @@ function Normalize-ConfigValue {
     return $trimmed
 }
 
+function ConvertFrom-ProtectedCredential {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return ""
+    }
+
+    try {
+        $secureValue = ConvertTo-SecureString -String $Value
+        $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureValue)
+        try {
+            return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+        }
+        finally {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+        }
+    }
+    catch {
+        throw "Unable to decrypt the saved ChargePilot credential for this Windows user. Reinstall the agent and enroll it again."
+    }
+}
+
 function Get-AgentConfig {
     param(
         [string]$Path
@@ -52,22 +74,30 @@ function Get-AgentConfig {
     }
 
     if (Test-Path -LiteralPath $resolvedPath) {
-        try {
-            $config = Get-Content -LiteralPath $resolvedPath -Raw | ConvertFrom-Json
-            return @{
-                ServerUrl = if ($null -ne $config.serverUrl) { Normalize-ConfigValue -Value ([string]$config.serverUrl) } else { Normalize-ConfigValue -Value $ServerUrl }
-                EndpointToken = if ($null -ne $config.endpointToken) { Normalize-ConfigValue -Value ([string]$config.endpointToken) } else { Normalize-ConfigValue -Value $EndpointToken }
-                AgentVersion = if ($null -ne $config.agentVersion) { Normalize-ConfigValue -Value ([string]$config.agentVersion) } else { Normalize-ConfigValue -Value $AgentVersion }
+        $config = Get-Content -LiteralPath $resolvedPath -Raw | ConvertFrom-Json
+        $savedToken = if ($null -ne $config.protectedEndpointToken) {
+            ConvertFrom-ProtectedCredential -Value ([string]$config.protectedEndpointToken)
+        }
+        elseif ($null -ne $config.endpointToken) {
+            Normalize-ConfigValue -Value ([string]$config.endpointToken)
+        }
+        else {
+            Normalize-ConfigValue -Value $EndpointToken
+        }
+        return @{
+            ServerUrl = if ($null -ne $config.serverUrl) { Normalize-ConfigValue -Value ([string]$config.serverUrl) } else { Normalize-ConfigValue -Value $ServerUrl }
+            EndpointToken = $savedToken
+            EndpointId = if ($null -ne $config.endpointId) { Normalize-ConfigValue -Value ([string]$config.endpointId) } else { "" }
+            InstallationId = if ($null -ne $config.installationId) { Normalize-ConfigValue -Value ([string]$config.installationId) } else { "" }
+            AgentVersion = if ($null -ne $config.agentVersion) { Normalize-ConfigValue -Value ([string]$config.agentVersion) } else { Normalize-ConfigValue -Value $AgentVersion }
             }
-        }
-        catch {
-            Write-Warning "Unable to read config at '$resolvedPath'; falling back to parameters."
-        }
     }
 
     return @{
         ServerUrl = Normalize-ConfigValue -Value $ServerUrl
         EndpointToken = Normalize-ConfigValue -Value $EndpointToken
+        EndpointId = ""
+        InstallationId = ""
         AgentVersion = Normalize-ConfigValue -Value $AgentVersion
     }
 }
@@ -195,7 +225,8 @@ function Get-LatestAgentConfig {
         [string]$ServerUrl,
         [string]$EndpointToken,
         [string]$Hostname,
-        [string]$HardwareUuid
+        [string]$HardwareUuid,
+        [string]$EndpointId
     )
 
     if ([string]::IsNullOrWhiteSpace($ServerUrl) -or [string]::IsNullOrWhiteSpace($EndpointToken)) {
@@ -203,8 +234,14 @@ function Get-LatestAgentConfig {
     }
 
     $encodedHostname = [uri]::EscapeDataString($Hostname)
-    $encodedHardwareUuid = [uri]::EscapeDataString($HardwareUuid)
-    $uri = "$ServerUrl/api/v1/endpoints/agent-config?hardware_uuid=$encodedHardwareUuid&hostname=$encodedHostname"
+    if (-not [string]::IsNullOrWhiteSpace($EndpointId)) {
+        $encodedEndpointId = [uri]::EscapeDataString($EndpointId)
+        $uri = "$ServerUrl/api/v1/endpoints/agent-config?endpoint_id=$encodedEndpointId&hostname=$encodedHostname"
+    }
+    else {
+        $encodedHardwareUuid = [uri]::EscapeDataString($HardwareUuid)
+        $uri = "$ServerUrl/api/v1/endpoints/agent-config?hardware_uuid=$encodedHardwareUuid&hostname=$encodedHostname"
+    }
     $headers = @{
         Authorization = "Bearer $EndpointToken"
         "Content-Type" = "application/json"
@@ -239,17 +276,19 @@ function Get-LatestAgentConfig {
 $config = Get-AgentConfig -Path $ConfigPath
 $ServerUrl = $config.ServerUrl
 $EndpointToken = $config.EndpointToken
+$EndpointId = $config.EndpointId
+$InstallationId = $config.InstallationId
 $AgentVersion = $config.AgentVersion
 
 $hostname = $env:COMPUTERNAME
-$hardwareUuid = Get-HardwareUuid
+$hardwareUuid = if ([string]::IsNullOrWhiteSpace($InstallationId)) { Get-HardwareUuid } else { $null }
 $ipAddress = Get-IpAddress
 $status = Get-BatteryStatus
 $batteryPercentage = $status.BatteryPercentage
 $charging = $status.Charging
 $acConnected = $status.AcConnected
 $lastState = Get-LastSwitchState
-$remoteConfig = Get-LatestAgentConfig -ServerUrl $ServerUrl -EndpointToken $EndpointToken -Hostname $hostname -HardwareUuid $hardwareUuid
+$remoteConfig = Get-LatestAgentConfig -ServerUrl $ServerUrl -EndpointToken $EndpointToken -Hostname $hostname -HardwareUuid $hardwareUuid -EndpointId $EndpointId
 
 $onThreshold = 30
 $offThreshold = 90
@@ -266,7 +305,6 @@ Save-SwitchState -State $switchState
 
 $payload = [ordered]@{
     hostname = $hostname
-    hardware_uuid = $hardwareUuid
     ip_address = $ipAddress
     battery_percentage = $batteryPercentage
     charging = $charging
@@ -274,6 +312,14 @@ $payload = [ordered]@{
     switch_state = $switchState
     timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     agent_version = $AgentVersion
+}
+if ([string]::IsNullOrWhiteSpace($InstallationId)) {
+    $payload.hardware_uuid = $hardwareUuid
+}
+else {
+    $payload.installation_id = $InstallationId
+    $payload.platform = "windows"
+    $payload.device_class = "laptop"
 }
 
 $body = $payload | ConvertTo-Json -Compress

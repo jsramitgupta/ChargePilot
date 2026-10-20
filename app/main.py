@@ -211,10 +211,6 @@ async def get_agent_setup(
     if tenant is None and not is_super_admin:
         raise HTTPException(status_code=403, detail="An assigned tenant is required to configure the agent.")
 
-    global_token = get_global_agent_token(db, create_if_missing=True) if is_super_admin else None
-    token = ensure_tenant_agent_token(tenant, db) if tenant is not None else global_token
-    if token is None:
-        raise HTTPException(status_code=500, detail="Could not generate an agent token.")
     response.headers["Cache-Control"] = "private, no-store"
     server_url = _agent_server_url(request)
     install_url = f"{server_url}/agent/install.ps1"
@@ -223,23 +219,11 @@ async def get_agent_setup(
         + _quote_powershell_literal(_escape_powershell_expandable(install_url))
         + ") } -ServerUrl "
         + _quote_powershell_literal(_escape_powershell_expandable(server_url))
-        + " -EndpointToken "
-        + _quote_powershell_literal(_escape_powershell_expandable(token))
         + " -AgentVersion '1.0.0'\""
     )
     return {
-        "token": token,
-        "global_token": global_token,
-        "token_scope": (
-            "system-wide Super Admin token"
-            if is_super_admin and tenant is None
-            else f"tenant: {tenant.name}" if tenant is not None else "tenant"
-        ),
         "install_command": install_command,
         "is_super_admin": is_super_admin,
-        "can_rotate_tenant_token": bool(
-            tenant and user.role in {"tenant_admin", "manager"} and user.tenant_id == tenant.id
-        ),
     }
 
 

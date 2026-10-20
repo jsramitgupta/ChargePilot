@@ -1,9 +1,11 @@
 # ChargePilot macOS telemetry agent
 
-This Swift command-line agent enrolls one Mac installation and reports its
-battery state while the process is running. It does not control switches and
-does not promise reports while the Mac sleeps, is powered off, or the process
-is stopped.
+This Swift command-line agent enrolls one Mac installation with a
+tenant-scoped, reusable 24-hour token and reports its battery state while the
+process is running. The token can enroll multiple devices; each exchange
+creates a distinct endpoint credential. The agent does not control switches
+and does not promise reports while the Mac sleeps, is powered off, or the
+process is stopped.
 
 ## Requirements
 
@@ -11,7 +13,7 @@ is stopped.
 - Swift 5.9 or later (Xcode Command Line Tools)
 - a public ChargePilot API URL using HTTPS; plain HTTP is accepted only for
   `localhost` development
-- a tenant-admin generated, single-use macOS enrollment code
+- a tenant-admin generated, reusable 24-hour enrollment token
 
 The enrolled endpoint starts with automation disabled. Keep it telemetry-only
 unless an administrator explicitly enables automation after a fresh reading.
@@ -19,7 +21,7 @@ unless an administrator explicitly enables automation after a fresh reading.
 ## Build and enroll
 
 1. Download and extract the macOS agent source from the authenticated ChargePilot
-   **Set up a laptop** page.
+   **Set up a device** page.
 2. In Terminal, from the extracted `chargepilot-macos-agent` directory, run:
 
    ```sh
@@ -29,7 +31,7 @@ unless an administrator explicitly enables automation after a fresh reading.
      --label "Office Mac"
    ```
 
-3. Paste the one-time enrollment code when prompted. The code is not saved.
+3. Paste the enrollment token when prompted. The token is not saved.
    The agent persists a random installation ID in
    `~/Library/Application Support/ChargePilot` and stores the per-install
    credential in the user's macOS Keychain.

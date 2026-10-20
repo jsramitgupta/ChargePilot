@@ -1,10 +1,11 @@
 # Cross-Platform Telemetry Server Contract
 
 **Status: partially implemented.** The additive platform-aware schema,
-tenant-scoped one-time enrollment, hash-only per-install credentials,
-revocation, freshness checks, automation opt-in, migration, and macOS CLI are
-shipped. Windows remains backward-compatible. Android/iOS native clients are
-not shipped and are disabled for enrollment by default.
+tenant-scoped reusable 24-hour enrollment tokens, hash-only per-install
+credentials, revocation, freshness checks, automation opt-in, migration, and
+Windows/macOS agents are shipped. Android/iOS native clients are not shipped;
+the shared platform exchange contract supports them, but this does not mean
+their clients have been validated.
 
 ## Current server contract
 
@@ -16,12 +17,14 @@ foreground CLI. The live `POST /api/v1/telemetry` schema is
   and `agent_version`
 - optional: `hardware_uuid`, `installation_id`, `platform` (defaults to
   `windows`), `device_class`, `ip_address`, and `ac_connected`
-- Windows retains the `hardware_uuid` and shared-token behavior; enrolled
-  sources use a backend endpoint ID and installation UUID
+- Existing Windows installations retain the `hardware_uuid` and shared-token
+  behavior during migration; new Windows and macOS installs exchange a
+  reusable enrollment token for a backend endpoint ID and installation UUID
 - the default ingress age limit is seven days, future skew is five minutes,
   and automation freshness is ten minutes
-- legacy shared-token auth is accepted only for Windows; enrolled endpoint
-  credentials are tenant-bound, hash-only, and revocable
+- legacy shared-token auth remains accepted only for Windows during migration;
+  new Windows and macOS installs use tenant-bound, hash-only, revocable
+  per-install credentials
 - endpoint snapshots and outbox events are committed together; delayed
   samples cannot regress the current snapshot, and automation is checked
   asynchronously for opt-in/platform/freshness
@@ -45,21 +48,25 @@ See [API_SPEC.md](../API_SPEC.md) for the authoritative current contract.
 
 ### 1. Enrollment and per-install credentials (implemented)
 
-Do not embed the existing tenant-wide token in a distributed mobile app. It
-can be extracted and can authorize telemetry for the whole tenant.
+Do not embed the existing tenant-wide token in a distributed agent. It can be
+extracted and can authorize telemetry for the whole tenant. The enrollment
+token is a high-entropy bearer secret, displayed only once, and must be
+protected as a temporary secret during the 24-hour window.
 
-The API provides a tenant-admin initiated, short-lived, single-use flow:
+The API provides a tenant-admin initiated, reusable 24-hour flow:
 
-1. An authenticated tenant admin creates an enrollment code scoped to their
-   tenant and (optionally) an allowed platform. Never trust a client-supplied
+1. An authenticated tenant admin creates a high-entropy token scoped to their
+   tenant. The token has no platform restriction and can enroll multiple
+   devices until expiry or revocation. Never trust a client-supplied
    `tenant_id`.
-2. The app exchanges that code over HTTPS for a backend-created endpoint ID
+2. The app exchanges that token over HTTPS for a backend-created endpoint ID
    and a high-entropy, per-install credential.
 3. Store only a credential hash server-side; return the raw credential once
-   and store it in Keychain/Keystore on the client.
+   and persist it securely on the client (Windows DPAPI, macOS Keychain,
+   Android Keystore, or iOS Keychain when those clients are implemented).
 4. Resolve the credential to one endpoint and tenant at ingestion. Admins can
-   revoke the credential. Re-enrollment currently means deleting the old
-   endpoint and creating a fresh installation identity.
+   revoke either the shared enrollment token (preventing future exchanges) or
+   an individual endpoint credential (stopping that endpoint).
 
 Routes and payloads are specified in [API_SPEC.md](../API_SPEC.md). Do not
 fall back silently to a shared tenant token.
@@ -124,11 +131,11 @@ CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS
 CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS
 ```
 
-Defaults enable Windows/macOS. Android/iOS remain disabled until explicitly
-added to the telemetry allow-list. Automation settings include Windows/macOS,
-but each enrolled endpoint still requires explicit admin opt-in. Use the
-600-second sample-age gate rather than assuming OS schedulers guarantee a
-reporting interval.
+Telemetry and enrollment default to all four platforms. Automation defaults
+to Windows/macOS only, and each enrolled endpoint still requires explicit
+admin opt-in. Android/iOS API acceptance does not mean native clients are
+shipped or validated. Use the 600-second sample-age gate rather than assuming
+OS schedulers guarantee a reporting interval.
 
 ### 5. API, event, and operator surfaces
 

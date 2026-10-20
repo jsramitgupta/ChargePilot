@@ -253,9 +253,8 @@ def test_assigning_endpoint_to_tenant_restores_tenant_scoped_telemetry_and_mappi
 
     agent_setup = admin.get("/api/v1/agent/setup", params={"tenant_id": tenant_id})
     assert agent_setup.status_code == 200, agent_setup.text
-    assert agent_setup.json()["token"] == tenant_token
-    assert agent_setup.json()["global_token"] != tenant_token
-    assert agent_setup.json()["token_scope"] == f"tenant: {tenant_name}"
+    assert set(agent_setup.json()) == {"install_command", "is_super_admin"}
+    assert "-EndpointToken " not in agent_setup.json()["install_command"]
     assert admin.get("/agent", params={"tenant_id": tenant_id}, follow_redirects=False).status_code == 307
     assert admin.get("/agent/guide", follow_redirects=False).status_code == 307
 

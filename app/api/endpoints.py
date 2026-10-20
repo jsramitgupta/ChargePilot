@@ -24,6 +24,7 @@ from app.services.endpoint_service import (
     EndpointTenantAssignmentError,
     assign_unassigned_endpoint,
     authenticate_endpoint_token,
+    authenticate_installed_endpoint,
 )
 
 router = APIRouter(prefix="/endpoints", tags=["endpoints"])
@@ -284,9 +285,16 @@ def _serialize_agent_config(endpoint: Endpoint, db: Session) -> dict[str, object
 async def get_endpoint_agent_config_by_hostname(
     hostname: str | None = None,
     hardware_uuid: UUID | None = None,
+    endpoint_id: UUID | None = None,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
 ):
+    installed_endpoint = authenticate_installed_endpoint(authorization, db)
+    if installed_endpoint is not None:
+        if endpoint_id is None or str(endpoint_id) != installed_endpoint.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found.")
+        return _serialize_agent_config(installed_endpoint, db)
+
     is_valid, tenant = authenticate_endpoint_token(authorization, db)
     if not is_valid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing endpoint token.")

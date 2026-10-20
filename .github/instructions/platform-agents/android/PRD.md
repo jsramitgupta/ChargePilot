@@ -3,8 +3,9 @@
 ## 1. Product goal
 
 Create a native Android battery telemetry app for ChargePilot using the
-platform-aware API and per-install enrollment flow. Android enrollment remains
-disabled until the app is validated. Background reporting is best-effort.
+platform-aware API and per-install enrollment flow. The shared API accepts
+Android enrollment, but the native client must be validated before release.
+Background reporting is best-effort.
 
 ## 2. User value
 
