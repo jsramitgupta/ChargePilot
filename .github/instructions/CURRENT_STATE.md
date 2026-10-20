@@ -43,8 +43,12 @@ The canonical route inventory, typography scale, color tokens, theme behavior,
 responsive decisions, and UI change checklist are in
 `.github/instructions/FRONTEND_DESIGN.md`; update that reference with UI
 behavior changes so future agents can follow the established design.
-The Overview presents live endpoint and switch counts in a responsive summary
-grid above the endpoint activity table. The Smart switches page groups LAN
+The Overview refreshes fleet data every 30 seconds while the page is visible,
+shows endpoint and switch counts in a responsive summary grid, and lists the
+ten most recently seen endpoints first. The Endpoints page refreshes on the
+same cadence, supports search and 50- or 100-endpoint pages, and sorts by last
+report with missing timestamps last. Both views expose the last successful
+refresh and a manual refresh action. The Smart switches page groups LAN
 discovery, manual setup, and the searchable/filterable inventory into clear
 work areas; card and list views remain available on small screens.
 Switch onboarding separates device identity, local access, and command routing.

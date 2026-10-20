@@ -22,6 +22,7 @@ import {
   Pencil,
   PlugZap,
   Plus,
+  RefreshCw,
   Search,
   ShieldCheck,
   Sun,
@@ -96,6 +97,8 @@ type Endpoint = {
   mapped_device_tenant?: string | null
   switch_state: boolean | null
 }
+
+type EndpointPageSize = 50 | 100
 
 type Device = {
   id: string
@@ -387,6 +390,20 @@ async function fetchDashboardData() {
   return { endpoints, devices }
 }
 
+const ENDPOINTS_REFRESH_INTERVAL = 30_000
+const OVERVIEW_ENDPOINT_LIMIT = 10
+
+function sortEndpointsByLastSeen(endpoints: Endpoint[]) {
+  return [...endpoints].sort((first, second) => {
+    const firstSeen = first.last_seen_at ? Date.parse(first.last_seen_at) : Number.NEGATIVE_INFINITY
+    const secondSeen = second.last_seen_at ? Date.parse(second.last_seen_at) : Number.NEGATIVE_INFINITY
+    const firstTimestamp = Number.isFinite(firstSeen) ? firstSeen : Number.NEGATIVE_INFINITY
+    const secondTimestamp = Number.isFinite(secondSeen) ? secondSeen : Number.NEGATIVE_INFINITY
+
+    return secondTimestamp - firstTimestamp || first.hostname.localeCompare(second.hostname)
+  })
+}
+
 function useSession() {
   return useQuery({
     queryKey: ['session'],
@@ -489,7 +506,7 @@ function AppShell({ user }: { user: User }) {
 
   const navItems = [
     { to: '/', label: 'Overview', icon: LayoutGrid },
-    { to: '/endpoints', label: 'Laptops', icon: MonitorSmartphone },
+    { to: '/endpoints', label: 'Endpoints', icon: MonitorSmartphone },
     { to: '/devices', label: 'Switches', icon: PlugZap },
     { to: '/mappings', label: 'Automation maps', icon: Cable },
     { to: '/connectors', label: 'Site connectors', icon: Network },
@@ -1186,49 +1203,59 @@ function ChangePasswordSection() {
 }
 
 function DashboardPage() {
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, dataUpdatedAt, isFetching, refetch } = useQuery({
     queryKey: ['dashboard'],
     queryFn: fetchDashboardData,
+    refetchInterval: ENDPOINTS_REFRESH_INTERVAL,
+    refetchIntervalInBackground: false,
   })
 
   if (isLoading) return <LoadingCard />
-  if (error) return <ErrorCard message={error.message} />
+  if (error && !data) return <ErrorCard message={error.message} />
+  if (!data) return <ErrorCard message="The overview returned no data." />
 
-  const { endpoints, devices } = data!
+  const { endpoints, devices } = data
   const onlineCount = endpoints.filter((endpoint) => endpoint.status === 'online').length
+  const recentEndpoints = sortEndpointsByLastSeen(endpoints).slice(0, OVERVIEW_ENDPOINT_LIMIT)
 
   return (
     <div className="dashboard-page">
-      <div className="page-header">
-        <div><p className="eyebrow">Overview</p><h1>Battery &amp; switch overview</h1></div>
-        <span className="pill live-pill">Live telemetry</span>
-      </div>
-
-      <section className="hero-panel">
-        <div className="hero-copy">
-          <p className="mini-label">Keep automation connected</p>
-          <h2>Link each laptop to its switch and keep battery rules working.</h2>
+      <div className="page-header dashboard-page-header">
+        <div>
+          <p className="eyebrow">Fleet</p>
+          <h1>Overview</h1>
+          <p className="page-description">Live battery reports and switch connections across your devices.</p>
         </div>
-        <div className="hero-actions">
+        <div className="dashboard-header-actions">
           <NavLink className="primary-btn" to="/mappings">Create mapping</NavLink>
           <NavLink className="secondary-btn" to="/devices">Manage switches</NavLink>
         </div>
-      </section>
+      </div>
 
       <section className="stats-grid" aria-label="Fleet summary">
-        <MetricCard label="Total endpoints" value={String(endpoints.length)} hint="laptops reporting" icon={MonitorSmartphone} />
+        <MetricCard label="Total endpoints" value={String(endpoints.length)} hint="registered devices" icon={MonitorSmartphone} />
         <MetricCard label="Online endpoints" value={String(onlineCount)} hint="seen in the last 10 minutes" icon={CheckCircle2} />
         <MetricCard label="Offline endpoints" value={String(endpoints.length - onlineCount)} hint="not recently reporting" icon={CircleDashed} />
         <MetricCard label="Smart switches" value={String(devices.length)} hint="configured devices" icon={PlugZap} />
       </section>
 
       <section className="panel table-panel">
-        <div className="panel-header"><h3>Endpoint activity</h3><NavLink to="/endpoints" className="secondary-btn">View endpoints</NavLink></div>
+        {error && <div className="endpoint-refresh-error"><ErrorCard message={`Could not refresh overview: ${error.message}. Showing the last successful data.`} /></div>}
+        <div className="panel-header dashboard-activity-header">
+          <div className="dashboard-activity-title">
+            <h3>Latest reports</h3>
+            <p>Most recently seen devices appear first.</p>
+          </div>
+          <div className="dashboard-activity-actions">
+            <LiveRefreshControl updatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => { void refetch() }} />
+            <NavLink to="/endpoints" className="secondary-btn">All endpoints</NavLink>
+          </div>
+        </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Device</th><th>Platform</th><th>Tenant</th><th>Battery</th><th>Power</th><th>Switch</th><th>Switch tenant</th><th>State</th><th>Last seen</th></tr></thead>
+            <thead><tr><th>Device</th><th>Platform</th><th>Tenant</th><th>Battery</th><th>Power</th><th>Switch</th><th>Switch tenant</th><th>State</th><th aria-sort="descending">Last seen</th></tr></thead>
             <tbody>
-              {endpoints.map((endpoint) => (
+              {recentEndpoints.map((endpoint) => (
                 <tr key={endpoint.id}>
                   <td className="strong-cell">{endpoint.hostname}</td>
                   <td><span className="badge muted">{endpoint.platform}</span>{endpoint.device_class && <small className="ml-1 text-slate-500">{endpoint.device_class}</small>}</td>
@@ -1245,6 +1272,7 @@ function DashboardPage() {
             </tbody>
           </table>
         </div>
+        {!!endpoints.length && <div className="dashboard-activity-footer">Showing {recentEndpoints.length} of {endpoints.length} endpoints</div>}
       </section>
     </div>
   )
@@ -2053,6 +2081,9 @@ function MappingsPage() {
 function EndpointsPage() {
   const queryClient = useQueryClient()
   const { data: user } = useSession()
+  const [endpointSearch, setEndpointSearch] = useState('')
+  const [pageSize, setPageSize] = useState<EndpointPageSize>(50)
+  const [currentPage, setCurrentPage] = useState(1)
   const [assignedTenantId, setAssignedTenantId] = useState('')
   const tenantsQuery = useQuery({
     queryKey: ['admin-tenants'],
@@ -2060,9 +2091,11 @@ function EndpointsPage() {
     enabled: user?.role === 'super_admin',
   })
   const [statusMessage, setStatusMessage] = useState('')
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, dataUpdatedAt, isFetching, refetch } = useQuery({
     queryKey: ['endpoints'],
     queryFn: async () => apiFetch<Endpoint[]>('/api/v1/endpoints'),
+    refetchInterval: ENDPOINTS_REFRESH_INTERVAL,
+    refetchIntervalInBackground: false,
   })
   const assignTenantMutation = useMutation({
     mutationFn: ({ endpointId, tenantId }: { endpointId: string; tenantId: string }) =>
@@ -2101,24 +2134,75 @@ function EndpointsPage() {
   })
 
   if (isLoading) return <LoadingCard />
-  if (error) return <ErrorCard message={error.message} />
+  if (error && !data) return <ErrorCard message={error.message} />
   if (!data) return <ErrorCard message="The endpoint list returned no data." />
+
+  const searchTerm = endpointSearch.trim().toLocaleLowerCase()
+  const filteredEndpoints = sortEndpointsByLastSeen(data).filter((endpoint) => {
+    if (!searchTerm) return true
+    const searchable = [
+      endpoint.hostname,
+      endpoint.platform,
+      endpoint.device_class ?? '',
+      endpoint.tenant_name ?? '',
+      endpoint.ip_address ?? '',
+      endpoint.status,
+    ].join(' ').toLocaleLowerCase()
+    return searchable.includes(searchTerm)
+  })
+  const totalPages = Math.max(1, Math.ceil(filteredEndpoints.length / pageSize))
+  const visiblePage = Math.min(currentPage, totalPages)
+  const firstRow = filteredEndpoints.length ? (visiblePage - 1) * pageSize + 1 : 0
+  const lastRow = Math.min(visiblePage * pageSize, filteredEndpoints.length)
+  const visibleEndpoints = filteredEndpoints.slice(firstRow - 1, lastRow)
 
   return (
     <div className="space-y-6">
-      <div className="page-header"><div><p className="eyebrow">Fleet</p><h1>Laptops</h1></div></div>
+      <div className="page-header endpoint-page-header">
+        <div>
+          <p className="eyebrow">Fleet</p>
+          <h1>Endpoints</h1>
+          <p className="page-description">Review device identity, recent battery reports, and automation status.</p>
+        </div>
+      </div>
       {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage} <NavLink to={assignedTenantId ? `/agent?tenant_id=${assignedTenantId}` : '/agent'} className="font-semibold underline">Open tenant agent setup</NavLink></p>}
       {assignTenantMutation.error && <ErrorCard message={assignTenantMutation.error.message} />}
       {deleteMutation.isError && <ErrorCard message={deleteMutation.error.message} />}
       {automationMutation.error && <ErrorCard message={automationMutation.error.message} />}
       {revokeCredentialMutation.error && <ErrorCard message={revokeCredentialMutation.error.message} />}
+      {error && <ErrorCard message={`Could not refresh endpoints: ${error.message}. Showing the last successful data.`} />}
       <section className="panel table-panel">
-        <div className="panel-header"><h3>Tracked laptops</h3></div>
+        <div className="panel-header endpoint-panel-header">
+          <div className="endpoint-panel-title">
+            <h3>Tracked endpoints</h3>
+            <p>Sorted by most recent report. Refreshes every 30 seconds.</p>
+          </div>
+          <LiveRefreshControl updatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => { void refetch() }} />
+        </div>
+        <div className="endpoint-list-toolbar">
+          <label className="switch-search endpoint-search" htmlFor="endpoint-search">
+            <Search size={17} aria-hidden="true" />
+            <input id="endpoint-search" type="search" value={endpointSearch} onChange={(event) => {
+              setEndpointSearch(event.target.value)
+              setCurrentPage(1)
+            }} placeholder="Search devices, platform, tenant, IP" />
+          </label>
+          <label className="endpoint-page-size">
+            <span>Rows per page</span>
+            <select value={pageSize} onChange={(event) => {
+              setPageSize(event.target.value === '100' ? 100 : 50)
+              setCurrentPage(1)
+            }}>
+              <option value={50}>50 devices</option>
+              <option value={100}>100 devices</option>
+            </select>
+          </label>
+        </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Device</th><th>Platform</th><th>Tenant</th><th>Identity</th><th>IP</th><th>Battery</th><th>Power</th><th>Last seen</th><th>Status</th><th>Automation</th><th className="align-right">Actions</th></tr></thead>
+            <thead><tr><th>Device</th><th>Platform</th><th>Tenant</th><th>Identity</th><th>IP</th><th>Battery</th><th>Power</th><th aria-sort="descending">Last seen</th><th>Status</th><th>Automation</th><th className="align-right">Actions</th></tr></thead>
             <tbody>
-              {data?.map((endpoint) => <tr key={endpoint.id}>
+              {visibleEndpoints.map((endpoint) => <tr key={endpoint.id}>
                 <td className="strong-cell">{endpoint.hostname}</td>
                 <td><span className="badge muted">{endpoint.platform}</span>{endpoint.device_class && <small className="ml-1 text-slate-500">{endpoint.device_class}</small>}</td>
                 <td>{endpoint.tenant_id ? endpoint.tenant_name ?? 'Unknown tenant' : user?.role === 'super_admin' ? <div className="flex min-w-56 flex-col gap-2"><span className="badge muted w-fit">Unassigned</span><form className="flex items-center gap-2" onSubmit={(event) => {
@@ -2146,13 +2230,21 @@ function EndpointsPage() {
                     if (window.confirm(`Revoke the installation credential for ${endpoint.hostname}? Its agent will stop reporting.`)) revokeCredentialMutation.mutate(endpoint.id)
                   }}>Revoke agent</button>}
                   <button type="button" className="danger-btn small-btn" disabled={deleteMutation.isPending} onClick={() => {
-                    if (window.confirm(`Delete laptop ${endpoint.hostname}? Its mappings and event history will also be removed.`)) deleteMutation.mutate(endpoint.id)
-                  }}>Delete laptop</button>
+                    if (window.confirm(`Delete endpoint ${endpoint.hostname}? Its mappings and event history will also be removed.`)) deleteMutation.mutate(endpoint.id)
+                  }}>Delete endpoint</button>
                 </div></td>
               </tr>)}
-              {!data?.length && <tr><td colSpan={11} className="empty-state">No endpoints have reported telemetry yet.</td></tr>}
+              {!filteredEndpoints.length && <tr><td colSpan={11} className="empty-state">{data.length ? 'No endpoints match this search.' : 'No endpoints have reported telemetry yet.'}</td></tr>}
             </tbody>
           </table>
+        </div>
+        <div className="endpoint-pagination">
+          <p aria-live="polite">{filteredEndpoints.length ? `Showing ${firstRow}–${lastRow} of ${filteredEndpoints.length} endpoints` : 'No endpoints to display'}</p>
+          <nav aria-label="Endpoint pages">
+            <button type="button" className="secondary-btn" disabled={visiblePage <= 1} onClick={() => setCurrentPage(visiblePage - 1)}><ChevronLeft size={15} aria-hidden="true" />Previous</button>
+            <span>Page {visiblePage} of {totalPages}</span>
+            <button type="button" className="secondary-btn" disabled={visiblePage >= totalPages} onClick={() => setCurrentPage(visiblePage + 1)}>Next<ChevronRight size={15} aria-hidden="true" /></button>
+          </nav>
         </div>
       </section>
     </div>
@@ -2981,6 +3073,31 @@ function LoadingCard() {
 
 function ErrorCard({ message }: { message: string }) {
   return <div className="alert error" role="alert">{message}</div>
+}
+
+function LiveRefreshControl({
+  updatedAt,
+  isFetching,
+  onRefresh,
+}: {
+  updatedAt: number
+  isFetching: boolean
+  onRefresh: () => void
+}) {
+  const lastUpdated = updatedAt ? formatTimestamp(new Date(updatedAt).toISOString()) : 'Waiting for first update'
+
+  return (
+    <div className="live-refresh-control">
+      <div className="live-refresh-copy" aria-live="polite">
+        <span className="live-refresh-state"><span className="live-refresh-dot" />Auto refresh · 30 sec</span>
+        <span>Updated {lastUpdated}</span>
+      </div>
+      <button type="button" className="secondary-btn live-refresh-button" disabled={isFetching} onClick={onRefresh}>
+        <RefreshCw size={15} aria-hidden="true" />
+        {isFetching ? 'Refreshing' : 'Refresh'}
+      </button>
+    </div>
+  )
 }
 
 function MetricCard({

@@ -18,6 +18,8 @@ cloud app directly into the device LAN.
 
 - Python 3.12+ for local installs; production images use Python 3.15, the latest
   stable release (Python does not designate formal LTS releases)
+- The frontend image build uses Node.js 24.22.0, the latest LTS release, pinned
+  by the official image digest
 - Docker Desktop or Docker Engine with Compose
 - local network access from the site connector to the Tuya device
 - outbound HTTPS access from each site connector to ChargePilot

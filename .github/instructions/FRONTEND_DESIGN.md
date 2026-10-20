@@ -30,7 +30,7 @@ browser interactions:
 | `/verify-email` | Explain and complete email verification |
 | `/accept-invitation` | Review an emailed invitation and set the account password |
 | `/` | Endpoint and switch overview with live telemetry summary |
-| `/endpoints` | Review laptops, ownership, readings, and endpoint assignment |
+| `/endpoints` | Review enrolled devices, ownership, readings, and endpoint assignment |
 | `/devices` | Review switches, channels, connector assignment, and device state |
 | `/mappings` | Create, edit, and remove endpoint-to-switch battery rules |
 | `/events` | Review automation activity and outcomes |
@@ -136,9 +136,13 @@ operational state colors for explicit status indicators.
   labels and stable columns over shrinking operational data to fit.
 - The Overview keeps the live telemetry context and mapping actions brief,
   shows fleet metrics as a four-column desktop summary (two columns on
-  tablets, one on narrow phones), and follows with the endpoint activity table.
-  The table identifies each endpoint's platform and device class alongside its
-  label so mobile endpoints are distinguishable from laptops.
+  tablets, one on narrow phones), and follows with the ten most recently seen
+  endpoints. The Endpoints table includes search, 50/100-row page sizing, and
+  pagination; both pages refresh every 30 seconds while visible and provide a
+  manual refresh with the last successful update time. Sort endpoints newest
+  first and place missing timestamps last. The table identifies each endpoint's
+  platform and device class alongside its label so mobile endpoints are
+  distinguishable from laptops.
 - The Smart switches page orders discovery, manual setup, and inventory by
   task. Keep scan location and action together, give inventory search and
   filters usable tap targets, and let device cards collapse to one column

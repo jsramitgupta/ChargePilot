@@ -115,9 +115,9 @@ def test_dashboard_actions_and_mapping_wizard_share_responsive_theme_components(
     light = LIGHT_THEME.read_text(encoding="utf-8")
     dark = DARK_THEME.read_text(encoding="utf-8")
 
-    assert 'className="hero-actions"' in app
+    assert 'className="dashboard-header-actions"' in app
     assert 'className="primary-btn" to="/mappings"' in app
-    assert ".hero-actions" in light
+    assert ".dashboard-header-actions" in light
     assert ".primary-btn," in light
     assert ".secondary-btn {" in light
     assert "@media (max-width: 720px)" in light
@@ -140,6 +140,10 @@ def test_overview_and_switch_pages_have_responsive_operational_layouts():
     assert "{endpoint.platform}</span>" in dashboard
     assert "endpoint.device_class" in dashboard
     assert "colSpan={9}" in dashboard
+    assert "Latest reports" in dashboard
+    assert "sortEndpointsByLastSeen(endpoints)" in dashboard
+    assert "refetchInterval: ENDPOINTS_REFRESH_INTERVAL" in dashboard
+    assert "className=\"live-refresh-control\"" in app
     assert 'className="stats-grid" aria-label="Fleet summary"' in app
     assert 'className="panel metric-card"' in app
     assert 'className="switch-page"' in app
@@ -151,6 +155,20 @@ def test_overview_and_switch_pages_have_responsive_operational_layouts():
     assert "@media (max-width: 400px)" in light
     assert "body.theme-dark .switch-page-hero" in dark
     assert "body.theme-dark .switch-discovery-panel" in dark
+
+
+def test_endpoints_page_has_recent_first_pagination_search_and_refresh():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    endpoints = app.split("function EndpointsPage()", 1)[1].split("\nfunction ", 1)[0]
+
+    assert "<h1>Endpoints</h1>" in endpoints
+    assert "sortEndpointsByLastSeen(data)" in endpoints
+    assert "refetchInterval: ENDPOINTS_REFRESH_INTERVAL" in endpoints
+    assert 'id="endpoint-search"' in endpoints
+    assert "<option value={50}>50 devices</option>" in endpoints
+    assert "<option value={100}>100 devices</option>" in endpoints
+    assert "aria-label=\"Endpoint pages\"" in endpoints
+    assert "aria-sort=\"descending\"" in endpoints
 
 
 def test_switch_setup_routes_and_smartlife_dialog_follow_the_shared_theme():
