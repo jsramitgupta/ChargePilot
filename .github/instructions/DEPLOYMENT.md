@@ -234,6 +234,9 @@ The GitHub Actions pipeline keeps routine validation separate from publishing:
   High and critical findings with fixes available fail the workflow before the
   image tag is promoted to the k3s manifests. Images include BuildKit
   provenance and SBOM attestations.
+- Python runtime images remove package-installer tooling and copy the final
+  filesystem into a `scratch` stage so scanners do not report vulnerable
+  bundled packages left in upstream image layers.
 - Workflows grant read-only repository permissions by default; only the
   deployment workflow gets `contents: write`. Third-party actions are pinned
   to full commit SHAs, registry credentials stay in Actions secrets, and
