@@ -230,10 +230,9 @@ token for an endpoint credential persisted locally (Windows user-scoped
 DPAPI, macOS Keychain); existing Windows shared-token agents remain
 compatible during migration.
 
-Android and iOS native clients remain planned in
-`platform-agents/{android,ios}/`. The shared enrollment and telemetry APIs
-accept both platforms, but native clients still require platform-specific
-privacy and real-device background behavior validation. macOS reports only
-while awake and running; no native client guarantees a real-time reporting
-interval. Automation remains separately allow-listed and requires explicit
-admin opt-in.
+Android Kotlin/Compose and iOS SwiftUI source projects are implemented in
+`agent/{android,ios}/` and available from device setup. They still require
+native builds and physical-device validation, and no signed releases are
+available. macOS reports only while awake and running; no mobile client
+guarantees a real-time reporting interval. Automation remains separately
+allow-listed and requires explicit admin opt-in.

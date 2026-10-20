@@ -1,0 +1,206 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* ChargePilotAgentApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* ChargePilotAgentApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000001 /* ChargePilotAgentApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChargePilotAgentApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000000000000000000003 /* ChargePilotAgent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChargePilotAgent.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A30000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A40000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A40000000000000000000002 /* ChargePilotAgent */,
+				A40000000000000000000003 /* Products */,
+				A20000000000000000000002 /* Info.plist */,
+			);
+			sourceTree = "<group>";
+		};
+		A40000000000000000000002 /* ChargePilotAgent */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000001 /* ChargePilotAgentApp.swift */,
+			);
+			path = ChargePilotAgent;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000003 /* ChargePilotAgent.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A50000000000000000000001 /* ChargePilotAgent */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000002 /* Build configuration list for PBXNativeTarget "ChargePilotAgent" */;
+			buildPhases = (
+				A60000000000000000000001 /* Sources */,
+				A30000000000000000000001 /* Frameworks */,
+				A70000000000000000000001 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = ChargePilotAgent;
+			productName = ChargePilotAgent;
+			productReference = A20000000000000000000003 /* ChargePilotAgent.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A50000000000000000000002 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					A50000000000000000000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = A80000000000000000000001 /* Build configuration list for PBXProject "ChargePilotAgent" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A40000000000000000000001;
+			productRefGroup = A40000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A50000000000000000000001 /* ChargePilotAgent */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A70000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A60000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000001 /* ChargePilotAgentApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A90000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A90000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A90000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = in.chargepilot.agent;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A90000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = in.chargepilot.agent;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A80000000000000000000001 /* Build configuration list for PBXProject "ChargePilotAgent" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A90000000000000000000001 /* Debug */,
+				A90000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A80000000000000000000002 /* Build configuration list for PBXNativeTarget "ChargePilotAgent" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A90000000000000000000003 /* Debug */,
+				A90000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A50000000000000000000002 /* Project object */;
+}

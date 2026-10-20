@@ -82,6 +82,47 @@ def test_agent_setup_requires_authentication_but_agent_sources_are_public():
     assert "Invoke-WebRequest" in battery_script.text or "Get-BatteryStatus" in battery_script.text
 
 
+def test_mobile_agent_source_archives_include_native_projects_without_credentials():
+    client = TestClient(app)
+
+    android = client.get("/agent/android/download")
+    assert android.status_code == 200
+    assert android.headers["content-type"].startswith("application/zip")
+    with zipfile.ZipFile(io.BytesIO(android.content)) as archive:
+        assert len(archive.namelist()) == len(set(archive.namelist()))
+        names = set(archive.namelist())
+        assert "chargepilot-android-agent/app/build.gradle.kts" in names
+        assert (
+            "chargepilot-android-agent/app/src/main/java/in/chargepilot/agent/MainActivity.kt"
+            in names
+        )
+        source = archive.read(
+            "chargepilot-android-agent/app/src/main/java/in/chargepilot/agent/AgentApi.kt"
+        )
+        assert b"endpoint-enrollment/exchange" in source
+        assert b"Authorization" in source
+        assert b"tenant_token" not in source
+
+    ios = client.get("/agent/ios/download")
+    assert ios.status_code == 200
+    assert ios.headers["content-type"].startswith("application/zip")
+    with zipfile.ZipFile(io.BytesIO(ios.content)) as archive:
+        assert len(archive.namelist()) == len(set(archive.namelist()))
+        names = set(archive.namelist())
+        assert "chargepilot-ios-agent/ChargePilotAgent.xcodeproj/project.pbxproj" in names
+        source = archive.read(
+            "chargepilot-ios-agent/ChargePilotAgent/ChargePilotAgentApp.swift"
+        )
+        assert b"endpoint-enrollment" in source
+        assert b"ReportBatteryTelemetryIntent" in source
+        assert b"authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed" in source
+        assert b"kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly" in source
+        assert b"tenant_token" not in source
+        readme = archive.read("chargepilot-ios-agent/README.md")
+        assert b"Rises Above 90%" in readme
+        assert b"Charger" in readme
+
+
 def test_standard_user_can_download_but_cannot_rotate_tenant_token():
     client = TestClient(app)
     register_standard_user(client, "agent_standard_user", "standard-agent-password")

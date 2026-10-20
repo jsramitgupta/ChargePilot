@@ -3,14 +3,16 @@
 **Status: partially implemented.** The additive platform-aware schema,
 tenant-scoped reusable 24-hour enrollment tokens, hash-only per-install
 credentials, revocation, freshness checks, automation opt-in, migration, and
-Windows/macOS agents are shipped. Android/iOS native clients are not shipped;
-the shared platform exchange contract supports them, but this does not mean
-their clients have been validated.
+Windows/macOS agents are shipped. Kotlin/Compose Android and SwiftUI iOS
+source projects are implemented, but have not yet been built on their native
+toolchains or validated on physical devices; signed app releases are not
+available.
 
 ## Current server contract
 
-The implemented clients are the Windows PowerShell agent and the macOS Swift
-foreground CLI. The live `POST /api/v1/telemetry` schema is
+The device-validated clients are the Windows PowerShell agent and the macOS
+Swift foreground CLI. Android and iOS source projects are available but are
+not yet device-validated. The live `POST /api/v1/telemetry` schema is
 `app/schemas/telemetry.py`:
 
 - required: `hostname`, `battery_percentage` (0–100), `charging`, `timestamp`,
@@ -62,8 +64,8 @@ The API provides a tenant-admin initiated, reusable 24-hour flow:
 2. The app exchanges that token over HTTPS for a backend-created endpoint ID
    and a high-entropy, per-install credential.
 3. Store only a credential hash server-side; return the raw credential once
-   and persist it securely on the client (Windows DPAPI, macOS Keychain,
-   Android Keystore, or iOS Keychain when those clients are implemented).
+   and persist it securely on the client (Windows DPAPI, macOS/iOS Keychain,
+   or Android Keystore).
 4. Resolve the credential to one endpoint and tenant at ingestion. Admins can
    revoke either the shared enrollment token (preventing future exchanges) or
    an individual endpoint credential (stopping that endpoint).
@@ -180,5 +182,6 @@ connector.
 - [x] PostgreSQL migration and rollback scripts are included.
 - [x] Delayed, stale, duplicate, and future-dated paths have focused tests.
 - [x] New enrolled endpoints cannot trigger automation by default.
-- [ ] Android and iOS native clients, platform QA, and distribution.
+- [x] Android and iOS source projects and setup-page source downloads.
+- [ ] Native mobile builds, physical-device QA, and signed distribution.
 - [ ] Signed macOS menu-bar/login-item distribution and macOS-target build QA.

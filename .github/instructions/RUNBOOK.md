@@ -222,8 +222,8 @@ uvicorn app.main:app --host 127.0.0.1 --port 8010
   per-install credentials protected with Windows user-scoped DPAPI; existing
   Windows shared-token agents remain compatible during migration. macOS uses
   the foreground Swift CLI and per-install Keychain credential. New endpoints
-  start with automation disabled. Android/iOS native clients remain planned,
-  although the API accepts their platform values by default. See
+  start with automation disabled. Android/iOS source projects are available,
+  but native builds and device validation remain outstanding. See
   `.github/instructions/platform-agents/SERVER_SIDE_CONFIG.md` for current
   configuration and rollout behavior.
 - For an existing PostgreSQL database, apply

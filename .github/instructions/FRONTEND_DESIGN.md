@@ -50,11 +50,15 @@ high-entropy enrollment token, shown once and valid for 24 hours across
 multiple devices. Windows and macOS agents exchange it for a per-install
 credential and persist that credential using Windows user-scoped DPAPI or
 macOS Keychain. Existing Windows agents using shared tenant tokens remain
-compatible during migration. Android and iOS may use the backend exchange
-contract, but native clients are not shipped and must not be presented as
-available installers. The page lists token expiry, revocation, and enrollment
-count without exposing raw tokens. Revoking a token prevents new exchanges;
-admins separately revoke already-issued endpoint credentials. The Endpoints
+compatible during migration. Android and iOS source projects are available
+from the setup page; users build them with Android Studio or Xcode, and they
+are not signed store releases. Clearly explain Android's inexact WorkManager
+timing and iOS Shortcuts automation best-effort limits. The iOS setup guidance
+should suggest both a battery-level and charger-connected trigger and must not
+promise exact timing. The page lists token expiry,
+revocation, and enrollment count without exposing raw tokens. Revoking a token
+prevents new exchanges; admins separately revoke already-issued endpoint
+credentials. The Endpoints
 page shows platform and enrollment state and allows admins to opt endpoints
 into automation only when the backend reports an allowed platform and fresh
 sample. The Connectors page supports a published
@@ -133,6 +137,8 @@ operational state colors for explicit status indicators.
 - The Overview keeps the live telemetry context and mapping actions brief,
   shows fleet metrics as a four-column desktop summary (two columns on
   tablets, one on narrow phones), and follows with the endpoint activity table.
+  The table identifies each endpoint's platform and device class alongside its
+  label so mobile endpoints are distinguishable from laptops.
 - The Smart switches page orders discovery, manual setup, and inventory by
   task. Keep scan location and action together, give inventory search and
   filters usable tap targets, and let device cards collapse to one column

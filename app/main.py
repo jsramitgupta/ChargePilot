@@ -277,6 +277,69 @@ async def download_macos_agent():
     )
 
 
+async def _download_native_agent(platform: str, archive_filename: str):
+    agent_dir = BASE_DIR.parent / "agent" / platform
+    archive = io.BytesIO()
+    required_files = {
+        "android": (
+            "README.md",
+            "settings.gradle.kts",
+            "build.gradle.kts",
+            "gradle.properties",
+            "app/build.gradle.kts",
+            "app/src/main/AndroidManifest.xml",
+        ),
+        "ios": (
+            "README.md",
+            "Info.plist",
+            "ChargePilotAgent.xcodeproj/project.pbxproj",
+            "ChargePilotAgent/ChargePilotAgentApp.swift",
+        ),
+    }
+    sources = required_files.get(platform)
+    if sources is None:
+        raise HTTPException(status_code=404, detail="Native agent platform not found.")
+    included_sources = set(sources)
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        for source in sources:
+            source_path = agent_dir / source
+            if not source_path.is_file():
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Required {platform} agent source is missing: {source}",
+                )
+            bundle.write(source_path, arcname=f"chargepilot-{platform}-agent/{source}")
+        source_root = agent_dir / "app/src/main/java" if platform == "android" else agent_dir / "ChargePilotAgent"
+        for source_path in sorted(source_root.rglob("*")):
+            if source_path.is_file():
+                relative_path = source_path.relative_to(agent_dir)
+                if relative_path.as_posix() in included_sources:
+                    continue
+                bundle.write(
+                    source_path,
+                    arcname=f"chargepilot-{platform}-agent/{relative_path.as_posix()}",
+                )
+    archive.seek(0)
+    return StreamingResponse(
+        archive,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{archive_filename}"',
+            "Cache-Control": "public, max-age=300",
+        },
+    )
+
+
+@app.get("/agent/android/download")
+async def download_android_agent():
+    return await _download_native_agent("android", "chargepilot-android-agent.zip")
+
+
+@app.get("/agent/ios/download")
+async def download_ios_agent():
+    return await _download_native_agent("ios", "chargepilot-ios-agent.zip")
+
+
 @app.get("/agent/install.ps1", include_in_schema=False)
 async def download_agent_installer():
     script_path = BASE_DIR.parent / "agent" / "CreateAgentScheduledTask.ps1"

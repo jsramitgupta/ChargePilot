@@ -1230,11 +1230,12 @@ function DashboardPage() {
         <div className="panel-header"><h3>Endpoint activity</h3><NavLink to="/endpoints" className="secondary-btn">View endpoints</NavLink></div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Laptop</th><th>Tenant</th><th>Battery</th><th>Power</th><th>Switch</th><th>Switch tenant</th><th>State</th><th>Last seen</th></tr></thead>
+            <thead><tr><th>Device</th><th>Platform</th><th>Tenant</th><th>Battery</th><th>Power</th><th>Switch</th><th>Switch tenant</th><th>State</th><th>Last seen</th></tr></thead>
             <tbody>
               {endpoints.map((endpoint) => (
                 <tr key={endpoint.id}>
                   <td className="strong-cell">{endpoint.hostname}</td>
+                  <td><span className="badge muted">{endpoint.platform}</span>{endpoint.device_class && <small className="ml-1 text-slate-500">{endpoint.device_class}</small>}</td>
                   <td>{endpoint.tenant_name ?? 'Unassigned'}</td>
                   <td>{endpoint.battery}%</td>
                   <td><span className={`badge ${endpoint.charging || endpoint.ac_connected ? 'success' : 'muted'}`}>{endpoint.charging ? 'Charging' : endpoint.ac_connected ? 'On AC' : 'On battery'}</span></td>
@@ -1244,7 +1245,7 @@ function DashboardPage() {
                   <td>{formatTimestamp(endpoint.last_seen_at)}</td>
                 </tr>
               ))}
-              {!endpoints.length && <tr><td colSpan={8} className="empty-state">No endpoint telemetry has been received yet.</td></tr>}
+              {!endpoints.length && <tr><td colSpan={9} className="empty-state">No endpoint telemetry has been received yet.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -2919,8 +2920,20 @@ function AgentSetupPage() {
         <code className="mt-4 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">swift run -c release ChargePilotAgent enroll --server-url {serverUrl} --label "Office Mac"</code>
         <p className="mt-2 text-sm text-[var(--muted)]">Paste the enrollment token when prompted, then start reporting with <code>swift run -c release ChargePilotAgent run</code>.</p>
       </div>
+      <div className="panel p-5 sm:p-6">
+        <h2 className="text-lg font-bold text-slate-900">Android</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600">The native Kotlin app stores its per-device credential using Android Keystore. WorkManager sends fresh readings on an inexact schedule; use Android Studio to build and install the source project.</p>
+        <a className="btn-secondary mt-3 inline-flex" href={backendUrl('/agent/android/download')}>Download Android agent source</a>
+        <p className="mt-2 text-sm text-[var(--muted)]">Open the extracted project in Android Studio, install it on the device, and enter the API origin, label, and enrollment token.</p>
+      </div>
+      <div className="panel p-5 sm:p-6">
+        <h2 className="text-lg font-bold text-slate-900">iPhone and iPad</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600">The native SwiftUI app stores its per-device credential in Keychain and adds a ChargePilot action to Shortcuts. Use a battery-level automation and a charger-connected automation to request fresh reports; iOS may delay or skip background actions.</p>
+        <a className="btn-secondary mt-3 inline-flex" href={backendUrl('/agent/ios/download')}>Download iOS Xcode project</a>
+        <p className="mt-2 text-sm text-[var(--muted)]">Open the project on a Mac with Xcode, choose a signing team, build and install it, then set up the automations described in its README. Reports are best-effort, not an exact-threshold guarantee.</p>
+      </div>
       <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-4 text-sm leading-6 text-[var(--muted)]">
-        Android and iOS can use the same enrollment exchange, but native clients are not yet shipped. Do not install third-party agents with workspace tokens. New endpoints start with automation off; an administrator can opt in after a fresh reading.
+        These are source projects, not signed app-store releases. New endpoints start with automation off; an administrator can opt in only after a fresh reading and when server policy allows that platform.
       </div>
       {!canManageEnrollments && <p className="text-sm text-[var(--muted)]">An administrator must create an enrollment token for this workspace.</p>}
       <p className="text-sm text-[var(--muted)]">After the first report, review devices on the <NavLink to="/endpoints" className="font-semibold text-[var(--leaf)] underline">Endpoints</NavLink> page.</p>

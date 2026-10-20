@@ -1,9 +1,9 @@
 # Android Agent Stream
 
-This stream specifies the planned native Android telemetry client. The
-platform-aware backend schema and reusable enrollment flow are implemented;
-the shared API accepts Android enrollment, but no native Android client is
-shipped or validated.
+The native Kotlin/Compose Android telemetry client source project is
+implemented in `agent/android`. It uses the platform-aware backend schema and
+reusable enrollment flow. It has not yet been built or validated on an Android
+device, and no signed APK is distributed.
 
 ## Scope
 
@@ -11,7 +11,8 @@ shipped or validated.
 - use Android battery APIs and WorkManager for best-effort uploads
 - use a random installation UUID and the per-install enrollment
   credential; do not collect hardware identifiers
-- use the live ChargePilot schema and tenant-scoped enrollment token
+- use the live ChargePilot schema and tenant-scoped enrollment token; Android
+  enrollment is enabled by default, subject to server configuration
 - show local last-success status; backend reporting dashboards require
   separate server/UI implementation
 
@@ -62,7 +63,7 @@ The implementation agent should verify:
 2. WorkManager execution is treated as inexact, including Doze and battery
    optimization delays
 3. installation identity persists across restarts and is not hardware identity
-4. uploads start only after the server operator enables Android enrollment
+4. uploads start only after a tenant administrator enrolls the device
 5. stale queued samples are not replayed as fresh automation input
 6. privacy disclosures and Play distribution requirements are in the release
    plan

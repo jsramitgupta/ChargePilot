@@ -209,6 +209,9 @@ The following source downloads do not require a browser session and contain no
 credentials:
 
 - `GET /agent/download` returns the PowerShell source ZIP.
+- `GET /agent/android/download` returns the Kotlin/Compose Android source
+  project ZIP.
+- `GET /agent/ios/download` returns the SwiftUI Xcode project ZIP.
 - `GET /agent/install.ps1` returns the scheduled-task installer used by the
   one-line command.
 - `GET /agent/BatteryAgent.ps1` returns the telemetry script fetched by the
@@ -347,12 +350,15 @@ Kafka-specific service settings use the `CHARGEPILOT_` prefix.
 
 The PowerShell and macOS agents exchange a tenant-scoped enrollment token for
 a per-install credential. Windows protects the saved credential with Windows
-user-scoped DPAPI; macOS stores it in Keychain. New Windows enrollments use an
-installation UUID rather than a hardware UUID. Existing Windows agents using
-the legacy shared token remain compatible during migration. Android and iOS
-native clients are not shipped, although the exchange and telemetry contracts
-accept all four platforms by default. Automation remains separately gated to
-the configured Windows/macOS allow-list.
+user-scoped DPAPI; macOS and iOS store it in Keychain, and Android encrypts it
+using Android Keystore. New Windows enrollments use an installation UUID
+rather than a hardware UUID. Existing Windows agents using the legacy shared
+token remain compatible during migration. Android and iOS source projects are
+available from device setup but have not completed native build or physical
+device validation. The iOS source exposes a Shortcuts action for fresh
+battery/charging reports, but iOS may defer or skip its invocation.
+Automation remains separately gated to the configured Windows/macOS
+allow-list.
 
 #### Endpoint enrollment and automation operations
 
@@ -371,9 +377,9 @@ the configured Windows/macOS allow-list.
 - `POST /api/v1/endpoint-enrollment/exchange` exchanges the code for a
   backend-created endpoint ID and per-install credential. The raw credential
   is returned once; only its SHA-256 hash is stored. Agents persist the
-  credential locally (Windows user-scoped DPAPI or macOS Keychain). Each
-  exchange creates a distinct endpoint identity bound to the request's
-  platform and installation UUID.
+  credential locally (Windows user-scoped DPAPI, macOS/iOS Keychain, or
+  Android Keystore). Each exchange creates a distinct endpoint identity bound
+  to the request's platform and installation UUID.
 - `POST /api/v1/endpoints/{endpoint_id}/credential/revoke` invalidates an
   enrolled endpoint credential and disables its automation. Re-enrollment
   currently requires deleting the old endpoint and creating a new

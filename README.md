@@ -53,7 +53,9 @@ The product contains:
 ├── agent/
 │   ├── BatteryAgent.ps1               # Windows laptop telemetry sender
 │   ├── CreateAgentScheduledTask.ps1   # creates the recurring Windows task
-│   └── macos/                         # Swift macOS telemetry CLI
+│   ├── macos/                         # Swift macOS telemetry CLI
+│   ├── android/                       # Kotlin/Compose Android source project
+│   └── ios/                           # SwiftUI iOS source project
 ├── connector/               # site-side Tuya discovery and control runtime
 ├── deploy/k3s/               # Kubernetes workloads and service configuration
 ├── docker/                   # API image and entrypoint
@@ -127,8 +129,9 @@ using the explicit device label, and start its foreground reporting process.
 The agent omits IP address and system hostname, stores the credential in
 Keychain, and sends no report while the Mac sleeps or the process is stopped.
 New endpoints remain telemetry-only until an authorized administrator
-enables automation after a fresh report. Android/iOS native clients are not
-yet implemented, although the enrollment and telemetry API accepts them.
+enables automation after a fresh report. Android and iOS source projects are
+available from device setup; they require Android Studio or Xcode, have not
+been validated on physical devices, and are not signed store releases.
 
 ### Tenant isolation and administrator assignment
 

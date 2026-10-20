@@ -23,12 +23,15 @@ for an existing API or runtime feature.
 ## What this codebase does now
 
 The implemented product is a cloud-capable, local-first battery automation
-platform. Windows and macOS telemetry are supported; Android and iOS native
-clients remain planned. The current product includes:
+platform. Windows and macOS agents are device-validated; Android and iOS
+source projects are implemented but still require native builds and physical
+device validation. The current product includes:
 
 - Windows laptop telemetry ingestion via a PowerShell agent
 - enrolled macOS battery telemetry via a Swift CLI, with per-install
   credentials and explicit user labels
+- Android Kotlin/Compose and iOS SwiftUI telemetry source projects with
+  secure per-install credential storage; signed releases are not available
 - platform-aware telemetry, endpoint enrollment, credential revocation, and
   server-enforced automation opt-in/freshness gates
 - endpoint-to-device mappings and automation rules
@@ -80,7 +83,7 @@ app/schemas/                 # Pydantic request/response schemas
 app/services/                # automation, connector, Tuya, SmartLife, and support logic
 app/workers.py               # telemetry outbox relay and Kafka automation consumer
 connector/                   # site-LAN connector runtime and packaging
-agent/                       # Windows PowerShell and macOS Swift telemetry agents
+agent/                       # Windows, macOS, Android, and iOS telemetry agents
 frontend/src/App.tsx         # React routes and page composition
 frontend/src/main.tsx        # frontend bootstrap
 frontend/src/index.css       # shared/light theme and layout styles
@@ -115,10 +118,9 @@ If this project has to be rebuilt from scratch, the safe order is:
 6. add battery rules and automation event logging
 7. add SmartLife QR onboarding and local-key matching flow
 8. add the React UI and SSE for operational visibility; follow FRONTEND_DESIGN.md for route, typography, and theme decisions
-9. Android and iOS native reporters can use the shipped platform-aware
-   backend contract. Their API platform values are enabled by default, but
-   native clients remain unavailable until privacy behavior and real-device
-   reporting cadence are reviewed and validated.
+9. Android and iOS source reporters use the shipped platform-aware backend
+   contract. Their projects are available, but native builds, physical-device
+   reporting validation, and signed distribution remain follow-up work.
 
-This order preserves the local-first architecture and prevents planned mobile
-designs from being mistaken for working server features.
+This order preserves the local-first architecture and distinguishes source
+availability from validated, distributable mobile apps.

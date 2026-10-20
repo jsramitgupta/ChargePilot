@@ -1,11 +1,10 @@
 # Platform Agent Streams
 
-This directory tracks ChargePilot's cross-platform telemetry work. The
-platform-aware backend contract, Windows PowerShell enrollment, and a
-foreground Swift macOS CLI are implemented. Existing Windows agents remain
-compatible with the shared-token flow. Android and iOS native clients are
-planned; the shared enrollment and telemetry APIs accept them, but no native
-client is shipped or validated.
+This directory tracks ChargePilot's cross-platform telemetry work. The platform-aware backend contract, Windows PowerShell enrollment, a
+foreground Swift macOS CLI, and Kotlin/Compose Android and SwiftUI iOS source
+projects are implemented. Existing Windows agents remain compatible with the
+shared-token flow. The Android and iOS source projects still require native
+build and physical-device validation; signed mobile releases are not shipped.
 
 ## Objectives
 
@@ -42,8 +41,10 @@ Key rules to preserve:
 
 - [macos](./macos/README.md) — implemented Swift foreground CLI; signed
   login-item/menu-bar distribution remains future work
-- [android](./android/README.md) — useful best-effort battery telemetry with WorkManager scheduling
-- [ios](./ios/README.md) — foreground-first reporting; no guaranteed unattended automation
+- [android](./android/README.md) — Kotlin/Compose source project; WorkManager
+  reporting is best-effort and device validation remains
+- [ios](./ios/README.md) — SwiftUI source project; foreground and Shortcuts
+  reporting, with no guaranteed unattended automation
 
 ## Shared server-side recommendations
 
@@ -53,8 +54,8 @@ reference is [API_SPEC.md](../API_SPEC.md).
 
 ## Execution policy for downstream AI work
 
-Build Android and iOS as separate projects/tasks with native acceptance tests
-and distribution plans. Coordinate against the shared API contract; enrollment
-support does not mean a native client is available. Keep new endpoint
-automation disabled until explicit server-authorized opt-in, and do not ship
-local Tuya control in an endpoint agent.
+Complete Android and iOS native builds, acceptance tests, physical-device
+validation, and distribution plans. Coordinate against the shared API
+contract; source projects do not mean signed mobile releases are available.
+Keep new endpoint automation disabled until explicit server-authorized opt-in,
+and do not ship local Tuya control in an endpoint agent.

@@ -3,8 +3,10 @@
 ## 1. Core architecture
 
 A native SwiftUI app reads battery state and uploads it after a platform-aware
-backend schema and per-install enrollment flow are enabled. It does not make
-automation decisions or claim to run continuously while suspended.
+backend schema and per-install enrollment flow are enabled. A Shortcuts App
+Intent can request a fresh upload on user-configured battery or charger
+automations. It does not make automation decisions or claim to run on a
+reliable schedule while suspended.
 
 ## 2. Components
 
@@ -12,7 +14,8 @@ automation decisions or claim to run continuously while suspended.
 - Identity manager: stores a random installation ID; server enrollment binds
   it to one endpoint and tenant
 - Upload service: uses HTTPS with a revocable per-install credential
-- Scheduler: supports foreground and opportunistic upload behavior
+- Shortcuts App Intent: reads current battery state and uploads a fresh sample
+  when a personal automation invokes it; iOS may defer or skip invocation
 - Status UI: shows last success, failure, and report freshness
 
 ## 3. Key design decisions
@@ -23,7 +26,8 @@ automation decisions or claim to run continuously while suspended.
 
 ## 4. Data flow
 
-1. app launches, returns to foreground, or user initiates a sync
+1. app launches, returns to foreground, user initiates a sync, or Shortcuts
+   invokes the reporting intent
 2. read battery level and charging state
 3. attach enrolled installation identity and platform metadata
 4. send authenticated telemetry only after iOS enrollment is enabled

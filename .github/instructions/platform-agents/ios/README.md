@@ -1,18 +1,21 @@
 # iOS Agent Stream
 
-This stream specifies the planned iOS telemetry companion. The platform-aware
-backend schema and reusable enrollment flow are implemented; the shared API
-accepts iOS enrollment, but no native iOS client is shipped or validated.
+The native SwiftUI iOS telemetry companion source project is implemented in
+`agent/ios`. It uses the platform-aware backend schema and reusable enrollment
+flow. It has not yet been built or validated on an iOS device, and no signed
+app is distributed.
 
 ## Scope
 
 - collect battery level and charging state using public iOS APIs
 - send HTTPS telemetry through the current backend contract using the
-  tenant-scoped enrollment token
+  tenant-scoped enrollment token; iOS enrollment is enabled by default,
+  subject to server configuration
 - adapt the app to the privacy and background limitations of iOS
 - use a random installation UUID and per-install credential; do not
   collect hardware identifiers
-- present the app as a telemetry companion, not an always-on automation agent
+- expose a Shortcuts App Intent for user-configured battery/charger
+  automations, while keeping reporting best-effort and server-authoritative
 
 ## Primary documents
 
@@ -28,17 +31,22 @@ accepts iOS enrollment, but no native iOS client is shipped or validated.
 
 ## Implementation approach
 
-Build a native SwiftUI app that reads battery state in the foreground and
-supports user-initiated sync. Background URLSession transfers may be used only
-for opportunistic delivery of already-collected samples; they do not guarantee
-background sampling. Do not embed the current tenant-wide agent token. The
-backend contract is in
+Build a native SwiftUI app that reads battery state in the foreground, supports
+user-initiated sync, and exposes an App Intent for Shortcuts automations.
+Shortcuts may request a fresh reading on battery-level and charger-connected
+events, but iOS may defer or skip invocation. The App Intent uses device-only
+Keychain storage accessible after first unlock so it can attempt reporting
+while locked; it does not provide an exact timing guarantee. Do not embed the
+current tenant-wide agent token. The backend contract is in
 [../SERVER_SIDE_CONFIG.md](../SERVER_SIDE_CONFIG.md).
 
 ## Known constraints
 
 - iOS has strong background execution limitations and system-controlled scheduling
-- the app cannot guarantee periodic telemetry while suspended
+- Shortcuts automations can prompt a report but cannot guarantee invocation
+  timing or successful delivery while the device is locked
+- the device must be unlocked once after reboot before the App Intent can read
+  the endpoint credential from Keychain
 - battery health and rich power-source metadata are not consistently exposed through public APIs
 
 ## Platform references
@@ -60,7 +68,7 @@ The implementation agent should verify:
 
 1. the app reads battery state and level only through supported public APIs;
    it does not send an unknown level as zero
-2. uploads begin only after an operator enables iOS and the user enrolls
+2. uploads begin only after a user enrolls with an administrator-provided token
 3. the app exposes local last-success status and makes background limits clear
 4. lifecycle changes and delayed uploads cannot create a false control signal
 5. local-network permission is not requested for ordinary HTTPS telemetry

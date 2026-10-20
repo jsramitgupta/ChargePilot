@@ -31,10 +31,12 @@ Windows laptop (implemented agent)
 ```
 
 Windows and enrolled macOS clients are implemented as HTTPS telemetry
-producers. Android and iOS native clients remain planned. Every agent sends
-readings only; it must not replace the site connector or own automation
-decisions. New installations are telemetry-only until an administrator opts
-in after a fresh sample. See [platform-agents/README.md](platform-agents/README.md).
+producers. Android Kotlin/Compose and iOS SwiftUI source projects are also
+implemented, but native builds and physical-device validation remain pending.
+Every agent sends readings only; it must not replace the site connector or own
+automation decisions. New installations are telemetry-only until an
+administrator opts in after a fresh sample. See
+[platform-agents/README.md](platform-agents/README.md).
 
 A second local onboarding path also exists:
 
@@ -117,9 +119,10 @@ The model set in `app/models/` includes:
 
 Endpoint rows store platform, optional device class and installation ID,
 nullable AC state, and explicit automation eligibility. All four platforms
-can use the universal enrollment exchange by default. Android/iOS native
-clients are not shipped; telemetry and enrollment support does not imply a
-validated client or automation eligibility.
+can use the universal enrollment exchange by default. Android/iOS source
+projects are implemented but still need native builds and device validation;
+telemetry and enrollment support do not imply client validation or automation
+eligibility.
 
 ### 3.4 Service layer
 

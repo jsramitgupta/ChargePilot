@@ -135,6 +135,11 @@ def test_overview_and_switch_pages_have_responsive_operational_layouts():
     dark = DARK_THEME.read_text(encoding="utf-8")
 
     assert 'className="dashboard-page"' in app
+    dashboard = app.split("function DashboardPage()", 1)[1].split("\nfunction ", 1)[0]
+    assert "<th>Platform</th>" in dashboard
+    assert "{endpoint.platform}</span>" in dashboard
+    assert "endpoint.device_class" in dashboard
+    assert "colSpan={9}" in dashboard
     assert 'className="stats-grid" aria-label="Fleet summary"' in app
     assert 'className="panel metric-card"' in app
     assert 'className="switch-page"' in app

@@ -4,11 +4,13 @@ This file is the short operational summary for the repository as it stands today
 
 ## Product
 ChargePilot is a cloud-capable, local-first battery automation platform. The
-backend supports Windows and enrolled macOS telemetry. New Windows and macOS
-installs use a tenant-scoped, reusable 24-hour enrollment token to obtain a
-revocable per-install credential; existing Windows agents remain compatible
-with tenant-wide tokens during migration. Android and iOS can use the shared
-enrollment/telemetry contract, but their native clients are still planned.
+backend supports Windows and enrolled macOS telemetry and exposes the shared
+enrollment/telemetry contract to mobile. Android Kotlin/Compose and iOS SwiftUI
+source projects are implemented, but still need native-toolchain builds,
+physical-device validation, and signed distribution. New installs use a
+tenant-scoped, reusable 24-hour enrollment token to obtain a revocable
+per-install credential; existing Windows agents remain compatible with
+tenant-wide tokens during migration.
 The backend monitors endpoint battery state and controls local Tuya switches
 through an outbound-HTTPS site connector on each device LAN.
 
@@ -67,13 +69,20 @@ accepts the one-time enrollment code through
 in a Docker-managed volume without host-directory setup. The Python installer
 prompts for the code and saves its credential locally. The source archive
 remains public for manual installation.
+The iOS source project exposes a Shortcuts action for fresh battery reports.
+Users can attach it to battery-level and charger-connected personal
+automations; iOS may defer or skip those actions, so this does not guarantee
+an exact threshold response. The Shortcuts action stores its endpoint
+credential in device-only Keychain available after first unlock.
 The Set up a device page creates a platform-independent enrollment token,
 shows its raw value once, and lists expiry, revocation, and usage metadata.
 Tokens can enroll multiple endpoints for 24 hours and admins can revoke them
 to prevent further exchanges. Windows stores its endpoint credential with
-Windows user-scoped DPAPI; macOS stores it in Keychain. New endpoints begin
-with automation disabled; admins can opt in only after a fresh sample and
-when the platform is in the server automation allow-list.
+Windows user-scoped DPAPI; macOS and iOS use Keychain; Android encrypts the
+credential with an Android Keystore key. Mobile reports are best-effort, and
+no signed mobile app is distributed. New endpoints begin with automation
+disabled; admins can opt in only after a fresh sample and when the platform is
+in the server automation allow-list.
 
 ## Current primary workflows
 1. New Windows and macOS agents exchange a tenant-scoped, reusable 24-hour
@@ -209,9 +218,10 @@ documented in [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md)
 
 ## Remaining platform-agent work
 
-Android and iOS native clients remain follow-up work. Their platform values
-are accepted by the shared enrollment and telemetry APIs by default; they are
-not yet available as native agents. Read
+Android and iOS source projects are implemented and available from device
+setup. Native builds, physical-device validation, and signed distribution
+remain follow-up work. Their platform values are accepted by the shared
+enrollment and telemetry APIs by default. Read
 [platform-agents/README.md](platform-agents/README.md) and
 [platform-agents/SERVER_SIDE_CONFIG.md](platform-agents/SERVER_SIDE_CONFIG.md)
 for the implemented API contract, rollout controls, and client-specific
@@ -222,8 +232,9 @@ The current schema keeps the legacy Windows payload compatible while allowing
 optional IP/AC metadata, platform and device-class metadata, and an
 installation UUID. New clients must use the reusable tenant-scoped enrollment
 token and per-install credentials, not the shared Windows token. Enrollment
-and telemetry accept all four platforms by default; Android/iOS clients are
-not shipped, and automation remains separately allow-listed.
+and telemetry accept all four platforms by default; Android/iOS source
+projects are available but are not native-build or device-validated releases.
+Automation remains separately allow-listed.
 
 ## Persistent implementation guidance
 - Always post a concise completion update by default, reporting the work done,
