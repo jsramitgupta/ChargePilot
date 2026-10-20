@@ -26,7 +26,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 
 RUN groupadd --system --gid 10001 chargepilot \
-    && useradd --uid 10001 --gid chargepilot --create-home --home-dir /home/chargepilot chargepilot
+    && useradd --uid 10001 --gid chargepilot --create-home --home-dir /home/chargepilot chargepilot \
+    && python -m pip install --no-cache-dir --upgrade setuptools==84.2.0 msgpack==1.2.3 urllib3==2.8.0
 
 COPY --from=build /opt/venv /opt/venv
 COPY app ./app

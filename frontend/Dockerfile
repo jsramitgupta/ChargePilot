@@ -12,7 +12,8 @@ FROM python:3.15-slim@sha256:2da676046630d7bf14c6764ae1143dc7fa0377a53f94bf5a642
 
 WORKDIR /app
 
-RUN groupadd --system --gid 10001 chargepilot \
+RUN python -m pip install --no-cache-dir --upgrade setuptools==84.2.0 msgpack==1.2.3 urllib3==2.8.0 \
+    && groupadd --system --gid 10001 chargepilot \
     && useradd --system --uid 10001 --gid chargepilot --create-home --home-dir /home/chargepilot chargepilot
 
 COPY app/frontend_server.py ./app/frontend_server.py

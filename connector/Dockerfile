@@ -8,6 +8,7 @@ WORKDIR /opt/chargepilot
 
 COPY connector/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt \
+    && pip install --no-cache-dir --root-user-action=ignore --upgrade setuptools==84.2.0 \
     && groupadd --system --gid 10001 chargepilot \
     && useradd --uid 10001 --gid chargepilot --home-dir /home/chargepilot chargepilot \
     && mkdir -p /data \
