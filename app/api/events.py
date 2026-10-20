@@ -19,7 +19,7 @@ async def list_event_page(
 ) -> dict[str, object]:
     if per_page not in {50, 100, 500}:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Page size must be 50, 100, or 500.",
         )
     events_query = tenant_scoped_query(db.query(AutomationEvent), AutomationEvent, user)

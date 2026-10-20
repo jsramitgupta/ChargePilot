@@ -53,7 +53,8 @@ contract without a separately reviewed backend change.
 
 ## Current implementation facts captured from the repo
 
-- Runtime stack: Python 3.12, FastAPI, SQLAlchemy 2.x, PostgreSQL, Kafka/aiokafka,
+- Runtime stack: Python 3.15 production image (Python 3.12+ supported for local
+  development), FastAPI, SQLAlchemy 2.x, PostgreSQL, Kafka/aiokafka,
   TinyTuya, tuya-device-sharing-sdk, pytest.
 - App entrypoint: `app/main.py` registers JSON APIs, serves public agent/connector source downloads and bootstrap scripts, and redirects legacy page paths to React routes.
 - Settings prefix: `CHARGEPILOT_` via `app/core/config.py`.

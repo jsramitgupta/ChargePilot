@@ -1,6 +1,14 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #eff5f0;
+  --color-brand-100: #dcebe0;
+  --color-brand-500: #5d9771;
+  --color-brand-600: #397a61;
+  --color-brand-700: #285d49;
+  --shadow-soft: 0 3px 12px rgba(23, 63, 57, 0.05);
+  --radius-app: 1.5rem;
+}
 
 :root {
   --font-ui: "Aptos", "Segoe UI", sans-serif;

@@ -974,7 +974,8 @@ function AcceptInvitationPage() {
 
 function SupportPage() {
   const { data: user } = useSession()
-  const [replyEmail, setReplyEmail] = useState('')
+  const [replyEmail, setReplyEmail] = useState<string | null>(null)
+  const replyAddress = replyEmail ?? user?.email ?? ''
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [sent, setSent] = useState(false)
@@ -985,7 +986,7 @@ function SupportPage() {
   const sendMutation = useMutation({
     mutationFn: () => apiFetch<{ message: string }>('/api/v1/support/email', {
       method: 'POST',
-      body: JSON.stringify({ reply_email: replyEmail, subject, body }),
+      body: JSON.stringify({ reply_email: replyAddress, subject, body }),
     }),
     onSuccess: () => {
       setSent(true)
@@ -993,11 +994,6 @@ function SupportPage() {
       setBody('')
     },
   })
-
-  useEffect(() => {
-    const email = user?.email
-    if (email) setReplyEmail((current) => current || email)
-  }, [user?.email])
 
   if (supportQuery.isLoading) return <LoadingCard />
 
@@ -1042,7 +1038,7 @@ function SupportPage() {
                 maxLength={254}
                 required
                 className="field"
-                value={replyEmail}
+                value={replyAddress}
                 onChange={(event) => setReplyEmail(event.target.value)}
               />
             </label>
@@ -1265,13 +1261,16 @@ function DevicesPage() {
   const [scanLocation, setScanLocation] = useState('server')
   const [discovered, setDiscovered] = useState<LanDevice[]>([])
   const [selectedLanDeviceId, setSelectedLanDeviceId] = useState('')
+  const selectedLanDeviceIdRef = useRef('')
   const [linkedDevices, setLinkedDevices] = useState<SmartLifeDevice[]>([])
   const [qr, setQr] = useState('')
   const [smartLifeStatus, setSmartLifeStatus] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
-  const [smartLifeUserCode, setSmartLifeUserCode] = useState('')
+  const [smartLifeUserCode, setSmartLifeUserCode] = useState<string | null>(null)
   const [qrScheme, setQrScheme] = useState('smartlife')
-  const [rememberUserCode, setRememberUserCode] = useState(false)
+  const [rememberUserCode, setRememberUserCode] = useState<boolean | null>(null)
+  const smartLifeAccountCode = smartLifeUserCode ?? user?.smartlife_user_code ?? ''
+  const shouldRememberUserCode = rememberUserCode ?? Boolean(user?.smartlife_user_code)
   const pollTimer = useRef<number | null>(null)
 
   const { data, isLoading, error } = useQuery<DevicesPageData>({
@@ -1404,21 +1403,13 @@ function DevicesPage() {
     }
   }, [])
 
-  useEffect(() => {
-    if (user?.smartlife_user_code) {
-      setSmartLifeUserCode(user.smartlife_user_code)
-      setRememberUserCode(true)
-    }
-  }, [user?.smartlife_user_code])
-
-  useEffect(() => {
-    if (!selectedLanDeviceId) return
-    const matched = linkedDevices.find((device) => device.device_id === selectedLanDeviceId)
+  function applyLinkedDeviceKey(deviceId: string, devices: SmartLifeDevice[]): void {
+    const matched = devices.find((device) => device.device_id === deviceId)
     if (matched) {
       form.setValue('encrypted_local_key', matched.local_key)
       setStatusMessage('Smart Life key matched to the selected LAN device.')
     }
-  }, [form, linkedDevices, selectedLanDeviceId])
+  }
 
   async function pollSmartLife(loginId: string): Promise<void> {
     try {
@@ -1432,7 +1423,11 @@ function DevicesPage() {
         setSmartLifeStatus('This QR code expired. Start again to generate a fresh code.')
         setQr('')
       } else {
-        setLinkedDevices(result.devices ?? [])
+        const devices = result.devices ?? []
+        setLinkedDevices(devices)
+        if (selectedLanDeviceIdRef.current) {
+          applyLinkedDeviceKey(selectedLanDeviceIdRef.current, devices)
+        }
         setSmartLifeStatus(`Connected. ${result.devices?.length ?? 0} local key(s) retrieved. Select the matching LAN scan result to fill its key.`)
       }
     } catch (pollError) {
@@ -1442,11 +1437,11 @@ function DevicesPage() {
 
   const smartLifeMutation = useMutation({
     mutationFn: async () => {
-      const userCode = smartLifeUserCode.trim()
+      const userCode = smartLifeAccountCode.trim()
       if (!userCode) throw new Error('Enter your Smart Life account ID / user code to continue.')
       await apiFetch<{ saved: boolean }>('/devices/smartlife/preferences', {
         method: 'POST',
-        body: JSON.stringify({ user_code: userCode, remember: rememberUserCode }),
+        body: JSON.stringify({ user_code: userCode, remember: shouldRememberUserCode }),
       })
       return apiFetch<{ login_id: string; qr: string }>('/devices/smartlife/start', {
         method: 'POST',
@@ -1520,13 +1515,17 @@ function DevicesPage() {
             {!discovered.length ? <p className="switch-scan-empty">No Tuya devices were found. Make sure a switch is powered on and the selected network can reach it.</p> : <div className="switch-scan-grid">
               {discovered.map((device) => <article key={device.device_id} className="switch-scan-card">
                 <div className="switch-scan-card-copy"><h4>{device.name}</h4><p>{device.ip_address} · {device.device_id} · Protocol {device.protocol_version}</p></div><button type="button" className="btn-primary shrink-0 px-3 py-2 text-xs" disabled={device.already_added} onClick={() => {
+                  selectedLanDeviceIdRef.current = device.device_id
                   setSelectedLanDeviceId(device.device_id)
+                  applyLinkedDeviceKey(device.device_id, linkedDevices)
                   form.setValue('name', device.name)
                   form.setValue('device_id', device.device_id)
                   form.setValue('ip_address', device.ip_address === 'unknown' ? '' : device.ip_address)
                   form.setValue('device_type', device.device_type || 'switch')
                   form.setValue('protocol_version', device.protocol_version || '3.5')
-                  form.setValue('encrypted_local_key', '')
+                  if (!linkedDevices.some((linked) => linked.device_id === device.device_id)) {
+                    form.setValue('encrypted_local_key', '')
+                  }
                   const scannedConnectorId = scanLocation.startsWith('connector:')
                     ? scanLocation.slice('connector:'.length)
                     : ''
@@ -1666,8 +1665,8 @@ function DevicesPage() {
           </header>
           <div className="smartlife-modal-body">
             <div className="smartlife-modal-grid">
-              <div className="smartlife-detail-panel"><label className="label" htmlFor="smartlife-code">Smart Life account ID</label><input id="smartlife-code" maxLength={120} autoComplete="username" className="field" value={smartLifeUserCode} onChange={(event) => setSmartLifeUserCode(event.target.value)} /><p>Find it in Smart Life → Me → Settings → Account and Security.</p></div>
-              <div className="smartlife-detail-panel"><label className="label" htmlFor="smartlife-scheme">Mobile app</label><select id="smartlife-scheme" className="field" value={qrScheme} onChange={(event) => setQrScheme(event.target.value)}><option value="smartlife">Smart Life</option><option value="tuyaSmart">Tuya Smart</option></select><label className="smartlife-remember"><input type="checkbox" checked={rememberUserCode} onChange={(event) => setRememberUserCode(event.target.checked)} /><span>Remember this account ID on my ChargePilot account</span></label></div>
+              <div className="smartlife-detail-panel"><label className="label" htmlFor="smartlife-code">Smart Life account ID</label><input id="smartlife-code" maxLength={120} autoComplete="username" className="field" value={smartLifeAccountCode} onChange={(event) => setSmartLifeUserCode(event.target.value)} /><p>Find it in Smart Life → Me → Settings → Account and Security.</p></div>
+              <div className="smartlife-detail-panel"><label className="label" htmlFor="smartlife-scheme">Mobile app</label><select id="smartlife-scheme" className="field" value={qrScheme} onChange={(event) => setQrScheme(event.target.value)}><option value="smartlife">Smart Life</option><option value="tuyaSmart">Tuya Smart</option></select><label className="smartlife-remember"><input type="checkbox" checked={shouldRememberUserCode} onChange={(event) => setRememberUserCode(event.target.checked)} /><span>Remember this account ID on my ChargePilot account</span></label></div>
             </div>
             <div className="smartlife-qr-panel"><p className="smartlife-qr-title">Generate a secure sign-in QR</p><p>Scan it in your mobile app and approve the request.</p><button type="button" className="btn-primary" disabled={smartLifeMutation.isPending} onClick={() => smartLifeMutation.mutate()}>{smartLifeMutation.isPending ? 'Preparing…' : 'Generate secure QR'}</button>{smartLifeStatus && <p className="smartlife-qr-status" role="status" aria-live="polite">{smartLifeStatus}</p>}{qr && <img className="smartlife-qr-image" src={qr} alt="Smart Life sign-in QR code" />}</div>
             {linkedDevices.length > 0 && <div className="smartlife-match-list" aria-live="polite">{linkedDevices.map((linked) => <div key={linked.device_id} className={`smartlife-match ${selectedLanDeviceId === linked.device_id ? 'is-matched' : ''}`}><span>{linked.device_id}</span><span>{selectedLanDeviceId === linked.device_id ? 'Matched automatically' : 'Select matching LAN device'}</span></div>)}</div>}

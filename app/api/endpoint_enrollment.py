@@ -66,7 +66,7 @@ async def create_endpoint_enrollment(
 
     if tenant is None or tenant_id is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Select a valid tenant for this endpoint enrollment.",
         )
 
@@ -143,7 +143,7 @@ async def exchange_endpoint_enrollment(
         or (enrollment.platform is not None and enrollment.platform != payload.platform)
     ):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Enrollment token is invalid, expired, revoked, or for a different platform.",
         )
 

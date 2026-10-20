@@ -1,4 +1,4 @@
-FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+FROM python:3.15-slim@sha256:2da676046630d7bf14c6764ae1143dc7fa0377a53f94bf5a642f0b214aca5bce
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -7,9 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /opt/chargepilot
 
 COPY connector/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN pip install --no-cache-dir --root-user-action=ignore -r requirements.txt \
     && groupadd --system --gid 10001 chargepilot \
-    && useradd --system --uid 10001 --gid chargepilot --home-dir /home/chargepilot chargepilot \
+    && useradd --uid 10001 --gid chargepilot --home-dir /home/chargepilot chargepilot \
     && mkdir -p /data \
     && chown chargepilot:chargepilot /data
 

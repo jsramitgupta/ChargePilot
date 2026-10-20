@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import String
@@ -15,5 +15,5 @@ class Tenant(Base):
     slug: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     agent_token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     created_by_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))

@@ -286,7 +286,7 @@ async def register(
         )
     username = payload.username.strip()
     if not username:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Username is required.")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Username is required.")
     if db.query(User.id).filter(User.username == username).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That username is already in use.")
     if db.query(User.id).filter(User.email == payload.email).first():
@@ -308,20 +308,20 @@ async def register(
         ).scalar_one_or_none()
         if invite is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="The tenant invite code is invalid, expired, or already used.",
             )
         tenant = db.query(Tenant).filter(Tenant.id == invite.tenant_id).first()
         if tenant is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="The invite code is no longer associated with an active tenant.",
             )
         role = "standard_user"
     else:
         tenant_name = (payload.tenant_name or "").strip()
         if not tenant_name:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Tenant name is required.")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Tenant name is required.")
         tenant = Tenant(
             name=tenant_name,
             slug=f"tenant-{secrets.token_hex(8)}",
@@ -385,14 +385,14 @@ async def verify_email(
     ).scalar_one_or_none()
     if verification is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="The verification link is invalid, expired, or already used.",
         )
 
     user = db.query(User).filter(User.id == verification.user_id).first()
     if user is None or not user.email:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="The verification link is invalid, expired, or already used.",
         )
     verification.used_at = now
@@ -421,13 +421,13 @@ async def get_invitation_details(
     ).first()
     if invitation is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="This invitation is invalid, expired, or already used.",
         )
     tenant = db.query(Tenant).filter(Tenant.id == invitation.tenant_id).first()
     if tenant is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="This invitation is no longer associated with an active tenant.",
         )
     response.headers["Cache-Control"] = "no-store"
@@ -461,13 +461,13 @@ async def accept_account_invitation(
     ).scalar_one_or_none()
     if invitation is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="This invitation is invalid, expired, or already used.",
         )
     tenant = db.query(Tenant).filter(Tenant.id == invitation.tenant_id).first()
     if tenant is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="This invitation is no longer associated with an active tenant.",
         )
     if (

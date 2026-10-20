@@ -29,7 +29,7 @@ def test_dockerfiles_use_pinned_images_and_unprivileged_runtime():
     connector_dockerfile = (ROOT / "connector" / "Dockerfile").read_text()
 
     for dockerfile in (app_dockerfile, connector_dockerfile):
-        assert "FROM python:3.12-slim@sha256:" in dockerfile
+        assert "FROM python:3.15-slim@sha256:" in dockerfile
         assert "pip install --upgrade pip" not in dockerfile
 
     assert "USER 10001:10001" in app_dockerfile

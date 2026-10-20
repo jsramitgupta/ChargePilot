@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import DateTime, Integer, String
@@ -15,4 +15,6 @@ class BatteryReading(Base):
     battery_percentage: Mapped[int] = mapped_column(Integer, nullable=False)
     charging: Mapped[bool] = mapped_column(default=False)
     ac_connected: Mapped[bool] = mapped_column(default=False)
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )

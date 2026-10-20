@@ -14,6 +14,9 @@ behavior, and UI change checklist are in
 The short project-wide status is in
 [`.github/instructions/CURRENT_STATE.md`](../.github/instructions/CURRENT_STATE.md).
 
+Tailwind CSS 4 is integrated through the Vite plugin. Shared custom utility
+tokens are defined in `src/index.css`.
+
 Shared light-theme tokens, layout, and components are in `src/index.css`.
 `src/theme.css` defines dark-theme tokens and focused dark-mode adjustments.
 Keep both themes aligned when changing a shared component, including its

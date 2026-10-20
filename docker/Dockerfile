@@ -1,19 +1,37 @@
-FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS runtime
+FROM python:3.15-slim@sha256:2da676046630d7bf14c6764ae1143dc7fa0377a53f94bf5a642f0b214aca5bce AS build
 
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN groupadd --system --gid 10001 chargepilot \
-    && useradd --system --uid 10001 --gid chargepilot --create-home --home-dir /home/chargepilot chargepilot
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./
 COPY app ./app
 COPY agent ./agent
 COPY connector ./connector
 
-RUN pip install --no-cache-dir .
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir .
+
+FROM python:3.15-slim@sha256:2da676046630d7bf14c6764ae1143dc7fa0377a53f94bf5a642f0b214aca5bce AS runtime
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+RUN groupadd --system --gid 10001 chargepilot \
+    && useradd --uid 10001 --gid chargepilot --create-home --home-dir /home/chargepilot chargepilot
+
+COPY --from=build /opt/venv /opt/venv
+COPY app ./app
+COPY agent ./agent
+COPY connector ./connector
 
 USER 10001:10001
 

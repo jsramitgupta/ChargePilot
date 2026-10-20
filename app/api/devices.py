@@ -178,7 +178,7 @@ async def create_device(
     if is_super_admin_user(user):
         tenant_id = str(payload.tenant_id) if payload.tenant_id else None
         if tenant_id and db.query(Tenant.id).filter(Tenant.id == tenant_id).first() is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a valid tenant.")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Select a valid tenant.")
 
     device = Device(
         owner_id=user.id,
@@ -376,7 +376,7 @@ async def assign_device_connector(
         ).first()
         if connector is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Choose an active connector for this tenant.",
             )
         device.connector_id = connector.id
@@ -424,7 +424,7 @@ async def update_device_state(
         except ValueError as exc:
             db.rollback()
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Could not queue the switch command. Check the assigned connector and device.",
             ) from exc
         db.commit()

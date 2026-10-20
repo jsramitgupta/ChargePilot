@@ -166,7 +166,7 @@ async def create_user(
     else:
         tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     if tenant is None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a valid tenant.")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Select a valid tenant.")
     account = User(
         username=payload.username,
         password_hash=hash_password(payload.password),
@@ -199,7 +199,7 @@ async def update_user(
     if is_super_admin_user(user):
         tenant = db.query(Tenant).filter(Tenant.id == payload.tenant_id).first() if payload.tenant_id else None
         if tenant is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a valid tenant.")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Select a valid tenant.")
         new_tenant_id = tenant.id
     if target.is_admin and target.tenant_id and (
         target.tenant_id != new_tenant_id or payload.role != "tenant_admin"
@@ -297,7 +297,7 @@ async def create_account_invitation(
     else:
         tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
     if tenant is None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a valid tenant.")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Select a valid tenant.")
 
     if db.query(User.id).filter(User.username == payload.username).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That username is already in use.")
@@ -524,7 +524,7 @@ async def create_tenant_invite(
     tenant_id = payload.tenant_id if is_super_admin_user(user) else user.tenant_id
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first() if tenant_id else None
     if tenant is None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a valid tenant.")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Select a valid tenant.")
 
     code = secrets.token_urlsafe(32)
     expires_at = datetime.now(UTC) + timedelta(days=7)
@@ -635,7 +635,7 @@ async def update_global_agent_token(
         token = payload.token.strip()
         if len(token) < 16:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Agent tokens must be between 16 and 512 characters.",
             )
         if db.query(Tenant.id).filter(Tenant.agent_token == token).first():

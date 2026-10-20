@@ -16,13 +16,15 @@ cloud app directly into the device LAN.
 
 ## 2. Prerequisites
 
-- Python 3.12+ for local installs
+- Python 3.12+ for local installs; production images use Python 3.15, the latest
+  stable release (Python does not designate formal LTS releases)
 - Docker Desktop or Docker Engine with Compose
 - local network access from the site connector to the Tuya device
 - outbound HTTPS access from each site connector to ChargePilot
 - Windows laptop capable of running the currently supported
   `agent/BatteryAgent.ps1` agent
 - macOS 13+ with Swift 5.9+ for the foreground `agent/macos` telemetry CLI
+- Node.js 24 LTS for frontend local development
 
 ## 3. Environment variables
 

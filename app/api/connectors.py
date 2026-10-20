@@ -87,12 +87,12 @@ async def create_enrollment_code(
         )
     tenant_id = payload.tenant_id if is_super_admin_user(user) else user.tenant_id
     if not tenant_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a valid tenant.")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Select a valid tenant.")
     if db.query(Tenant.id).filter(Tenant.id == tenant_id).first() is None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select a valid tenant.")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Select a valid tenant.")
     name = payload.name.strip()
     if not name:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Connector name is required.")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Connector name is required.")
 
     response.headers["Cache-Control"] = "private, no-store"
     enrollment_code = secrets.token_urlsafe(32)

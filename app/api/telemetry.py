@@ -139,7 +139,7 @@ async def receive_telemetry(
 
     if endpoint is None and hardware_uuid is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="hardware_uuid is required to register a new laptop. Update the ChargePilot agent and retry.",
         )
 
