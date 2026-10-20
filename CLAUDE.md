@@ -4,7 +4,8 @@ This document is the rebuild guide for creating ChargePilot from scratch with Cl
 
 ## 1. Product summary
 
-ChargePilot is a local-first battery automation platform for Windows laptops.
+ChargePilot is a local-first battery automation platform with Windows and
+macOS telemetry clients; Android and iOS telemetry clients remain planned.
 When hosted in the cloud, a site connector on each Tuya LAN claims durable
 desired-state commands over outbound HTTPS and performs local TinyTuya
 discovery/control. The canonical design is in
@@ -36,7 +37,8 @@ The system has grown beyond the original battery-only flow and now includes:
 
 - fully managed SaaS hosting
 - multi-region distributed orchestration
-- mobile-native app or separate frontend app
+- full mobile-native applications or a separate frontend app; native telemetry
+  clients are independent platform deliverables
 - cloud-first automation
 
 ## 4. Recommended stack
@@ -63,7 +65,8 @@ Use independently deployable runtime roles:
 - app/services/automation_processor.py — asynchronous rules and command creation
 - app/models/ — shared schema, including outbox/idempotency records
 - connector/ — site-side TinyTuya runtime for cloud deployments
-- agent/ — Windows agent for telemetry upload
+- agent/ — Windows PowerShell and macOS Swift telemetry agents; Android/iOS
+  agents remain planned
 
 The API, relay, and consumer still share one PostgreSQL schema. Do not call
 the current database topology sharded or proven for 10M endpoints. Local
@@ -221,7 +224,7 @@ Use hysteresis and a cooldown:
 
 ### Prompt A — full project build
 
-"Build ChargePilot as a local-first Python service system with FastAPI, SQLAlchemy, Kafka, TinyTuya, and a Windows PowerShell telemetry agent. Implement a transactional telemetry outbox, keyed Kafka events, idempotent automation consumers, durable multi-connector commands, LAN discovery, SmartLife QR login, and tests for event delivery, tenant isolation, rules, and measured scale. Treat 10M registered / 1M active as an unproven target until staging benchmarks verify it."
+"Build ChargePilot as a local-first Python service system with FastAPI, SQLAlchemy, Kafka, TinyTuya, a Windows PowerShell agent, and an enrolled macOS Swift telemetry CLI. Preserve the platform-aware per-install enrollment contract, transactional telemetry outbox, keyed Kafka events, idempotent automation consumers, durable multi-connector commands, LAN discovery, SmartLife QR login, and tests for event delivery, tenant isolation, rules, and measured scale. Treat 10M registered / 1M active as an unproven target until staging benchmarks verify it."
 
 ### Prompt B — SmartLife bridge only
 
@@ -255,7 +258,8 @@ Use hysteresis and a cooldown:
 
 A recreated version should be considered correct if it can:
 
-- receive telemetry from the Windows agent
+- receive telemetry from Windows and enrolled macOS agents; keep Android/iOS
+  client delivery as a separately validated workstream
 - update endpoint and mapping state
 - turn a local device on/off based on battery thresholds
 - discover local devices on the LAN

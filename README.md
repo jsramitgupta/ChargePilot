@@ -1,6 +1,9 @@
 # ChargePilot
 
-ChargePilot is a cloud-capable, local-first battery automation platform for Windows laptops. The app receives telemetry from laptop agents, evaluates battery thresholds, and routes Tuya switch commands through a site connector on the device LAN. Day-to-day control does not rely on the Tuya cloud.
+ChargePilot is a cloud-capable, local-first battery automation platform. It
+receives telemetry from Windows and enrolled macOS agents, evaluates battery
+thresholds on the backend, and routes Tuya switch commands through a site
+connector on the device LAN. Day-to-day control does not rely on the Tuya cloud.
 
 ## Project summary
 
@@ -17,7 +20,7 @@ The product contains:
 - TinyTuya wrappers for local switch discovery and control
 - React, TypeScript, Tailwind, and Vite frontend in `frontend/`, serving the
   complete browser experience through JSON APIs
-- a PowerShell laptop agent that sends runtime battery data
+- a PowerShell Windows agent and a Swift foreground macOS agent
 - an outbound-HTTPS site connector that scans and controls devices on private LANs
 
 ## Runtime stack
@@ -49,7 +52,8 @@ The product contains:
 ├── frontend/                # React application and design system
 ├── agent/
 │   ├── BatteryAgent.ps1               # Windows laptop telemetry sender
-│   └── CreateAgentScheduledTask.ps1   # creates the recurring Windows task
+│   ├── CreateAgentScheduledTask.ps1   # creates the recurring Windows task
+│   └── macos/                         # Swift macOS telemetry CLI
 ├── connector/               # site-side Tuya discovery and control runtime
 ├── deploy/k3s/               # Kubernetes workloads and service configuration
 ├── docker/                   # API image and entrypoint
@@ -76,7 +80,9 @@ The product contains:
 
 ### Telemetry ingestion
 
-The battery agent posts JSON telemetry to the service at `/api/v1/telemetry`.
+The Windows agent posts JSON telemetry to `/api/v1/telemetry` using the
+existing tenant token. Enrolled macOS agents use a tenant-scoped one-time
+enrollment code and a per-install credential stored in Keychain.
 
 Expected payload:
 
@@ -93,9 +99,28 @@ Expected payload:
 }
 ```
 
-The request is authenticated with the tenant's agent token in the `Authorization` bearer header. The API commits the latest endpoint snapshot and a transactional outbox event together. A relay publishes the event to Kafka; automation consumers then evaluate mappings asynchronously. An HTTP accepted response confirms durable ingestion, not completed switch control. Monitor outbox age, consumer lag, dead-letter events, and connector command outcomes. Sign in to ChargePilot and open **Install Agent** in the top navigation to copy the one-line PowerShell installer for the current token; the page also links to a public source ZIP. The command uses `iex` to download scripts from your configured HTTPS ChargePilot server, so run it only when you trust that server. Tenant admins can regenerate the tenant token there; existing agents must be reconfigured after rotation. Super Admins can update or regenerate the installation-wide global agent token from the same page. A random global token is created during fresh database initialization and is stored in the database for tenantless Super Admin installations.
+For enrolled agents, the request's bearer credential resolves to one endpoint
+and tenant; the platform and installation identity must match that enrollment.
+The API commits the latest endpoint snapshot and a transactional outbox event
+together. Delayed samples cannot regress the current snapshot. Automation
+consumers require endpoint opt-in, an allowed platform, and a fresh sample
+before evaluating mappings. An HTTP accepted response confirms durable
+ingestion, not completed switch control. Monitor outbox age, consumer lag,
+dead-letter events, and connector command outcomes. Sign in to ChargePilot and
+open **Set up a laptop** to access the Windows installer or create a
+single-use macOS enrollment code. Windows token rotation behavior remains
+unchanged.
 
 Extract `chargepilot-agent-scripts.zip`, open PowerShell in that folder, and run the displayed command. The installer saves the token in the local agent configuration and registers the recurring scheduled task. The ZIP download requires an authenticated ChargePilot session and does not contain the tenant token.
+
+For macOS, the setup page provides the Swift source archive and a 15-minute
+enrollment code. Build the package with Swift 5.9+ on macOS 13+, enroll using
+the explicit device label, and start its foreground reporting process. The
+agent omits IP address and system hostname, stores the credential in Keychain,
+and sends no report while the Mac sleeps or the process is stopped. New Mac
+endpoints remain telemetry-only until an authorized administrator enables
+automation after a fresh report. Android/iOS clients are not yet implemented
+and their enrollment is disabled by default.
 
 ### Tenant isolation and administrator assignment
 

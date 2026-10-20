@@ -29,3 +29,7 @@ class EndpointRead(EndpointBase):
 
 class EndpointTenantAssignment(BaseModel):
     tenant_id: UUID
+
+
+class EndpointAutomationUpdate(BaseModel):
+    enabled: bool

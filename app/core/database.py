@@ -27,6 +27,7 @@ from app.models.messaging import TelemetryAutomationCursor, TelemetryOutbox  # n
 from app.models.tenant_invite import TenantInvite  # noqa: F401,E402
 from app.models.account_invitation import AccountInvitation  # noqa: F401,E402
 from app.models.email_verification import EmailVerification  # noqa: F401,E402
+from app.models.endpoint_enrollment import EndpointEnrollment  # noqa: F401,E402
 from app.services.local_key_service import decrypt_local_key, encrypt_local_key  # noqa: E402
 
 
@@ -59,7 +60,11 @@ def _ensure_table_columns() -> None:
             "owner_id": "VARCHAR(36)",
             "tenant_id": "VARCHAR(36)",
             "hardware_uuid": "VARCHAR(36)",
+            "installation_id": "VARCHAR(36)",
+            "platform": "VARCHAR(16) NOT NULL DEFAULT 'windows'",
+            "device_class": "VARCHAR(16)",
             "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+            "automation_enabled": "BOOLEAN NOT NULL DEFAULT TRUE",
         },
         "mappings": {
             "owner_id": "VARCHAR(36)",
@@ -102,6 +107,16 @@ def _ensure_table_columns() -> None:
             conn.execute(text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email_unique "
                 "ON users (email) WHERE email IS NOT NULL"
+            ))
+    if inspector.has_table("endpoints"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_endpoints_token_hash "
+                "ON endpoints (token_hash) WHERE token_hash IS NOT NULL"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_endpoints_installation_id "
+                "ON endpoints (installation_id) WHERE installation_id IS NOT NULL"
             ))
 
 

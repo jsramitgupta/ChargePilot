@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     admin_password: str = "change-me"
     telemetry_rate_limit_per_minute: int = 60
     endpoint_offline_timeout_seconds: int = 600
+    telemetry_max_age_seconds: int = Field(default=604800, ge=1)
+    telemetry_max_future_skew_seconds: int = Field(default=300, ge=0)
+    telemetry_automation_max_age_seconds: int = Field(default=600, ge=1)
+    telemetry_enabled_platforms: str = "windows,macos"
+    telemetry_automation_enabled_platforms: str = "windows,macos"
     api_v1_prefix: str = "/api/v1"
     api_url: str = ""
     frontend_url: str = ""
@@ -67,6 +72,32 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
+        valid_platforms = {"windows", "macos", "android", "ios"}
+        for setting_name, value in (
+            ("telemetry_enabled_platforms", self.telemetry_enabled_platforms),
+            ("telemetry_automation_enabled_platforms", self.telemetry_automation_enabled_platforms),
+        ):
+            platforms = {item.strip().casefold() for item in value.split(",") if item.strip()}
+            if not platforms or not platforms <= valid_platforms:
+                raise ValueError(
+                    f"{setting_name} must be a comma-separated list of supported platforms."
+                )
+        enabled_platforms = {
+            item.strip().casefold()
+            for item in self.telemetry_enabled_platforms.split(",")
+            if item.strip()
+        }
+        automation_platforms = {
+            item.strip().casefold()
+            for item in self.telemetry_automation_enabled_platforms.split(",")
+            if item.strip()
+        }
+        if not automation_platforms <= enabled_platforms:
+            raise ValueError("Automation platforms must also be enabled for telemetry.")
+        if self.telemetry_automation_max_age_seconds > self.telemetry_max_age_seconds:
+            raise ValueError(
+                "Telemetry automation maximum age cannot exceed the telemetry ingress maximum age."
+            )
         smtp_settings_present = any(
             (
                 self.smtp_host,
@@ -129,6 +160,22 @@ class Settings(BaseSettings):
         if not self.session_cookie_secure:
             raise ValueError("Production requires secure session cookies.")
         return self
+
+    @property
+    def enabled_telemetry_platforms(self) -> frozenset[str]:
+        return frozenset(
+            item.strip().casefold()
+            for item in self.telemetry_enabled_platforms.split(",")
+            if item.strip()
+        )
+
+    @property
+    def automation_telemetry_platforms(self) -> frozenset[str]:
+        return frozenset(
+            item.strip().casefold()
+            for item in self.telemetry_automation_enabled_platforms.split(",")
+            if item.strip()
+        )
 
     @property
     def smtp_configured(self) -> bool:

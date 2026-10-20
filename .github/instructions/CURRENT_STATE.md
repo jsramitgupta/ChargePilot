@@ -3,7 +3,14 @@
 This file is the short operational summary for the repository as it stands today.
 
 ## Product
-ChargePilot is a cloud-capable, local-first battery automation platform for Windows laptops. It monitors laptop battery state and controls local Tuya switches through an outbound-HTTPS site connector on each device LAN. The system includes SmartLife/Tuya QR onboarding and connector-based LAN discovery.
+ChargePilot is a cloud-capable, local-first battery automation platform. The
+backend supports Windows and enrolled macOS telemetry. The Windows PowerShell
+agent remains compatible with tenant-wide tokens; the first macOS client is a
+Swift foreground CLI using one-time tenant-scoped enrollment and a revocable
+per-install credential. Android and iOS use the additive API contract but
+their native clients are still planned. The backend monitors endpoint battery
+state and controls local Tuya switches through an outbound-HTTPS site
+connector on each device LAN.
 
 ## Core runtime stack
 - FastAPI
@@ -60,12 +67,22 @@ accepts the one-time enrollment code through
 in a Docker-managed volume without host-directory setup. The Python installer
 prompts for the code and saves its credential locally. The source archive
 remains public for manual installation.
+The Set up a laptop page retains the existing Windows installer and can create
+a single-use macOS enrollment code. The public macOS source ZIP contains no
+credentials. Enrolled Mac endpoints begin with automation disabled; admins
+can opt in only after a fresh sample and when the platform is in the server
+automation allow-list.
 
 ## Current primary workflows
-1. PowerShell agent posts its hardware UUID, current hostname, and battery
-   telemetry to `/api/v1/telemetry` using the token for the endpoint's tenant.
-2. API validates endpoint token, hardware UUID, and timestamp, then upserts the
-   endpoint by hardware UUID and atomically stores its snapshot plus a
+1. The Windows PowerShell agent posts its hardware UUID, current hostname, and
+   battery telemetry to `/api/v1/telemetry` using the tenant token. The macOS
+   Swift CLI exchanges a tenant-scoped one-time code for a backend endpoint ID
+   and per-install credential, stores the credential in Keychain, and uploads
+   explicit-label battery telemetry while running.
+2. API validates the legacy Windows token or resolves the per-install
+   credential to its endpoint and tenant. It validates timestamp age/future
+   skew, prevents delayed samples from regressing the current snapshot, and
+   atomically stores the snapshot plus a
    transactional outbox event in PostgreSQL. Existing UUID-less endpoints are
    retained and linked to a UUID on matching tenant-scoped telemetry.
    The global Super Admin token registers unassigned endpoints only. A Super
@@ -73,9 +90,11 @@ remains public for manual installation.
    use the tenant-specific agent token.
 3. The outbox relay publishes events to Kafka in endpoint-key order.
 4. Automation consumers evaluate active mappings using battery hysteresis and
-   cooldown rules. Mappings can disable turn-on independently and can enable a
-   separate charging-only cutoff; connector commands remain durable in
-   PostgreSQL.
+   cooldown rules only when the endpoint is opted in, its platform is
+   allow-listed, and the sample is no older than the configured automation
+   freshness limit. New enrolled endpoints default to telemetry-only.
+   Mappings can disable turn-on independently and can enable a separate
+   charging-only cutoff; connector commands remain durable in PostgreSQL.
 5. The assigned site connector controls the switch locally and acknowledges;
    resulting events/state are exposed in the UI.
    Endpoint and switch ownership must match before a mapping can be created.
@@ -184,6 +203,22 @@ sharded PostgreSQL infrastructure before setting throughput or SLO claims.
 
 The full connector design, operational contract, and deployment plan is
 documented in [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md).
+
+## Remaining platform-agent work
+
+Android and iOS native clients remain follow-up work. Their platform values
+are accepted only when explicitly enabled in server configuration; they are
+not yet offered for enrollment by default. Read
+[platform-agents/README.md](platform-agents/README.md) and
+[platform-agents/SERVER_SIDE_CONFIG.md](platform-agents/SERVER_SIDE_CONFIG.md)
+for the implemented API contract, rollout controls, and client-specific
+constraints. Mobile reports remain subject to endpoint opt-in and server-side
+freshness gates; do not claim reliable background reporting.
+
+The current schema keeps Windows fields compatible while allowing optional
+IP/AC metadata, platform and device-class metadata, and an installation UUID.
+New native clients must use tenant-scoped enrollment and per-install
+credentials, not the shared Windows token.
 
 ## Persistent implementation guidance
 - Always post a concise completion update by default, reporting the work done,

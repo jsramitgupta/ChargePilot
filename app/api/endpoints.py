@@ -8,12 +8,18 @@ from fastapi import Header
 
 from app.core.database import get_db
 from app.core.authorization import get_authenticated_user, is_super_admin_user, tenant_scoped_query
+from app.core.config import settings
 from app.models.device import Device
 from app.models.endpoint import Endpoint
 from app.models.mapping import Mapping
 from app.models.tenant import Tenant
 from app.models.user import User
-from app.schemas.endpoint import EndpointCreate, EndpointRead, EndpointTenantAssignment
+from app.schemas.endpoint import (
+    EndpointAutomationUpdate,
+    EndpointCreate,
+    EndpointRead,
+    EndpointTenantAssignment,
+)
 from app.services.endpoint_service import (
     EndpointTenantAssignmentError,
     assign_unassigned_endpoint,
@@ -68,6 +74,11 @@ async def list_endpoints(
             mapped_tenant_names.setdefault(endpoint_id, tenant_names.get(device_tenant_id, "Unassigned"))
     for endpoint in endpoints:
         last_seen = _normalize_utc(endpoint.last_seen_at)
+        sample_age = (
+            (datetime.now(UTC) - last_seen).total_seconds()
+            if last_seen is not None
+            else None
+        )
         rows.append(
             {
                 "id": endpoint.id,
@@ -75,18 +86,84 @@ async def list_endpoints(
                 "tenant_name": tenant_names.get(endpoint.tenant_id),
                 "hostname": endpoint.hostname,
                 "hardware_uuid": endpoint.hardware_uuid,
+                "installation_id": endpoint.installation_id,
+                "platform": endpoint.platform,
+                "device_class": endpoint.device_class,
                 "ip_address": endpoint.ip_address,
                 "battery": endpoint.battery_percentage,
                 "charging": endpoint.charging,
                 "ac_connected": endpoint.ac_connected,
                 "last_seen_at": last_seen.isoformat() if last_seen else None,
                 "status": "online" if last_seen and (datetime.now(UTC) - last_seen).total_seconds() <= 600 else "offline",
+                "credential_enrolled": endpoint.token_hash is not None,
+                "automation_enabled": endpoint.automation_enabled,
+                "automation_available": (
+                    endpoint.platform in settings.automation_telemetry_platforms
+                    and sample_age is not None
+                    and -settings.telemetry_max_future_skew_seconds
+                    <= sample_age
+                    <= settings.telemetry_automation_max_age_seconds
+                ),
                 "mapped_device": mapped_names.get(endpoint.id, "No mapped switch"),
                 "mapped_device_tenant": mapped_tenant_names.get(endpoint.id),
                 "switch_state": mapped_states.get(endpoint.id),
             }
         )
     return rows
+
+
+@router.patch("/{endpoint_id}/automation")
+async def update_endpoint_automation(
+    endpoint_id: UUID,
+    payload: EndpointAutomationUpdate,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    if not (
+        is_super_admin_user(user)
+        or (user.is_admin and user.tenant_id is not None)
+        or (user.role == "manager" and user.tenant_id is not None)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Endpoint automation permission required.",
+        )
+
+    endpoint = (
+        tenant_scoped_query(db.query(Endpoint), Endpoint, user)
+        .filter(Endpoint.id == str(endpoint_id))
+        .with_for_update()
+        .first()
+    )
+    if endpoint is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found.")
+
+    if payload.enabled:
+        if endpoint.platform not in settings.automation_telemetry_platforms:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Automation for {endpoint.platform} is disabled by server configuration.",
+            )
+        last_seen = _normalize_utc(endpoint.last_seen_at)
+        if last_seen is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This endpoint must report fresh telemetry before automation can be enabled.",
+            )
+        age_seconds = (datetime.now(UTC) - last_seen).total_seconds()
+        if not (
+            -settings.telemetry_max_future_skew_seconds
+            <= age_seconds
+            <= settings.telemetry_automation_max_age_seconds
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This endpoint must have a fresh telemetry sample before automation can be enabled.",
+            )
+
+    endpoint.automation_enabled = payload.enabled
+    db.commit()
+    return {"id": endpoint.id, "automation_enabled": endpoint.automation_enabled}
 
 
 @router.post("", response_model=EndpointRead, status_code=status.HTTP_201_CREATED)

@@ -2,6 +2,7 @@ import hashlib
 import logging
 import secrets
 import smtplib
+import string
 from datetime import UTC, datetime, timedelta
 import re
 from typing import Literal
@@ -32,6 +33,13 @@ logger = logging.getLogger("chargepilot.auth")
 TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 EMAIL_VERIFICATION_TTL = timedelta(minutes=30)
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _generate_agent_token(db: Session) -> str:
+    while True:
+        token = "".join(secrets.choice(string.ascii_letters) for _ in range(32))
+        if db.query(Tenant).filter(Tenant.agent_token == token).first() is None:
+            return token
 
 
 class PasswordChangeRequest(BaseModel):
@@ -317,7 +325,7 @@ async def register(
         tenant = Tenant(
             name=tenant_name,
             slug=f"tenant-{secrets.token_hex(8)}",
-            agent_token=secrets.token_urlsafe(32),
+            agent_token=_generate_agent_token(db),
         )
         db.add(tenant)
         db.flush()

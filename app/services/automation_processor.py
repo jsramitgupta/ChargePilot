@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.device import Device, DeviceChannel
 from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
@@ -47,16 +48,28 @@ async def process_telemetry_event(
         if event_timestamp < cursor_timestamp:
             return False
 
-    state_changes = []
-    mappings = (
-        db.query(Mapping)
-        .filter(
-            Mapping.endpoint_id == endpoint.id,
-            Mapping.tenant_id == endpoint.tenant_id,
-            Mapping.enabled.is_(True),
-        )
-        .all()
+    now = datetime.now(UTC)
+    sample_age_seconds = (now - event_timestamp).total_seconds()
+    automation_eligible = (
+        endpoint.automation_enabled
+        and endpoint.platform in settings.automation_telemetry_platforms
+        and -settings.telemetry_max_future_skew_seconds
+        <= sample_age_seconds
+        <= settings.telemetry_automation_max_age_seconds
     )
+
+    state_changes = []
+    mappings = []
+    if automation_eligible:
+        mappings = (
+            db.query(Mapping)
+            .filter(
+                Mapping.endpoint_id == endpoint.id,
+                Mapping.tenant_id == endpoint.tenant_id,
+                Mapping.enabled.is_(True),
+            )
+            .all()
+        )
 
     for mapping in mappings:
         device = (

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -6,6 +6,7 @@ from app.core.database import SessionLocal
 from app.models.endpoint import Endpoint
 from app.main import app
 from app.models.messaging import TelemetryOutbox
+from conftest import TEST_GLOBAL_AGENT_TOKEN
 
 
 def test_telemetry_route_accepts_valid_endpoint():
@@ -73,6 +74,62 @@ def test_telemetry_rejects_new_endpoint_without_hardware_uuid():
 
     assert response.status_code == 422
     assert "hardware_uuid is required" in response.json()["detail"]
+
+
+def test_telemetry_rejects_far_future_timestamp():
+    response = TestClient(app).post(
+        "/api/v1/telemetry",
+        json={
+            "hostname": "FUTURE-TIMESTAMP",
+            "hardware_uuid": "b19f1d84-0a2c-4a34-bf95-a61ff3231c60",
+            "ip_address": "192.168.0.57",
+            "battery_percentage": 50,
+            "charging": False,
+            "ac_connected": False,
+            "timestamp": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+            "agent_version": "1.0.0",
+        },
+        headers={"Authorization": f"Bearer {TEST_GLOBAL_AGENT_TOKEN}"},
+    )
+
+    assert response.status_code == 400
+    assert "future" in response.json()["detail"]
+
+
+def test_out_of_order_telemetry_does_not_regress_endpoint_snapshot():
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {TEST_GLOBAL_AGENT_TOKEN}"}
+    hardware_uuid = "b19f1d84-0a2c-4a34-bf95-a61ff3231c61"
+    newest = datetime.now(timezone.utc)
+    common = {
+        "hostname": "ORDERED-LAPTOP",
+        "hardware_uuid": hardware_uuid,
+        "ip_address": "192.168.0.58",
+        "charging": False,
+        "ac_connected": False,
+        "agent_version": "1.0.0",
+    }
+
+    first = client.post(
+        "/api/v1/telemetry",
+        json={**common, "battery_percentage": 31, "timestamp": newest.isoformat()},
+        headers=headers,
+    )
+    delayed = client.post(
+        "/api/v1/telemetry",
+        json={
+            **common,
+            "battery_percentage": 84,
+            "timestamp": (newest - timedelta(seconds=30)).isoformat(),
+        },
+        headers=headers,
+    )
+
+    assert first.status_code == 200
+    assert delayed.status_code == 200
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter_by(hardware_uuid=hardware_uuid).one()
+        assert endpoint.battery_percentage == 31
 
 
 def test_placeholder_hardware_uuid_is_rejected():

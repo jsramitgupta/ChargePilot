@@ -240,22 +240,25 @@ Response:
 
 ### 3.3 POST /api/v1/telemetry
 
-Receives battery telemetry from the Windows agent. The API commits the latest
-endpoint snapshot and a durable outbox event in one PostgreSQL transaction;
-rule evaluation and switch commands happen asynchronously in Kafka consumers.
+Receives battery telemetry from Windows and enrolled platform agents. The API
+commits the latest endpoint snapshot and a durable outbox event in one
+PostgreSQL transaction; rule evaluation and switch commands happen
+asynchronously in Kafka consumers.
 
 Request schema (`app/schemas/telemetry.py`):
 
 ```json
 {
   "hardware_uuid": "4b4b2b91-6c32-4d5b-8a9f-2a73b8e94d11",
+  "platform": "windows",
+  "device_class": "laptop",
   "hostname": "LAPTOP-01",
   "ip_address": "192.168.1.20",
   "battery_percentage": 82,
   "charging": false,
   "ac_connected": true,
   "switch_state": null,
-  "timestamp": "2025-01-01T12:00:00Z",
+  "timestamp": "2026-10-19T11:00:00Z",
   "agent_version": "1.0.0"
 }
 ```
@@ -265,10 +268,21 @@ Validation rules:
 - `hardware_uuid`: required to create a new endpoint; normalized as a UUID and
   unique across the installation. Existing legacy endpoints may omit it while
   matching their previously registered hostname.
+- `platform`: `windows`, `macos`, `android`, or `ios`; omitted values default
+  to `windows` for the existing PowerShell agent.
+- `installation_id`: required for enrolled platform credentials and must
+  match the ID assigned during enrollment. It is not hardware identity.
+- `device_class`: optional (`laptop`, `desktop`, `phone`, or `tablet`), with
+  platform-compatible combinations only.
 - `hostname`: 1-160 chars
-- `ip_address`: 7-64 chars
+- `ip_address`: optional; if supplied, 7-64 chars
 - `battery_percentage`: integer in range 0-100
-- `timestamp`: valid datetime; telemetry older than seven days is rejected
+- `charging`: required boolean. A sample without a usable battery reading
+  must not be sent.
+- `ac_connected`: optional boolean; `null` represents unavailable/unknown
+  rather than a synthetic false value.
+- `timestamp`: valid datetime; samples older than seven days or more than five
+  minutes in the future are rejected by default.
 - `agent_version`: 1-50 chars
 
 Success response:
@@ -278,6 +292,7 @@ Success response:
   "status": "accepted",
   "hostname": "LAPTOP-01",
   "hardware_uuid": "4b4b2b91-6c32-4d5b-8a9f-2a73b8e94d11",
+  "platform": "windows",
   "battery_percentage": 82,
   "message": "Telemetry accepted for asynchronous automation processing."
 }
@@ -285,20 +300,33 @@ Success response:
 
 Behavior:
 
-- validates bearer token
-- rejects telemetry older than seven days
+- validates either the existing tenant/global Windows token or a revocable
+  per-install credential issued by endpoint enrollment
+- legacy shared tokens are accepted only for Windows reports; other platform
+  sources must resolve to their enrolled endpoint and tenant
+- rejects telemetry older than seven days and timestamps more than five
+  minutes ahead; both limits are configurable
 - atomically updates or creates the endpoint snapshot and `TelemetryOutbox`
   record; a successful response means this transaction committed
+- delayed telemetry can be retained in the outbox for diagnostics but cannot
+  overwrite a newer endpoint snapshot or `last_seen_at`
 - identifies an endpoint by `hardware_uuid`, while capturing the current
   hostname as mutable display metadata; a hostname change updates the existing
   hardware record rather than creating another laptop
+- identifies enrolled installations by their opaque per-install credential;
+  platform and installation ID in the request must match the server-side
+  endpoint record
 - links a legacy endpoint without a hardware UUID to its UUID on the first
   matching telemetry for that tenant and hostname; existing endpoint IDs,
   mappings, and history are preserved
 - relays the event to the `chargepilot.telemetry.v1` Kafka topic using a
   tenant/endpoint ordering key
-- automation workers evaluate active mappings with the existing threshold,
-  hysteresis, and cooldown rules
+- new enrolled endpoints have automation disabled until an authorized
+  administrator opts in after a fresh sample. Workers independently check
+  endpoint opt-in, platform allow-list, and sample age (600 seconds by
+  default) before evaluating mappings
+- Windows endpoints preserve their existing automation eligibility. New
+  macOS endpoints are telemetry-only until explicitly enabled.
 - `switch_state` remains in the wire schema for agent compatibility and does
   not override backend rules
 - creates a durable desired-state connector command for connector-assigned
@@ -315,10 +343,44 @@ The PowerShell telemetry payload now includes `hardware_uuid`; its bearer-token
 flow is unchanged.
 Kafka-specific service settings use the `CHARGEPILOT_` prefix.
 
+The first macOS client is a Swift foreground CLI in `agent/macos`. It reads
+power state through Apple's power-source APIs, stores the per-install
+credential in Keychain, sends no system hostname/IP/serial, and reports every
+five minutes while it is running. Signed menu-bar/login-item distribution
+remains future work. Android and iOS use the same backend schema but have no
+native clients yet; enrollment is disabled for them by default. Their
+platforms can be enabled with `CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS` after
+their client and real-device behavior are reviewed.
+
+#### Endpoint enrollment and automation operations
+
+- `POST /api/v1/admin/endpoint-enrollments` creates a tenant-scoped,
+  platform-specific, 15-minute single-use code. Tenant admins/managers are
+  scoped to their tenant; Super Admins must select a tenant. The raw code is
+  returned once with `Cache-Control: private, no-store`.
+- `DELETE /api/v1/admin/endpoint-enrollments/{enrollment_id}` revokes an
+  unused code before it expires.
+- `POST /api/v1/endpoint-enrollment/exchange` exchanges the code for a
+  backend-created endpoint ID and per-install credential. The raw credential
+  is returned once; only its SHA-256 hash is stored. The app must store it in
+  Keychain/Keystore. Codes cannot be replayed or used for another platform.
+- `POST /api/v1/endpoints/{endpoint_id}/credential/revoke` invalidates an
+  enrolled endpoint credential and disables its automation. Re-enrollment
+  currently requires deleting the old endpoint and creating a new
+  installation identity.
+- `PATCH /api/v1/endpoints/{endpoint_id}/automation` accepts
+  `{"enabled":true|false}`. Enabling requires a recent sample and a platform
+  allowed by `CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`.
+- Defaults are configured in `.env.example`: `windows,macos` are enabled for
+  telemetry and automation; Android/iOS remain disabled. Automation max age
+  defaults to 600 seconds, ingress max age to seven days, and future skew to
+  300 seconds.
+
 ### 3.4 GET /api/v1/endpoints
 
-Lists visible endpoint records with tenant ID/name, battery, and online/offline
-status. Tenant names are `null` for unassigned endpoints.
+Lists visible endpoint records with tenant ID/name, platform, installation
+identity, battery, online/offline status, credential enrollment state, and
+automation eligibility. Tenant names are `null` for unassigned endpoints.
 
 Example response:
 
@@ -328,11 +390,16 @@ Example response:
     "id": "...",
     "hostname": "LAPTOP-01",
     "hardware_uuid": "4b4b2b91-6c32-4d5b-8a9f-2a73b8e94d11",
+    "platform": "windows",
+    "device_class": "laptop",
     "tenant_id": "...",
     "tenant_name": "Operations",
     "ip_address": "192.168.1.20",
     "battery": 82,
     "status": "online",
+    "credential_enrolled": false,
+    "automation_enabled": true,
+    "automation_available": true,
     "mapped_device": "No mapped switch"
   }
 ]
@@ -455,7 +522,7 @@ Exchange a one-time enrollment code in the `Authorization: Bearer` header for a
 connector ID and permanent credential. Codes expire after 15 minutes, are
 single-use, and are returned only once.
 
-Request: `{"version":"0.1.1"}`
+Request: `{"version":"0.1.2"}`
 
 Response:
 
@@ -482,7 +549,7 @@ expire after 15 minutes and are stored only as hashes. The response is marked
 ### POST /api/v1/connectors/heartbeat
 
 Refreshes last-seen time and connector version. The connector sends its
-credential and `{"version":"0.1.1"}`.
+credential and `{"version":"0.1.2"}`.
 
 ### POST /api/v1/connectors/commands/claim
 

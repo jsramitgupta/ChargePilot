@@ -45,9 +45,15 @@ browser interactions:
 All routes except sign-in, registration, and email verification require the
 authenticated session. Keep tenant authorization and automation decisions in
 the backend; presentation must not become an authorization or rule boundary.
-The Install Agent page provides a one-line PowerShell `iex` command from its
-authenticated setup API; it links to public source downloads but never embeds
-the agent token in those archives. The Connectors page supports a published
+The Set up a laptop page supports the Windows PowerShell agent and the
+foreground macOS Swift CLI. Windows keeps its authenticated one-line installer
+and tenant token flow. macOS uses a 15-minute, single-use enrollment code and
+an endpoint-scoped credential; the source archive contains no credentials.
+Android and iOS native clients remain planned and must not be shown as
+available installation choices until their clients are validated. The
+Endpoints page shows platform and enrollment state, offers credential
+revocation, and allows admins to opt endpoints into automation only when the
+backend reports an allowed platform and fresh sample. The Connectors page supports a published
 Docker Compose image with environment-based one-time enrollment and
 Docker-managed persistent storage, and a one-line Python installer that
 prompts locally for the enrollment code. Connector and agent source downloads
@@ -59,6 +65,8 @@ regular turn-off threshold, and can enable a separate charging-completion
 cutoff that uses the laptop's `charging` telemetry flag. Show threshold labels
 in a wrapping legend rather than overlaid on the battery scale so coincident
 thresholds remain legible.
+Endpoint-level automation opt-in is separate from an individual mapping's
+enabled state; the server enforces the platform allow-list and sample freshness.
 
 ## Visual system
 

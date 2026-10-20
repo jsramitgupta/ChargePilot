@@ -20,7 +20,9 @@ cloud app directly into the device LAN.
 - Docker Desktop or Docker Engine with Compose
 - local network access from the site connector to the Tuya device
 - outbound HTTPS access from each site connector to ChargePilot
-- Windows laptop capable of running `agent/BatteryAgent.ps1`
+- Windows laptop capable of running the currently supported
+  `agent/BatteryAgent.ps1` agent
+- macOS 13+ with Swift 5.9+ for the foreground `agent/macos` telemetry CLI
 
 ## 3. Environment variables
 
@@ -43,6 +45,11 @@ Other supported settings include:
 ```env
 CHARGEPILOT_TELEMETRY_RATE_LIMIT_PER_MINUTE=60
 CHARGEPILOT_ENDPOINT_OFFLINE_TIMEOUT_SECONDS=600
+CHARGEPILOT_TELEMETRY_MAX_AGE_SECONDS=604800
+CHARGEPILOT_TELEMETRY_MAX_FUTURE_SKEW_SECONDS=300
+CHARGEPILOT_TELEMETRY_AUTOMATION_MAX_AGE_SECONDS=600
+CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS=windows,macos
+CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS=windows,macos
 CHARGEPILOT_API_URL=https://api.example.com
 CHARGEPILOT_FRONTEND_URL=https://app.example.com
 CHARGEPILOT_TURNSTILE_SITE_KEY=<public-turnstile-site-key>
@@ -54,6 +61,15 @@ CHARGEPILOT_TELEMETRY_KAFKA_TOPIC=chargepilot.telemetry.v1
 CHARGEPILOT_TELEMETRY_DEAD_LETTER_TOPIC=chargepilot.telemetry.dlq.v1
 CHARGEPILOT_TELEMETRY_CONSUMER_GROUP=chargepilot-automation-v1
 ```
+
+The defaults enable Windows and macOS telemetry. Android and iOS are not
+enabled for enrollment until their clients are ready; add `android` or `ios`
+to `CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS` only after native-client and
+real-device validation. New endpoints start with automation off. Endpoint
+opt-in also requires a fresh sample and the platform must be present in
+`CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`. Keep the ingress limit
+at seven days unless a compatibility change is reviewed; the 600-second
+automation maximum is intentionally separate.
 
 Production Kafka should use TLS and preferably SASL over TLS. Set
 `CHARGEPILOT_KAFKA_SECURITY_PROTOCOL=SASL_SSL`,
@@ -485,7 +501,24 @@ the user-column compatibility additions; back up an existing database before
 upgrading and check for duplicate non-null email values before applying the
 unique index.
 
-The repository does not currently contain Alembic revision files. `create_all()` is not a versioned migration system and does not safely upgrade arbitrary existing schemas. Back up existing data and plan a dedicated schema migration before deploying schema-changing updates to an existing installation.
+The repository does not currently contain Alembic revision files. `create_all()` is not a versioned migration system and does not safely upgrade arbitrary existing schemas. Back up existing data and run the reviewed SQL migrations before deploying schema-changing updates to an existing installation.
+
+Cross-platform telemetry adds `endpoints.installation_id`, `platform`,
+`device_class`, and `automation_enabled`, makes `ac_connected` nullable, adds
+unique partial indexes for per-install identity/credential hashes, and creates
+`endpoint_enrollments`. For existing PostgreSQL deployments:
+
+1. Take and verify a database backup.
+2. Stop API, outbox-relay, and automation-consumer processes.
+3. Apply `deploy/migrations/20261020_cross_platform_telemetry.sql` through a
+   private database connection, not a published database port.
+4. Deploy the new application and run Windows regression tests before enabling
+   macOS enrollment.
+
+Rollback is in `deploy/migrations/20261020_cross_platform_telemetry_rollback.sql`.
+It removes enrollment rows and platform identity/eligibility data and converts
+unknown AC values to `false`; only use it after disabling new clients and
+accepting that data loss. Test both scripts against a backup before production.
 
 Laptop endpoints are identified by the Windows
 `Win32_ComputerSystemProduct.UUID`; hostname remains mutable display and
@@ -608,6 +641,17 @@ ChargePilot server you trust. The agent and connector archives are public
 source downloads and contain no credentials. Setup APIs and token management
 remain authenticated. Tenant-assigned laptops must use their tenant's agent
 token; the global token is only for unassigned endpoints.
+
+### macOS agent
+
+On **Set up a laptop**, choose the correct tenant and create a one-time
+15-minute macOS enrollment code. Download the source ZIP, build with Swift 5.9+
+on macOS 13+, and follow `agent/macos/README.md`. The code is entered
+interactively and is not saved; the per-install credential is stored in the
+user's Keychain. The CLI reports only while running and the Mac is awake; a
+signed login-item app is not yet included. Revoke an enrolled credential from
+the **Endpoints** page. New Mac endpoints remain telemetry-only until an
+authorized admin enables automation after a fresh sample.
 
 Keep the connector on the switch LAN and allow outbound HTTPS plus local Tuya
 traffic (UDP 6666, 6667, 7000 and TCP 6668). Assign switches to the enrolled

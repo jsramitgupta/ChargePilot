@@ -22,6 +22,7 @@ from app.api.auth import router as auth_router
 from app.api.connectors import router as connectors_router
 from app.api.devices import router as devices_router
 from app.api.endpoints import router as endpoints_router
+from app.api.endpoint_enrollment import router as endpoint_enrollment_router
 from app.api.events import router as events_router
 from app.api.health import router as health_router
 from app.api.mappings import router as mappings_router
@@ -183,6 +184,7 @@ app.include_router(auth_router, prefix=settings.api_v1_prefix)
 app.include_router(admin_router, prefix=settings.api_v1_prefix)
 app.include_router(connectors_router, prefix=settings.api_v1_prefix)
 app.include_router(endpoints_router, prefix=settings.api_v1_prefix)
+app.include_router(endpoint_enrollment_router, prefix=settings.api_v1_prefix)
 app.include_router(devices_router, prefix=settings.api_v1_prefix)
 app.include_router(onboarding_router)
 app.include_router(mappings_router, prefix=settings.api_v1_prefix)
@@ -257,6 +259,35 @@ async def download_agent_scripts():
         media_type="application/zip",
         headers={
             "Content-Disposition": 'attachment; filename="chargepilot-agent-scripts.zip"',
+            "Cache-Control": "public, max-age=300",
+        },
+    )
+
+
+@app.get("/agent/macos/download")
+async def download_macos_agent():
+    macos_agent_dir = BASE_DIR.parent / "agent" / "macos"
+    archive = io.BytesIO()
+    sources = (
+        ("Package.swift", "chargepilot-macos-agent/Package.swift"),
+        ("README.md", "chargepilot-macos-agent/README.md"),
+        ("Sources/ChargePilotAgent/main.swift", "chargepilot-macos-agent/Sources/ChargePilotAgent/main.swift"),
+    )
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        for source, name in sources:
+            source_path = macos_agent_dir / source
+            if not source_path.is_file():
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Required macOS agent source is missing: {source}",
+                )
+            bundle.write(source_path, arcname=name)
+    archive.seek(0)
+    return StreamingResponse(
+        archive,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="chargepilot-macos-agent.zip"',
             "Cache-Control": "public, max-age=300",
         },
     )

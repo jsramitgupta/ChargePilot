@@ -139,10 +139,18 @@ Site deployment:
 
 ## Compatibility rules
 
-Do not rename, remove, or change semantics for existing `CHARGEPILOT_`
+Do not rename, remove, or break semantics for existing `CHARGEPILOT_`
 environment settings, Compose variables, PowerShell agent `agent-config.json`,
-telemetry fields, or endpoint token authentication. Connector configuration
-and enrollment are separate interfaces.
+Windows telemetry fields, or legacy Windows endpoint token authentication.
+Cross-platform telemetry adds platform fields and per-install enrollment
+without replacing the Windows contract. Connector configuration and
+enrollment are separate interfaces.
+
+Windows PowerShell and the enrolled macOS Swift CLI are implemented telemetry
+agents; Android/iOS clients remain planned. All agents submit telemetry to the
+control plane; the site connector remains the only component responsible for
+LAN-bound Tuya discovery and control. The shared identity, enrollment, and
+payload contract is documented in `platform-agents/SERVER_SIDE_CONFIG.md`.
 
 ## Schema and rollout
 

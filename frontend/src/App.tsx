@@ -80,12 +80,18 @@ type Endpoint = {
   tenant_name?: string | null
   hostname: string
   hardware_uuid: string | null
+  installation_id?: string | null
+  platform: 'windows' | 'macos' | 'android' | 'ios'
+  device_class?: 'laptop' | 'desktop' | 'phone' | 'tablet' | null
   ip_address: string | null
   battery: number
   charging: boolean
-  ac_connected: boolean
+  ac_connected: boolean | null
   last_seen_at: string | null
   status: 'online' | 'offline'
+  credential_enrolled: boolean
+  automation_enabled: boolean
+  automation_available: boolean
   mapped_device: string
   mapped_device_tenant?: string | null
   switch_state: boolean | null
@@ -2067,6 +2073,19 @@ function EndpointsPage() {
       queryClient.invalidateQueries({ queryKey: ['mappings'] })
     },
   })
+  const automationMutation = useMutation({
+    mutationFn: ({ endpointId, enabled }: { endpointId: string; enabled: boolean }) =>
+      apiFetch<{ automation_enabled: boolean }>(`/api/v1/endpoints/${endpointId}/automation`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['endpoints'] }),
+  })
+  const revokeCredentialMutation = useMutation({
+    mutationFn: (endpointId: string) =>
+      apiFetch<{ status: string }>(`/api/v1/endpoints/${endpointId}/credential/revoke`, { method: 'POST' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['endpoints'] }),
+  })
 
   const deleteMutation = useMutation({
     mutationFn: (endpointId: string) => apiFetch<void>(`/api/v1/endpoints/${endpointId}`, { method: 'DELETE' }),
@@ -2086,14 +2105,17 @@ function EndpointsPage() {
       {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage} <NavLink to={assignedTenantId ? `/agent?tenant_id=${assignedTenantId}` : '/agent'} className="font-semibold underline">Open tenant agent setup</NavLink></p>}
       {assignTenantMutation.error && <ErrorCard message={assignTenantMutation.error.message} />}
       {deleteMutation.isError && <ErrorCard message={deleteMutation.error.message} />}
+      {automationMutation.error && <ErrorCard message={automationMutation.error.message} />}
+      {revokeCredentialMutation.error && <ErrorCard message={revokeCredentialMutation.error.message} />}
       <section className="panel table-panel">
         <div className="panel-header"><h3>Tracked laptops</h3></div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Hostname</th><th>Tenant</th><th>Hardware UUID</th><th>IP</th><th>Battery</th><th>Power</th><th>Last seen</th><th>Status</th><th className="align-right">Action</th></tr></thead>
+            <thead><tr><th>Device</th><th>Platform</th><th>Tenant</th><th>Identity</th><th>IP</th><th>Battery</th><th>Power</th><th>Last seen</th><th>Status</th><th>Automation</th><th className="align-right">Actions</th></tr></thead>
             <tbody>
               {data?.map((endpoint) => <tr key={endpoint.id}>
                 <td className="strong-cell">{endpoint.hostname}</td>
+                <td><span className="badge muted">{endpoint.platform}</span>{endpoint.device_class && <small className="ml-1 text-slate-500">{endpoint.device_class}</small>}</td>
                 <td>{endpoint.tenant_id ? endpoint.tenant_name ?? 'Unknown tenant' : user?.role === 'super_admin' ? <div className="flex min-w-56 flex-col gap-2"><span className="badge muted w-fit">Unassigned</span><form className="flex items-center gap-2" onSubmit={(event) => {
                   event.preventDefault()
                   const tenantId = String(new FormData(event.currentTarget).get('tenant_id') ?? '')
@@ -2102,17 +2124,28 @@ function EndpointsPage() {
                   <select name="tenant_id" aria-label={`Tenant for ${endpoint.hostname}`} required className="field min-w-32 py-2"><option value="">Unassigned</option>{(tenantsQuery.data ?? []).map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select>
                   <button type="submit" className="btn-secondary px-3 py-2" disabled={assignTenantMutation.isPending}>Assign</button>
                 </form></div> : 'Unassigned'}</td>
-                <td className="font-mono text-xs" title={endpoint.hardware_uuid || undefined}>{endpoint.hardware_uuid || 'Pending agent update'}</td>
+                <td className="font-mono text-xs" title={endpoint.hardware_uuid || endpoint.installation_id || undefined}>{endpoint.hardware_uuid || endpoint.installation_id || 'Pending agent update'}</td>
                 <td>{endpoint.ip_address || 'unknown'}</td>
                 <td>{endpoint.battery}%</td>
                 <td><span className={`badge ${endpoint.charging || endpoint.ac_connected ? 'success' : 'muted'}`}>{endpoint.charging ? 'Charging' : endpoint.ac_connected ? 'On AC' : 'On battery'}</span></td>
                 <td>{formatTimestamp(endpoint.last_seen_at)}</td>
                 <td><span className={`badge ${endpoint.status === 'online' ? 'success' : 'muted'}`}>{endpoint.status}</span></td>
-                <td className="align-right"><button type="button" className="danger-btn small-btn" disabled={deleteMutation.isPending} onClick={() => {
-                  if (window.confirm(`Delete laptop ${endpoint.hostname}? Its mappings and event history will also be removed.`)) deleteMutation.mutate(endpoint.id)
-                }}>Delete laptop</button></td>
+                <td><div className="flex min-w-40 flex-col gap-1">
+                  <button type="button" className="mapping-edit-button w-fit" disabled={automationMutation.isPending || (!endpoint.automation_enabled && !endpoint.automation_available)} onClick={() => automationMutation.mutate({ endpointId: endpoint.id, enabled: !endpoint.automation_enabled })}>
+                    {endpoint.automation_enabled ? 'Disable automation' : 'Enable automation'}
+                  </button>
+                  <small className="text-slate-500">{endpoint.automation_enabled ? 'Opted in' : endpoint.automation_available ? 'Telemetry only' : 'Needs fresh sample / server approval'}</small>
+                </div></td>
+                <td className="align-right"><div className="flex flex-col items-end gap-2">
+                  {endpoint.credential_enrolled && <button type="button" className="danger-btn small-btn" disabled={revokeCredentialMutation.isPending} onClick={() => {
+                    if (window.confirm(`Revoke the installation credential for ${endpoint.hostname}? Its agent will stop reporting.`)) revokeCredentialMutation.mutate(endpoint.id)
+                  }}>Revoke agent</button>}
+                  <button type="button" className="danger-btn small-btn" disabled={deleteMutation.isPending} onClick={() => {
+                    if (window.confirm(`Delete laptop ${endpoint.hostname}? Its mappings and event history will also be removed.`)) deleteMutation.mutate(endpoint.id)
+                  }}>Delete laptop</button>
+                </div></td>
               </tr>)}
-              {!data?.length && <tr><td colSpan={9} className="empty-state">No laptops have reported telemetry yet.</td></tr>}
+              {!data?.length && <tr><td colSpan={11} className="empty-state">No endpoints have reported telemetry yet.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -2748,12 +2781,33 @@ function AgentSetupPage() {
   })
   const [statusMessage, setStatusMessage] = useState('')
   const [copyStatus, setCopyStatus] = useState('')
+  const [macEnrollmentCode, setMacEnrollmentCode] = useState('')
+  const [macEnrollmentId, setMacEnrollmentId] = useState('')
+  const macServerUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, '')
   const mutation = useMutation({
     mutationFn: async ({ path, body }: { path: string; body: Record<string, unknown> }) =>
       apiFetch<{ message: string }>(path, { method: 'PUT', body: JSON.stringify(body) }),
     onSuccess: ({ message }) => {
       setStatusMessage(message)
       return queryClient.invalidateQueries({ queryKey: ['agent-setup'] })
+    },
+  })
+  const macEnrollmentMutation = useMutation({
+    mutationFn: () => apiFetch<{ id: string; enrollment_code: string; expires_at: string }>('/api/v1/admin/endpoint-enrollments', {
+      method: 'POST',
+      body: JSON.stringify({ platform: 'macos', ...(tenantId ? { tenant_id: tenantId } : {}) }),
+    }),
+    onSuccess: ({ id, enrollment_code }) => {
+      setMacEnrollmentId(id)
+      setMacEnrollmentCode(enrollment_code)
+    },
+  })
+  const revokeMacEnrollmentMutation = useMutation({
+    mutationFn: (enrollmentId: string) =>
+      apiFetch<void>(`/api/v1/admin/endpoint-enrollments/${enrollmentId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      setMacEnrollmentId('')
+      setMacEnrollmentCode('')
     },
   })
   const data = setupQuery.data
@@ -2763,6 +2817,8 @@ function AgentSetupPage() {
     <PageHeader eyebrow="Endpoint setup" title="Install the laptop agent" description="Run one PowerShell command on each Windows laptop you want ChargePilot to monitor." />
     {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}</p>}
     {mutation.error && <ErrorCard message={mutation.error.message} />}
+    {macEnrollmentMutation.error && <ErrorCard message={macEnrollmentMutation.error.message} />}
+    {revokeMacEnrollmentMutation.error && <ErrorCard message={revokeMacEnrollmentMutation.error.message} />}
     {data?.is_super_admin && <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
       <h2 className="font-bold text-slate-900">Choose endpoint tenant</h2>
       <p className="mt-1 text-sm text-slate-600">Use the tenant-specific agent token for laptops assigned to a tenant. The global token only registers unassigned endpoints.</p>
@@ -2793,6 +2849,25 @@ function AgentSetupPage() {
           }
         }}>Copy command</button><p className="mt-2 min-h-4 text-xs text-slate-500" role="status">{copyStatus}</p><p className="mt-3 text-xs text-amber-800">The command uses PowerShell IEX to run the installer from this HTTPS server. Run it only if you trust this ChargePilot server. Keep the command and token private.</p><div className="mt-6 border-t border-slate-200 pt-5"><p className="text-xs font-bold text-slate-500">{data?.token_scope}</p><p className="mt-1 text-xs text-slate-500">Keep this private. Regenerating it stops agents using the previous token.</p><code className="mt-3 block break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 font-mono text-sm text-slate-800">{data?.token}</code>{data?.can_rotate_tenant_token && <button type="button" className="btn-secondary mt-3" onClick={() => { if (window.confirm('Regenerate this tenant token? Agents using the old token will stop authenticating.')) mutation.mutate({ path: '/api/v1/admin/tenant-agent-token', body: {} }) }}>Regenerate tenant token</button>}</div></div>
       </div>
+    </section>
+    <section className="panel p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div><p className="eyebrow">Native macOS agent</p><h2 className="mt-1 text-xl font-bold">Enroll a Mac</h2><p className="mt-2 max-w-2xl text-sm text-slate-600">The Swift agent reports battery telemetry while the Mac is awake and the agent is running. It uses a per-install credential stored in Keychain; new Mac endpoints begin telemetry-only.</p></div>
+        <a className="btn-secondary" href={backendUrl('/agent/macos/download')}>Download macOS agent source</a>
+      </div>
+      <button type="button" className="btn-primary mt-4" disabled={macEnrollmentMutation.isPending || Boolean(macEnrollmentId) || (user?.role === 'super_admin' && !tenantId)} onClick={() => {
+        setMacEnrollmentCode('')
+        setMacEnrollmentId('')
+        macEnrollmentMutation.mutate()
+      }}>
+        {macEnrollmentMutation.isPending ? 'Creating code…' : macEnrollmentId ? 'Revoke the active code to create another' : 'Create 15-minute enrollment code'}
+      </button>
+      {macEnrollmentCode && <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <p className="text-sm font-semibold text-slate-800">Use this code once in the macOS agent. It expires in 15 minutes.</p>
+        <code className="mt-2 block break-all font-mono text-sm text-slate-700">{macEnrollmentCode}</code>
+        <p className="mt-3 text-xs text-slate-600">Extract the source archive, then run <code>swift run -c release --package-path ./chargepilot-macos-agent ChargePilotAgent enroll --server-url {macServerUrl} --label "My Mac"</code> and enter the code when prompted. Start reporting with the agent’s <code>swift run -c release --package-path ./chargepilot-macos-agent ChargePilotAgent run</code> command after enrollment.</p>
+        {macEnrollmentId && <button type="button" className="danger-btn small-btn mt-3" disabled={revokeMacEnrollmentMutation.isPending} onClick={() => revokeMacEnrollmentMutation.mutate(macEnrollmentId)}>Revoke unused code</button>}
+      </div>}
     </section>
     <p className="text-sm text-slate-500">After the first report, the laptop appears on the <NavLink to="/endpoints" className="font-semibold text-blue-700 underline">Endpoints</NavLink> page.</p>
   </div>

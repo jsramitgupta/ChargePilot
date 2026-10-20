@@ -18,7 +18,7 @@ for the canonical implementation design and deployment boundaries.
 ## 2. Runtime topology
 
 ```text
-Windows laptop
+Windows laptop (implemented agent)
   -> PowerShell telemetry agent
   -> POST /api/v1/telemetry
   -> API validates token, updates endpoint, writes transactional outbox event
@@ -29,6 +29,12 @@ Windows laptop
   -> TinyTuya controls the assigned device on its LAN
   -> Connector acknowledges result; cloud updates state/event/SSE
 ```
+
+Windows and enrolled macOS clients are implemented as HTTPS telemetry
+producers. Android and iOS native clients remain planned. Every agent sends
+readings only; it must not replace the site connector or own automation
+decisions. New installations are telemetry-only until an administrator opts
+in after a fresh sample. See [platform-agents/README.md](platform-agents/README.md).
 
 A second local onboarding path also exists:
 
@@ -55,7 +61,10 @@ The HTTP API modules are in `app/api/`:
 - `health.py` — liveness and database readiness
 - `auth.py` — JSON login/registration, profile, session, and authenticated password API
 - `admin.py` — tenant/user administration, emailed account invitations, and legacy tenant invites
-- `telemetry.py` — telemetry intake, rule execution, and SSE stream
+- `telemetry.py` — telemetry intake and authenticated SSE stream; asynchronous
+  rule evaluation is in `app/services/automation_processor.py`
+- `endpoint_enrollment.py` — tenant-scoped enrollment codes, per-install
+  credential exchange, and endpoint credential revocation
 - `devices.py` — device/channel CRUD and device control
 - `onboarding.py` — LAN discovery and SmartLife pairing
 - `connectors.py` — connector enrollment, heartbeat, command leases, and results
@@ -85,9 +94,12 @@ Key runtime modules:
 
 The model set in `app/models/` includes:
 
-- `Endpoint` — laptop telemetry source, uniquely identified by its hardware
-  UUID; hostname is captured separately and may change. An unassigned endpoint
-  can be assigned once to a tenant by the Super Admin.
+- `Endpoint` — platform-aware source with hardware UUID for compatible
+  Windows agents or a per-install UUID and hash-only credential for enrolled
+  agents. Hostname/label remains mutable display metadata. An unassigned
+  Windows endpoint can be assigned once to a tenant by the Super Admin.
+- `EndpointEnrollment` — tenant-scoped, hash-only, single-use 15-minute
+  enrollment code with a platform restriction
 - `Device` — local smart switch metadata and current state
 - `DeviceChannel` — channel-specific state
 - `Mapping` — endpoint-to-device threshold mapping
@@ -96,6 +108,17 @@ The model set in `app/models/` includes:
   verification, while existing and administrator-created users remain active
 - `EmailVerification` — hash-only, expiring single-use registration tokens
 - `AccountInvitation` — tenant-scoped, hash-only, expiring single-use account setup links
+- `Tenant` and `SystemSetting` — tenant agent-token ownership and installation
+  settings
+- `SiteConnector` and `DeviceCommand` — connector identity and durable
+  desired-state delivery
+- `TelemetryOutbox` and `TelemetryAutomationCursor` — transactional event
+  delivery and per-endpoint consumer ordering/idempotency
+
+Endpoint rows store platform, optional device class and installation ID,
+nullable AC state, and explicit automation eligibility. Android/iOS schema
+support is present, but those platforms are disabled for enrollment by default
+until native clients are ready.
 
 ### 3.4 Service layer
 
@@ -113,19 +136,26 @@ Current services include:
 
 ### Telemetry request flow
 
-1. The PowerShell agent posts hardware UUID, hostname, battery, and connection telemetry to `/api/v1/telemetry`.
-2. `receive_telemetry()` validates the bearer token, hardware UUID, and timestamp freshness.
-3. The API upserts by hardware UUID; a UUID-less legacy endpoint can be matched
+1. Windows PowerShell posts its existing payload with the tenant/global token.
+   The macOS Swift CLI exchanges a one-time tenant enrollment code for a
+   backend endpoint ID and per-install credential, then posts platform-aware
+   telemetry with an explicit label.
+2. `receive_telemetry()` resolves either legacy Windows auth or the
+   per-install credential, validates the enrolled platform and installation
+   identity, and enforces the ingress age/future-skew limits.
+3. The API upserts by hardware UUID for legacy Windows agents; a UUID-less legacy endpoint can be matched
    by tenant and hostname once to preserve its existing ID and mappings.
    Global-token telemetry can only register/update unassigned endpoints.
    Tenant-assigned laptops use that tenant's token. Mapping creation requires
    endpoint and device tenant IDs to match; the UI exposes ownership and lets
    the Super Admin assign an unassigned endpoint without weakening isolation.
-4. Endpoint snapshot and telemetry outbox event commit in one transaction.
+4. Delayed reports cannot overwrite a newer snapshot. Endpoint snapshot and
+   telemetry outbox event commit in one transaction.
 5. One or more outbox relays publish records to Kafka, retaining per-endpoint
    ordering and allowing safe relay concurrency across distinct endpoints.
-6. A consumer group processes the event, checks its idempotency record, loads
-   mappings, and applies battery hysteresis/cooldown.
+6. A consumer group processes the event, checks its idempotency record,
+   endpoint automation opt-in, platform allow-list, and sample freshness before
+   loading mappings and applying battery hysteresis/cooldown.
 7. Connector-assigned switches receive durable desired-state commands;
    unassigned local devices use the existing direct TinyTuya path.
 8. The processor records state and audit outcomes. Kafka acknowledgements
@@ -236,6 +266,16 @@ The SmartLife bridge handles:
 - keep React/TypeScript/Tailwind as the only browser UI; implement JSON API
   operations before changing a user-facing workflow
 - retain coherent light/dark themes and left-aligned authenticated navigation
+
+### Remaining telemetry clients
+
+Android and iOS are future native clients, not modules in the current
+repository runtime. The backend contract now provides tenant-bound enrollment,
+revocation, installation identity, optional platform telemetry fields, and
+explicit automation eligibility. Do not put shared tenant tokens in clients;
+keep mobile telemetry informational by default because background samples can
+be delayed. The platform PRDs and rollout guidance are indexed in
+[platform-agents/README.md](platform-agents/README.md).
 
 ### Distributed runtime and capacity limits
 

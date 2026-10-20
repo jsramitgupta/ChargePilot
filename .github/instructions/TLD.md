@@ -31,11 +31,12 @@ This is the FastAPI application entrypoint. It currently handles:
 
 - FastAPI startup and DB bootstrap
 - JSON API route registration and frontend redirects
-- wizard endpoints for SmartLife QR login, linked-device fetch, and match logic
-- device CRUD and JSON operations for local discovery
-- SSE-capable updates for device state changes
+- health/readiness and periodic maintenance task startup
+- static agent/connector download packaging and selected React redirects
 
-The file is no longer only a telemetry and dashboard app. It is also the UI controller for the local device onboarding workflow.
+Feature operations are implemented in focused `app/api/` routers.
+`app/api/onboarding.py` owns LAN discovery and SmartLife pairing;
+`app/api/devices.py` owns device CRUD; SSE is in `app/api/telemetry.py`.
 
 ### 3.2 `app/core/config.py`
 
@@ -79,7 +80,7 @@ This layer remains the essential abstraction boundary and should not be bypassed
 
 ### 3.6 `app/services/smartlife_service.py`
 
-This is the new critical component for the current state of the product. It handles:
+This service handles:
 
 - QR creation and payload generation for SmartLife/Tuya app login
 - smart scheme selection (`smartlife` vs `tuyaSmart`)
@@ -315,3 +316,20 @@ These tests are the baseline regression suite for the core automation path and s
   store and connectors still use outbound HTTPS polling.
 - Redis is not a required runtime dependency; add it only for a measured,
   well-scoped cache/rate-limit need, not as a second source of truth.
+
+## 10. Cross-platform telemetry status
+
+The live telemetry schema supports `windows`, `macos`, `android`, and `ios`
+metadata while retaining the legacy Windows payload and tenant-token flow.
+Enrolled platforms exchange a short-lived, single-use tenant code for a
+backend endpoint ID and hash-only per-install credential. Windows and macOS
+are enabled by default; Android and iOS are gated until their clients are
+implemented and validated.
+
+New enrolled endpoints default to automation disabled. An authorized admin
+must enable endpoint automation after a fresh report; API and worker enforce
+the configured platform allow-list and sample-age gate. Delayed readings do
+not regress current endpoint state. See `API_SPEC.md` for routes and
+`platform-agents/SERVER_SIDE_CONFIG.md` for migration and rollout details.
+Native Android/iOS clients and signed macOS login-item distribution remain
+follow-up work; mobile background reporting is best-effort, never guaranteed.

@@ -1,6 +1,8 @@
 # ChargePilot Project Reference Pack
 
-This directory captures the current implementation state of the ChargePilot repository so a future developer or Claude-based agent can understand the product, architecture, runtime flow, and deployment constraints without reverse-engineering the codebase.
+This directory is the project reference pack. It records implemented behavior
+and approved design constraints; future work is labeled so it is not mistaken
+for an existing API or runtime feature.
 
 ## Included reference documents
 
@@ -13,12 +15,22 @@ This directory captures the current implementation state of the ChargePilot repo
 - [API_SPEC.md](API_SPEC.md) — the current API surface and payload contracts.
 - [DEPLOYMENT.md](DEPLOYMENT.md) — environment, Docker, and runtime setup notes.
 - [RUNBOOK.md](RUNBOOK.md) — debugging, validation, and operational checklist.
+- [platform-agents/README.md](platform-agents/README.md) — cross-platform
+  telemetry status and remaining native client streams.
+- [platform-agents/SERVER_SIDE_CONFIG.md](platform-agents/SERVER_SIDE_CONFIG.md)
+  — implemented enrollment/telemetry contract and remaining rollout work.
 
 ## What this codebase does now
 
-The project is a cloud-capable, local-first battery automation platform for Windows laptops and local Tuya devices. It includes:
+The implemented product is a cloud-capable, local-first battery automation
+platform. Windows and macOS telemetry are supported; Android and iOS native
+clients remain planned. The current product includes:
 
 - Windows laptop telemetry ingestion via a PowerShell agent
+- enrolled macOS battery telemetry via a Swift CLI, with per-install
+  credentials and explicit user labels
+- platform-aware telemetry, endpoint enrollment, credential revocation, and
+  server-enforced automation opt-in/freshness gates
 - endpoint-to-device mappings and automation rules
 - connector-based Tuya discovery and state control over the LAN
 - PostgreSQL transactional outbox and command delivery, Kafka telemetry events,
@@ -27,6 +39,15 @@ The project is a cloud-capable, local-first battery automation platform for Wind
 - a wizard-based device onboarding flow using AJAX and local session state
 - SSE-driven UI updates and current-state refreshes
 
+## Reading guidance
+
+Start with [CURRENT_STATE.md](CURRENT_STATE.md), then read only the relevant
+reference for the files being changed. Use [API_SPEC.md](API_SPEC.md) for the
+live HTTP contract and [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md)
+for the authoritative cloud-to-LAN control boundary. Platform-agent documents
+are proposals and must not be treated as permission to change the current
+contract without a separately reviewed backend change.
+
 ## Current implementation facts captured from the repo
 
 - Runtime stack: Python 3.12, FastAPI, SQLAlchemy 2.x, PostgreSQL, Kafka/aiokafka,
@@ -34,9 +55,9 @@ The project is a cloud-capable, local-first battery automation platform for Wind
 - App entrypoint: `app/main.py` registers JSON APIs, serves public agent/connector source downloads and bootstrap scripts, and redirects legacy page paths to React routes.
 - Settings prefix: `CHARGEPILOT_` via `app/core/config.py`.
 - Database bootstrap: `create_db_and_tables()` runs on startup and ensures missing columns are added.
-- Telemetry auth: bearer token validation is still kept simple and should be
-  hardened before production exposure. Accepted events use a PostgreSQL outbox
-  and Kafka before asynchronous rule processing.
+- Telemetry auth: the current bearer token remains available for backward-compatible Windows telemetry; enrolled
+platforms use tenant-bound, hash-only per-install credentials. Accepted
+events use a PostgreSQL outbox and Kafka before asynchronous rule processing.
 - API, outbox relay, and automation consumer are separate deployment roles but
   still share the PostgreSQL schema; database sharding is not implemented.
 - Scale target: 10 million registered and 1 million active telemetry sources.
@@ -51,25 +72,25 @@ The project is a cloud-capable, local-first battery automation platform for Wind
 ## File map relevant to AI understanding
 
 ```text
-app/main.py                 # app bootstrap, JSON routers, React redirects, downloads
-app/api/*.py               # routers for telemetry, devices, events, and mappings
-app/core/*.py              # settings, DB session, auth helpers
-app/models/*.py            # ORM schema
-app/services/*.py          # device logic, rule processing, SmartLife flow, SSE
-app/workers.py              # outbox relay and Kafka automation consumer
-frontend/src/*.tsx         # React routes and UI
-frontend/src/*.css         # shared responsive themes
-agent/BatteryAgent.ps1     # telemetry sender
-agentv2/                  # alternate agent flow or future version
-docker-compose.yml         # runtime config
-.github/workflows/ci.yml   # Tests, change detection, image builds and Trivy scans
-.github/workflows/publish-deploy.yml # Selective Docker Hub publish, scans, GitOps update
-.github/workflows/connector-multiarch.yml # Connector build, scan and multi-arch publish
-deploy/k3s/                # k3s, PostgreSQL, Kafka, and Istio resources
-deploy/argocd/              # ArgoCD Application bootstrap resource
-scripts/scale_test.py      # temporary PostgreSQL dataset above 10M rows
-tests/scale_telemetry.js   # configurable k6 live-load generator
-tests/                    # validation cases
+app/main.py                  # API bootstrap, router registration, downloads, SPA routing
+app/api/                     # JSON API routers
+app/core/                    # settings, database, authorization, and security
+app/models/                  # SQLAlchemy persistence models
+app/schemas/                 # Pydantic request/response schemas
+app/services/                # automation, connector, Tuya, SmartLife, and support logic
+app/workers.py               # telemetry outbox relay and Kafka automation consumer
+connector/                   # site-LAN connector runtime and packaging
+agent/                       # Windows PowerShell and macOS Swift telemetry agents
+frontend/src/App.tsx         # React routes and page composition
+frontend/src/main.tsx        # frontend bootstrap
+frontend/src/index.css       # shared/light theme and layout styles
+frontend/src/theme.css       # dark theme overrides
+tests/                       # Python unit and API tests
+deploy/k3s/                  # Kubernetes, PostgreSQL, Kafka, and Istio resources
+deploy/argocd/               # ArgoCD application
+.github/workflows/           # CI, image publishing/scanning, and GitOps updates
+scripts/                     # scale and operational scripts
+tests/scale_telemetry.js     # configurable k6 live-ingestion scenario
 ```
 
 ## Current status
@@ -94,5 +115,9 @@ If this project has to be rebuilt from scratch, the safe order is:
 6. add battery rules and automation event logging
 7. add SmartLife QR onboarding and local-key matching flow
 8. add the React UI and SSE for operational visibility; follow FRONTEND_DESIGN.md for route, typography, and theme decisions
+9. Android and iOS native reporters can use the shipped platform-aware
+   backend, but remain disabled by default until each client, data privacy
+   behavior, and real-device reporting cadence are reviewed and validated
 
-This order preserves the system's practical local-first architecture and minimizes unnecessary churn.
+This order preserves the local-first architecture and prevents planned mobile
+designs from being mistaken for working server features.

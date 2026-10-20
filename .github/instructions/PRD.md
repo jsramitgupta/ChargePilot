@@ -2,7 +2,11 @@
 
 ## 1. Product vision
 
-ChargePilot is a local-first automation platform for Windows laptops that can run on a cloud-hosted control plane. It monitors battery state and routes switch commands through a site connector on the same LAN as the Tuya devices. Device control remains local and does not require Tuya cloud control.
+ChargePilot is a local-first automation platform whose implemented telemetry
+agent currently supports Windows laptops. The cloud-hosted control plane
+monitors battery state and routes switch commands through a site connector on
+the same LAN as Tuya devices. Device control remains local and does not require
+Tuya cloud control.
 
 The current product state extends the original battery automation idea with a missing but important layer: discovering and registering local Tuya devices via LAN scan, and optionally linking devices through the SmartLife/Tuya QR login flow when the user needs a local key or wants to import a device that was previously paired via the mobile app.
 
@@ -51,7 +55,8 @@ A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch 
 
 ### 5.1 Telemetry ingestion
 
-- The system accepts authenticated telemetry from the PowerShell agent.
+- The system currently accepts authenticated telemetry from the Windows
+  PowerShell agent only.
 - Payload includes hostname, IP, battery percentage, charging status, AC status, switch state, timestamp, and agent version.
 - The app records the latest battery state per endpoint and uses it to evaluate mappings.
 - Stale telemetry is rejected, and invalid bearer tokens are rejected.
@@ -213,3 +218,18 @@ The current implementation shows that the project has matured from a basic batte
 - operational UX matters: a user should be able to scan a QR, fetch devices, and auto-match them without manual debugging
 
 This is the product model that future Claude-driven rebuilds should preserve.
+
+## 11. Cross-platform telemetry status
+
+The backend now supports a backward-compatible platform-aware telemetry
+schema, tenant-scoped one-time enrollment, hash-only per-install credentials,
+credential revocation, stale/future timestamp handling, and explicit
+endpoint-level automation opt-in with a server freshness gate. Windows
+continues to use its current PowerShell agent and shared tenant token. A Swift
+foreground CLI reports macOS battery telemetry using Keychain credentials.
+
+Android and iOS native clients remain planned in
+`platform-agents/{android,ios}/` and are disabled for enrollment by default.
+They require platform-specific privacy and real-device background behavior
+validation. macOS reports only while awake and running; no native client
+guarantees a real-time reporting interval.

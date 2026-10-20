@@ -16,6 +16,7 @@ from app.models.email_verification import EmailVerification
 from app.models.tenant import Tenant
 from app.models.tenant_invite import TenantInvite
 from app.models.user import User
+from app.services.endpoint_service import authenticate_endpoint_token
 from conftest import TEST_EMAIL_VERIFICATION_TOKENS, verify_registered_email
 
 
@@ -57,6 +58,31 @@ def test_tenant_signup_creates_tenant_admin_and_establishes_session():
     assert response.headers["Cache-Control"] == "no-store"
     assert verified.headers["Cache-Control"] == "private, no-store"
     assert client.get("/api/v1/auth/me").json()["id"] == user["id"]
+
+
+def test_tenant_signup_generates_endpoint_compatible_agent_token():
+    client = TestClient(app)
+    email = "agent-token-owner@example.test"
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "account_type": "tenant",
+            "username": "agent-token-owner",
+            "password": "agent-token-password",
+            "email": email,
+            "turnstile_token": "test-turnstile-token",
+            "tenant_name": "Agent Token Site",
+        },
+    )
+
+    assert response.status_code == 202
+    with SessionLocal() as db:
+        tenant = db.query(Tenant).filter_by(name="Agent Token Site").one()
+        assert len(tenant.agent_token) == 32
+        assert tenant.agent_token.isalpha()
+        is_valid, resolved = authenticate_endpoint_token(f"Bearer {tenant.agent_token}", db)
+        assert is_valid is True
+        assert resolved == tenant
 
 
 def test_unverified_account_cannot_login_and_verification_token_is_single_use():

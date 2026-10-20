@@ -1,9 +1,10 @@
 # ChargePilot coding instructions
 
-Before changing code, read `.github/instructions/CURRENT_STATE.md` and consult
-the relevant architecture, API, and deployment references in
-`.github/instructions/`. Keep those documents aligned with implemented
-behavior.
+Before changing code, read `.github/instructions/CURRENT_STATE.md` and the
+specific architecture/API/deployment reference for the files being changed.
+Use `.github/instructions/README.md` as the index; do not load unrelated
+reference documents. Keep implementation docs aligned with shipped behavior
+and label proposals as proposals.
 
 ## Preserve product behavior
 
@@ -23,6 +24,14 @@ behavior.
 - Treat `.github/instructions/FRONTEND_DESIGN.md` as the canonical reference
   for frontend routes, typography, design decisions, and light/dark theme
   behavior; keep it aligned when changing the UI.
+- The Windows PowerShell script is the only implemented endpoint telemetry
+  agent. macOS, Android, and iOS are planned streams under
+  `.github/instructions/platform-agents/`; their proposed fields/settings are
+  not live API or deployment configuration. Do not assume the current
+  tenant-wide agent token is safe as a per-device mobile credential. Keep
+  endpoint automation server-authoritative and mobile sources ineligible for
+  switch mappings until enrollment, freshness, and opt-in automation policy
+  are implemented and tested.
 
 ## Deployment and secrets
 
@@ -38,7 +47,8 @@ behavior.
   keys unreadable.
 - Database schema setup currently uses `create_all()` and compatibility SQL,
   not versioned Alembic revisions. Treat schema changes as migrations that
-  need backup and a reviewed upgrade path.
+  need backup and a reviewed upgrade/rollback path; do not rely on startup
+  `create_all()` to upgrade an existing production schema.
 
 ## Tests and delivery
 

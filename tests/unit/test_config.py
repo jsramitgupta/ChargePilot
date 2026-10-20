@@ -10,6 +10,30 @@ def test_dotenv_path_is_anchored_to_project_root():
     assert Settings.model_config["env_file"] == ENV_FILE
 
 
+def test_platform_telemetry_defaults_and_allow_lists_are_validated():
+    settings = Settings(_env_file=None)
+
+    assert settings.enabled_telemetry_platforms == {"windows", "macos"}
+    assert settings.automation_telemetry_platforms == {"windows", "macos"}
+    assert settings.telemetry_automation_max_age_seconds == 600
+
+    android_enabled = Settings(
+        _env_file=None,
+        telemetry_enabled_platforms="windows,macos,android",
+        telemetry_automation_enabled_platforms="windows,macos",
+    )
+    assert "android" in android_enabled.enabled_telemetry_platforms
+
+    with pytest.raises(ValidationError, match="supported platforms"):
+        Settings(_env_file=None, telemetry_enabled_platforms="windows,unknown")
+    with pytest.raises(ValidationError, match="also be enabled"):
+        Settings(
+            _env_file=None,
+            telemetry_enabled_platforms="windows,macos",
+            telemetry_automation_enabled_platforms="windows,ios",
+        )
+
+
 def test_production_settings_reject_weak_secrets_and_non_postgresql_database():
     with pytest.raises(ValidationError):
         Settings(

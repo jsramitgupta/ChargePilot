@@ -7,11 +7,15 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.authorization import get_authenticated_user, is_super_admin_user
+from app.core.config import settings
 from app.models.endpoint import Endpoint
 from app.models.messaging import TelemetryOutbox
 from app.models.user import User
 from app.schemas.telemetry import TelemetryPayload, TelemetryResponse
-from app.services.endpoint_service import authenticate_endpoint_token
+from app.services.endpoint_service import (
+    authenticate_endpoint_token,
+    authenticate_installed_endpoint,
+)
 
 router = APIRouter(prefix="/telemetry", tags=["telemetry"])
 
@@ -53,44 +57,54 @@ async def stream_events(
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-# Accept telemetry that is recent enough to be useful for dashboards and rules,
-# while still rejecting clearly stale payloads from dead or misconfigured agents.
-MAX_TELEMETRY_AGE_SECONDS = 60 * 60 * 24 * 7
-
-
 @router.post("", response_model=TelemetryResponse)
 async def receive_telemetry(
     payload: TelemetryPayload,
     authorization: str | None = Header(default=None, alias="Authorization"),
     db: Session = Depends(get_db),
 ):
-    is_valid, tenant = authenticate_endpoint_token(authorization, db)
-    if not is_valid:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing endpoint token.",
-        )
-
     timestamp = payload.timestamp
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=UTC)
 
     age_seconds = (datetime.now(UTC) - timestamp).total_seconds()
-    if age_seconds > MAX_TELEMETRY_AGE_SECONDS:
+    if age_seconds > settings.telemetry_max_age_seconds:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Telemetry timestamp is too old.",
         )
+    if age_seconds < -settings.telemetry_max_future_skew_seconds:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Telemetry timestamp is too far in the future.",
+        )
 
-    endpoint_query = db.query(Endpoint)
-    if tenant is None:
-        endpoint_query = endpoint_query.filter(Endpoint.tenant_id.is_(None))
+    endpoint = authenticate_installed_endpoint(authorization, db)
+    if endpoint is not None:
+        if endpoint.platform != payload.platform or endpoint.installation_id != (
+            str(payload.installation_id) if payload.installation_id else None
+        ) or endpoint.device_class != payload.device_class or payload.hardware_uuid is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Telemetry identity does not match the enrolled endpoint.",
+            )
+        tenant = None
     else:
-        endpoint_query = endpoint_query.filter(Endpoint.tenant_id == tenant.id)
+        is_valid, tenant = authenticate_endpoint_token(authorization, db)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or missing endpoint token.",
+            )
+        if payload.platform != "windows":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This platform must use its enrolled installation credential.",
+            )
+        endpoint = None
 
     hardware_uuid = str(payload.hardware_uuid) if payload.hardware_uuid else None
-    endpoint = None
-    if hardware_uuid is not None:
+    if endpoint is None and hardware_uuid is not None:
         endpoint = (
             db.query(Endpoint)
             .filter(Endpoint.hardware_uuid == hardware_uuid)
@@ -101,6 +115,12 @@ async def receive_telemetry(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="This hardware UUID is already registered to another tenant.",
             )
+
+    endpoint_query = db.query(Endpoint)
+    if tenant is None:
+        endpoint_query = endpoint_query.filter(Endpoint.tenant_id.is_(None))
+    else:
+        endpoint_query = endpoint_query.filter(Endpoint.tenant_id == tenant.id)
 
     if endpoint is None:
         hostname_matches = endpoint_query.filter(
@@ -129,6 +149,7 @@ async def receive_telemetry(
             hostname=payload.hostname,
             tenant_id=tenant.id if tenant is not None else None,
             hardware_uuid=hardware_uuid,
+            platform="windows",
             ip_address=payload.ip_address,
             battery_percentage=payload.battery_percentage,
             charging=payload.charging,
@@ -138,7 +159,14 @@ async def receive_telemetry(
             enabled=True,
         )
         db.add(endpoint)
-    else:
+    is_newer_snapshot = endpoint.last_seen_at is None
+    if endpoint.last_seen_at is not None:
+        last_seen_at = endpoint.last_seen_at
+        if last_seen_at.tzinfo is None:
+            last_seen_at = last_seen_at.replace(tzinfo=UTC)
+        is_newer_snapshot = timestamp >= last_seen_at
+
+    if is_newer_snapshot:
         endpoint.name = payload.hostname
         endpoint.hostname = payload.hostname
         if hardware_uuid is not None:
@@ -151,7 +179,8 @@ async def receive_telemetry(
         endpoint.agent_version = payload.agent_version
         endpoint.enabled = True
 
-    endpoint.updated_at = datetime.now(UTC)
+    if is_newer_snapshot:
+        endpoint.updated_at = datetime.now(UTC)
     db.flush()
     event_id = str(uuid4())
     event_payload = payload.model_dump(mode="json")
@@ -170,6 +199,7 @@ async def receive_telemetry(
         status="accepted",
         hostname=payload.hostname,
         hardware_uuid=payload.hardware_uuid,
+        platform=payload.platform,
         battery_percentage=payload.battery_percentage,
         message="Telemetry accepted for asynchronous automation processing.",
     )

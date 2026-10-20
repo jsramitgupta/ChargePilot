@@ -81,13 +81,14 @@ curl -X POST http://localhost:8000/api/v1/telemetry \
   -H "Authorization: Bearer test-endpoint-token" \
   -H "Content-Type: application/json" \
   -d '{
+    "hardware_uuid": "4b4b2b91-6c32-4d5b-8a9f-2a73b8e94d11",
     "hostname": "LAPTOP-01",
     "ip_address": "192.168.1.20",
     "battery_percentage": 82,
     "charging": false,
     "ac_connected": true,
     "switch_state": null,
-    "timestamp": "2026-10-06T12:00:00Z",
+    "timestamp": "2026-10-19T11:00:00Z",
     "agent_version": "1.0.0"
   }'
 ```
@@ -213,6 +214,19 @@ uvicorn app.main:app --host 127.0.0.1 --port 8010
   evaluation; devices without a connector retain the direct local-host path.
 - `CHARGEPILOT_ENCRYPTION_KEY` must match the key used to encrypt stored local
   keys. Restore it with database backups.
+- Windows uses the existing tenant-token PowerShell agent. macOS uses the
+  foreground Swift CLI and per-install Keychain credential; new Mac endpoints
+  start with automation disabled. Android/iOS clients remain planned and
+  enrollment is disabled by default. See
+  `.github/instructions/platform-agents/SERVER_SIDE_CONFIG.md` for current
+  configuration and rollout behavior.
+- For an existing PostgreSQL database, apply
+  `deploy/migrations/20261020_cross_platform_telemetry.sql` from a backup
+  before deploying the new code. Startup `create_all()` is not a substitute
+  for this reviewed migration.
+- If telemetry is accepted but an endpoint does not change a switch, check
+  endpoint opt-in, platform allow-list, sample age, and worker lag before
+  changing battery thresholds.
 
 ### PostgreSQL container cannot be resolved
 
