@@ -17,6 +17,7 @@ metadata:
 spec:
   serviceName: chargepilot-postgres
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: chargepilot-postgres
@@ -98,6 +99,7 @@ metadata:
 spec:
   serviceName: chargepilot-kafka
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: chargepilot-kafka

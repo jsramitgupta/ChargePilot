@@ -7,6 +7,7 @@ metadata:
     app.kubernetes.io/component: api
 spec:
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: chargepilot
@@ -106,6 +107,7 @@ metadata:
     app.kubernetes.io/component: frontend
 spec:
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: chargepilot
@@ -193,6 +195,7 @@ metadata:
     app.kubernetes.io/component: outbox-relay
 spec:
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: chargepilot
@@ -258,6 +261,7 @@ metadata:
     app.kubernetes.io/component: automation
 spec:
   replicas: 1
+  revisionHistoryLimit: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: chargepilot

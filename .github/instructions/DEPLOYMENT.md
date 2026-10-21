@@ -229,6 +229,10 @@ the stateful services. Do not expose PostgreSQL or Kafka through a
 LoadBalancer, NodePort, Istio route, or public DNS. For production-scale
 availability, replace the single-node stateful services with reviewed
 multi-node PostgreSQL and Kafka services before increasing traffic.
+Each Deployment and StatefulSet retains at most one prior controller revision
+for rollback. Older zero-replica Deployment ReplicaSets are historical
+metadata, not extra running pods; each service remains configured for one
+replica.
 
 This creates a fresh in-cluster database and does not import or connect to the
 existing Docker-host PostgreSQL installation. Keep that deployment and its
