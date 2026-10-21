@@ -231,8 +231,10 @@ DPAPI, macOS Keychain); existing Windows shared-token agents remain
 compatible during migration.
 
 Android Kotlin/Compose and iOS SwiftUI source projects are implemented in
-`agent/{android,ios}/` and available from device setup. They still require
-native builds and physical-device validation, and no signed releases are
-available. macOS reports only while awake and running; no mobile client
-guarantees a real-time reporting interval. Automation remains separately
-allow-listed and requires explicit admin opt-in.
+`agent/{android,ios}/` and available from device setup. Android has a debug APK
+build and emulator smoke test, but still requires physical-device validation;
+iOS has an unsigned device IPA build and simulator smoke test, but still
+requires physical-device validation and signing. No signed mobile releases
+are available. macOS reports only while awake and running; no
+mobile client guarantees a real-time reporting interval. Automation remains
+separately allow-listed and requires explicit admin opt-in.

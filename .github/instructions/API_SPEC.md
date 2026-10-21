@@ -353,9 +353,11 @@ a per-install credential. Windows protects the saved credential with Windows
 user-scoped DPAPI; macOS and iOS store it in Keychain, and Android encrypts it
 using Android Keystore. New Windows enrollments use an installation UUID
 rather than a hardware UUID. Existing Windows agents using the legacy shared
-token remain compatible during migration. Android and iOS source projects are
-available from device setup but have not completed native build or physical
-device validation. The iOS source exposes a Shortcuts action for fresh
+token remain compatible during migration. Android has a debug APK build and
+emulator smoke test; physical-device validation and signed distribution
+remain pending. iOS has an unsigned device IPA build and simulator smoke test;
+physical-device validation and signed distribution remain pending. The iOS
+source exposes a Shortcuts action for fresh
 battery/charging reports, but iOS may defer or skip its invocation.
 Automation remains separately gated to the configured Windows/macOS
 allow-list.

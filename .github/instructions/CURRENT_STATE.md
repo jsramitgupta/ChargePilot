@@ -6,8 +6,9 @@ This file is the short operational summary for the repository as it stands today
 ChargePilot is a cloud-capable, local-first battery automation platform. The
 backend supports Windows and enrolled macOS telemetry and exposes the shared
 enrollment/telemetry contract to mobile. Android Kotlin/Compose and iOS SwiftUI
-source projects are implemented, but still need native-toolchain builds,
-physical-device validation, and signed distribution. New installs use a
+source projects are implemented. Android has a debug APK build and emulator
+smoke test; iOS has an unsigned device IPA build and simulator smoke test.
+Physical-device validation and signed distribution remain outstanding. New installs use a
 tenant-scoped, reusable 24-hour enrollment token to obtain a revocable
 per-install credential; existing Windows agents remain compatible with
 tenant-wide tokens during migration.
@@ -223,9 +224,11 @@ documented in [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md)
 ## Remaining platform-agent work
 
 Android and iOS source projects are implemented and available from device
-setup. Native builds, physical-device validation, and signed distribution
-remain follow-up work. Their platform values are accepted by the shared
-enrollment and telemetry APIs by default. Read
+setup. Android has a debug APK build and emulator smoke test; iOS has an
+unsigned device IPA build and simulator smoke test. Physical-device validation
+and signed distribution remain follow-up work. Their
+platform values are accepted by the shared enrollment and telemetry APIs by
+default. Read
 [platform-agents/README.md](platform-agents/README.md) and
 [platform-agents/SERVER_SIDE_CONFIG.md](platform-agents/SERVER_SIDE_CONFIG.md)
 for the implemented API contract, rollout controls, and client-specific
@@ -236,8 +239,9 @@ The current schema keeps the legacy Windows payload compatible while allowing
 optional IP/AC metadata, platform and device-class metadata, and an
 installation UUID. New clients must use the reusable tenant-scoped enrollment
 token and per-install credentials, not the shared Windows token. Enrollment
-and telemetry accept all four platforms by default; Android/iOS source
-projects are available but are not native-build or device-validated releases.
+and telemetry accept all four platforms by default. Android has only been
+smoke-tested on an emulator; Android and iOS are not physical-device validated
+or signed releases.
 Automation remains separately allow-listed.
 
 ## Persistent implementation guidance

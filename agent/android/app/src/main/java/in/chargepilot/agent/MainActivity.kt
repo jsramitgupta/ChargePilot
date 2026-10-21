@@ -1,4 +1,4 @@
-package in.chargepilot.agent
+package `in`.chargepilot.agent
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -145,7 +145,7 @@ private fun AgentScreen(store: AgentStore) {
                                     context.resources.configuration.smallestScreenWidthDp >= 600
                                 ) "tablet" else "phone"
                                 val (endpointId, credential) = withContext(Dispatchers.IO) {
-                                    EnrollmentClient.enroll(
+                                    AgentApi.enroll(
                                         serverOrigin = serverOrigin,
                                         enrollmentToken = submittedToken,
                                         label = label.trim(),

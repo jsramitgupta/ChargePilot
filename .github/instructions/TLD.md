@@ -323,13 +323,16 @@ The live telemetry schema supports `windows`, `macos`, `android`, and `ios`
 metadata while retaining the legacy Windows payload for existing agents.
 New agents exchange a reusable, 24-hour, tenant-scoped token for a backend
 endpoint ID and hash-only per-install credential. All four platforms are
-enabled for enrollment and telemetry by default; Android and iOS native
-clients have not been implemented or validated.
+enabled for enrollment and telemetry by default. Android has a debug APK
+build and emulator smoke test; iOS has an unsigned device IPA build and
+simulator smoke test. Both need physical-device validation and signed
+distribution.
 
 New enrolled endpoints default to automation disabled. An authorized admin
 must enable endpoint automation after a fresh report; API and worker enforce
 the configured platform allow-list and sample-age gate. Delayed readings do
 not regress current endpoint state. See `API_SPEC.md` for routes and
 `platform-agents/SERVER_SIDE_CONFIG.md` for migration and rollout details.
-Native Android/iOS clients and signed macOS login-item distribution remain
-follow-up work; mobile background reporting is best-effort, never guaranteed.
+Android and iOS physical-device QA and signed distribution, plus signed macOS
+login-item distribution, remain follow-up work; mobile background reporting
+is best-effort, never guaranteed.

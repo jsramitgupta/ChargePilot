@@ -13,8 +13,10 @@
 `agent/macos` is a foreground Swift CLI. It contains command parsing,
 one-time enrollment exchange, local configuration storage, Keychain
 credential storage, Apple power-source collection, and HTTPS upload. It
-reports immediately and then every five minutes while running. It does not
-install a login item and has no graphical status UI.
+supports a local `check` command that reads battery state without enrollment or
+network access. After enrollment, it reports immediately and then every five
+minutes while running. It does not install a login item and has no graphical
+status UI.
 
 ## 3. Power-source integration
 

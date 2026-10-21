@@ -4,9 +4,10 @@
 tenant-scoped reusable 24-hour enrollment tokens, hash-only per-install
 credentials, revocation, freshness checks, automation opt-in, migration, and
 Windows/macOS agents are shipped. Kotlin/Compose Android and SwiftUI iOS
-source projects are implemented, but have not yet been built on their native
-toolchains or validated on physical devices; signed app releases are not
-available.
+source projects are implemented. Android has a debug APK build and emulator
+smoke test; iOS has an unsigned device IPA build and simulator smoke test.
+Physical-device validation and signed distribution remain pending; signed app
+releases are not available.
 
 ## Current server contract
 
@@ -135,9 +136,10 @@ CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS
 
 Telemetry and enrollment default to all four platforms. Automation defaults
 to Windows/macOS only, and each enrolled endpoint still requires explicit
-admin opt-in. Android/iOS API acceptance does not mean native clients are
-shipped or validated. Use the 600-second sample-age gate rather than assuming
-OS schedulers guarantee a reporting interval.
+admin opt-in. Android has only been smoke-tested on an emulator; neither
+mobile client is physical-device validated or available as a signed release.
+Use the 600-second sample-age gate rather than assuming OS schedulers guarantee
+a reporting interval.
 
 ### 5. API, event, and operator surfaces
 
@@ -164,8 +166,9 @@ OS schedulers guarantee a reporting interval.
    telemetry-only.
 4. Review report age, rejected samples, outbox age, Kafka lag, and endpoint
    ownership before admin automation opt-in.
-5. Implement Android and iOS clients, validate real-device behavior and
-   privacy disclosures, then explicitly add them to the telemetry allow-list.
+5. Complete Android and iOS acceptance testing, validate real-device behavior
+   and privacy disclosures, then explicitly add them to the telemetry
+   allow-list.
 
 Mobile HTTPS telemetry does not require local-network permission. If a future
 client directly discovers or controls Tuya devices, that is a separate feature
@@ -183,5 +186,7 @@ connector.
 - [x] Delayed, stale, duplicate, and future-dated paths have focused tests.
 - [x] New enrolled endpoints cannot trigger automation by default.
 - [x] Android and iOS source projects and setup-page source downloads.
-- [ ] Native mobile builds, physical-device QA, and signed distribution.
+- [x] Android debug APK build and emulator smoke test.
+- [x] iOS unsigned device IPA build and simulator smoke test.
+- [ ] Android/iOS physical-device QA and signed distribution.
 - [ ] Signed macOS menu-bar/login-item distribution and macOS-target build QA.

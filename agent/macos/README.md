@@ -22,27 +22,51 @@ unless an administrator explicitly enables automation after a fresh reading.
 
 1. Download and extract the macOS agent source from the authenticated ChargePilot
    **Set up a device** page.
-2. In Terminal, from the extracted `chargepilot-macos-agent` directory, run:
+2. To create a development DMG on this Mac, run from the extracted project
+   directory:
 
    ```sh
-   swift build -c release
-   swift run -c release ChargePilotAgent enroll \
+   ./scripts/build-dmg.sh
+   open dist/ChargePilotAgent-0.1.0.dmg
+   ```
+
+   The image contains a universal ARM64/Intel release CLI and package README.
+   It supports macOS 13 and later but is not signed or notarized. It is a
+   command-line agent, not a graphical app.
+3. With the image mounted in Finder, validate local battery access without
+   enrolling or contacting the server:
+
+   ```sh
+   /Volumes/ChargePilotAgent/ChargePilotAgent check
+   ```
+
+4. To enroll, run the following from Terminal, substituting your tenant's API
+   origin and a label:
+
+   ```sh
+   /Volumes/ChargePilotAgent/ChargePilotAgent enroll \
      --server-url https://chargepilot.example.com \
      --label "Office Mac"
    ```
 
-3. Paste the enrollment token when prompted. The token is not saved.
+5. Paste the enrollment token when prompted. The token is not saved.
    The agent persists a random installation ID in
    `~/Library/Application Support/ChargePilot` and stores the per-install
    credential in the user's macOS Keychain.
-4. Start reports while signed in:
+6. Start reports while signed in:
 
    ```sh
-   swift run -c release ChargePilotAgent run
+   /Volumes/ChargePilotAgent/ChargePilotAgent run
    ```
 
    The agent sends an initial reading and then reports every five minutes
    while the process is active.
+
+The **Build endpoint agent artifacts** GitHub Actions workflow also builds the
+development DMG. Agent-source pushes and pull requests upload APK, unsigned
+IPA, and DMG build artifacts for 90 days. Push an `agents-v*` tag to publish
+those artifacts on a GitHub Release. The Android APK is debug-signed; the iOS
+IPA is unsigned; the DMG is unsigned and not notarized.
 
 Use the API origin only; the agent appends `/api/v1` routes itself. Do not put
 credentials in shell history, source control, or environment files. Never

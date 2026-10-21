@@ -1,4 +1,4 @@
-package in.chargepilot.agent
+package `in`.chargepilot.agent
 
 import android.content.Context
 import android.content.Intent
@@ -58,7 +58,7 @@ object BatteryReader {
     }
 }
 
-object EnrollmentClient {
+object AgentApi {
     fun enroll(
         serverOrigin: String,
         enrollmentToken: String,

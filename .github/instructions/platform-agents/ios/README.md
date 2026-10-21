@@ -2,8 +2,8 @@
 
 The native SwiftUI iOS telemetry companion source project is implemented in
 `agent/ios`. It uses the platform-aware backend schema and reusable enrollment
-flow. It has not yet been built or validated on an iOS device, and no signed
-app is distributed.
+flow. It has an unsigned device IPA build and simulator smoke test, but has not
+been validated on physical iOS hardware. No signed app is distributed.
 
 ## Scope
 

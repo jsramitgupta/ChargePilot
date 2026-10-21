@@ -28,10 +28,11 @@ CLI. It uses the platform-aware backend contract, reusable tenant-scoped
 ## Implementation approach
 
 The current native Swift CLI is documented in [agent/macos/README.md](../../../../agent/macos/README.md).
-It persists the installation ID locally and the credential in Keychain. Never
-embed or use the tenant-wide Windows token. Remaining menu-bar/login-item and
-notarized distribution work should use the same API contract documented in
-[../SERVER_SIDE_CONFIG.md](../SERVER_SIDE_CONFIG.md).
+It persists the installation ID locally and the credential in Keychain. Its
+development DMG includes a local battery check and does not enroll the Mac.
+Never embed or use the tenant-wide Windows token. Remaining menu-bar/login-item
+and signed/notarized distribution work should use the same API contract
+documented in [../SERVER_SIDE_CONFIG.md](../SERVER_SIDE_CONFIG.md).
 
 ## Known constraints
 

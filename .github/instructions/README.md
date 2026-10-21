@@ -24,8 +24,10 @@ for an existing API or runtime feature.
 
 The implemented product is a cloud-capable, local-first battery automation
 platform. Windows and macOS agents are device-validated; Android and iOS
-source projects are implemented but still require native builds and physical
-device validation. The current product includes:
+source projects are implemented. Android has a debug APK build and emulator
+smoke test; iOS has an unsigned device IPA build and simulator smoke test.
+Physical-device validation and signed distribution remain pending. The current product
+includes:
 
 - Windows laptop telemetry ingestion via a PowerShell agent
 - enrolled macOS battery telemetry via a Swift CLI, with per-install
@@ -120,8 +122,9 @@ If this project has to be rebuilt from scratch, the safe order is:
 7. add SmartLife QR onboarding and local-key matching flow
 8. add the React UI and SSE for operational visibility; follow FRONTEND_DESIGN.md for route, typography, and theme decisions
 9. Android and iOS source reporters use the shipped platform-aware backend
-   contract. Their projects are available, but native builds, physical-device
-   reporting validation, and signed distribution remain follow-up work.
+   contract. Android has a debug APK build and emulator smoke test; physical
+   device validation and signed distribution remain follow-up work. iOS still
+   needs a native build, device validation, and signed distribution.
 
 This order preserves the local-first architecture and distinguishes source
 availability from validated, distributable mobile apps.

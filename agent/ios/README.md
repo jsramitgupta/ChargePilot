@@ -23,6 +23,12 @@ Xcode; ChargePilot does not distribute a signed iOS app.
 5. The app stores a random installation ID locally and the persistent
    per-install credential in the device-only Keychain.
 
+For an unsigned device-build IPA, use Xcode's **Product > Archive** with
+automatic signing disabled, or run the repository's **Build endpoint agent
+artifacts** GitHub Actions workflow. Its IPA is a build artifact only and
+cannot be installed on a device until signed with an Apple distribution
+certificate and provisioning profile.
+
 The app exposes **Report battery to ChargePilot** as an App Shortcut. After
 enrollment, set up these personal automations in the Shortcuts app:
 

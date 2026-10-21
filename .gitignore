@@ -49,3 +49,11 @@ logs/
 *.egg-info/
 .pytest_cache/
 .coverage
+agent/android/.gradle/
+agent/android/build/
+agent/android/app/build/
+agent/android/local.properties
+agent/ios/dist/
+agent/macos/.build/
+agent/macos/.swiftpm/
+agent/macos/dist/

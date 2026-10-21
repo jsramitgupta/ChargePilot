@@ -80,10 +80,14 @@ private struct ChargePilotAgent {
                 throw AgentError.usage
             }
             switch command {
+            case "help", "--help", "-h":
+                print(AgentError.usage.localizedDescription)
             case "enroll":
                 try await enroll(arguments: Array(arguments.dropFirst()))
             case "run":
                 try await run()
+            case "check":
+                try checkBattery()
             default:
                 throw AgentError.usage
             }
@@ -131,6 +135,15 @@ private struct ChargePilotAgent {
         try storeCredential(response.credential, installationID: installationID)
         print("Enrolled endpoint \(response.endpointID). Credential saved to Keychain.")
         print("Run `swift run -c release ChargePilotAgent run` to start telemetry.")
+    }
+
+    private static func checkBattery() throws {
+        let reading = try readBattery()
+        let powerSource = reading.acConnected.map { $0 ? "AC power" : "battery" } ?? "unknown"
+        print("Battery: \(reading.percentage)%")
+        print("Charging: \(reading.charging ? "yes" : "no")")
+        print("Power source: \(powerSource)")
+        print("Local check only; no enrollment or network request was performed.")
     }
 
     private static func run() async throws {
@@ -365,7 +378,12 @@ private enum AgentError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .usage:
-            return "Usage: ChargePilotAgent enroll --server-url URL --label LABEL | ChargePilotAgent run"
+            return """
+            Usage:
+              ChargePilotAgent check
+              ChargePilotAgent enroll --server-url URL --label LABEL
+              ChargePilotAgent run
+            """
         case .invalidServerURL:
             return "Use an HTTPS API origin (HTTP is allowed only for localhost development)."
         case .invalidEnrollmentCode:

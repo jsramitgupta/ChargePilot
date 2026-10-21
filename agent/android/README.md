@@ -15,13 +15,24 @@ for Android Studio; no signed APK is distributed by the server yet.
 
 1. Download and extract the Android agent source archive, then open the
    extracted `chargepilot-android-agent` folder in Android Studio.
-2. Allow Gradle sync and install the app on an Android phone or tablet.
-3. Enter the ChargePilot API origin, a device label, and the 24-hour
+2. Allow Gradle sync, then build the debug APK with **Build > Build Bundle(s) /
+   APK(s) > Build APK(s)**, or run `./gradlew assembleDebug` from the project
+   folder (`gradlew.bat assembleDebug` on Windows). The APK is written to
+   `app/build/outputs/apk/debug/app-debug.apk`.
+3. To install it on a running emulator or connected device, run
+   `adb install -r app/build/outputs/apk/debug/app-debug.apk`, then open
+   ChargePilot from the launcher. This debug APK is for development; it is not
+   a signed release.
+4. Enter the ChargePilot API origin, a device label, and the 24-hour
    enrollment token. The token is cleared after exchange.
-4. The app stores a random installation ID and encrypts its per-install
+5. The app stores a random installation ID and encrypts its per-install
    credential with an AES key held by Android Keystore.
-5. Use **Send reading now** for an immediate sample. WorkManager also schedules
+6. Use **Send reading now** for an immediate sample. WorkManager also schedules
    fresh reports at an inexact interval of at least 15 minutes.
+
+The **Build endpoint agent artifacts** GitHub Actions workflow also builds the
+debug APK. The downloadable Actions artifact is debug-signed, not a Play Store
+release.
 
 The first report is submitted after enrollment. If saving the issued
 credential fails, revoke that endpoint from the ChargePilot Endpoints page

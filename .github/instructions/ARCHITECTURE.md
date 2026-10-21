@@ -32,7 +32,9 @@ Windows laptop (implemented agent)
 
 Windows and enrolled macOS clients are implemented as HTTPS telemetry
 producers. Android Kotlin/Compose and iOS SwiftUI source projects are also
-implemented, but native builds and physical-device validation remain pending.
+implemented. Android has a debug APK build and emulator smoke test; iOS has an
+unsigned device IPA build and simulator smoke test. Physical-device
+validation remains pending for both platforms.
 Every agent sends readings only; it must not replace the site connector or own
 automation decisions. New installations are telemetry-only until an
 administrator opts in after a fresh sample. See
@@ -119,10 +121,10 @@ The model set in `app/models/` includes:
 
 Endpoint rows store platform, optional device class and installation ID,
 nullable AC state, and explicit automation eligibility. All four platforms
-can use the universal enrollment exchange by default. Android/iOS source
-projects are implemented but still need native builds and device validation;
-telemetry and enrollment support do not imply client validation or automation
-eligibility.
+can use the universal enrollment exchange by default.
+Android has a debug APK build and emulator smoke test; iOS has an unsigned
+device IPA build and simulator smoke test. Both platforms need physical-device validation. Telemetry and
+enrollment support do not imply client validation or automation eligibility.
 
 ### 3.4 Service layer
 
