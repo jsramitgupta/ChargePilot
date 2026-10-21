@@ -5,13 +5,18 @@ This file is the short operational summary for the repository as it stands today
 ## Product
 ChargePilot is a cloud-capable, local-first battery automation platform. The
 backend supports enrolled Windows, macOS, Android, and iOS telemetry. Android
-Kotlin/Compose and iOS SwiftUI source projects are implemented. The GitHub
-release publishes an Android debug APK, an unsigned iOS IPA, and an unsigned,
-unnotarized macOS DMG. Android has an emulator smoke test; iOS has a simulator
-smoke test. Physical-device validation and signed distribution remain
-outstanding. New installs use a tenant-scoped, reusable 24-hour enrollment
-token to obtain a revocable per-install credential; existing Windows agents
-remain compatible with tenant-wide tokens during migration.
+Kotlin/Compose and iOS SwiftUI source projects are implemented. The agent
+artifact workflow builds a Windows executable that wraps the PowerShell
+telemetry agent, an Android debug APK, an unsigned iOS IPA, and an
+unsigned, unnotarized macOS DMG. An `agents-v*` tag publishes those assets in
+a GitHub Release. The Windows executable is unsigned and requires Windows
+PowerShell 5.1; its build runs on Windows because the executable cannot be
+built or run natively on macOS. Windows EXE runtime validation is pending.
+Android has an emulator smoke test; iOS has a simulator smoke test.
+Physical-device validation and signed distribution remain outstanding. New
+installs use a tenant-scoped, reusable 24-hour
+enrollment token to obtain a revocable per-install credential; existing
+Windows agents remain compatible with tenant-wide tokens during migration.
 The backend monitors endpoint battery state and controls local Tuya switches
 through an outbound-HTTPS site connector on each device LAN.
 

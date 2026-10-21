@@ -235,6 +235,11 @@ async def download_agent_scripts():
     return _redirect_to_agent_release("chargepilot-windows-agent-source.zip")
 
 
+@app.get("/agent/ChargePilotAgent.exe", include_in_schema=False)
+async def download_windows_agent_executable():
+    return _redirect_to_agent_release("ChargePilotAgent.exe")
+
+
 @app.get("/agent/macos/download")
 async def download_macos_agent():
     return _redirect_to_agent_release("chargepilot-macos-agent-source.zip")

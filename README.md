@@ -113,17 +113,19 @@ before evaluating mappings. An HTTP accepted response confirms durable
 ingestion, not completed switch control. Monitor outbox age, consumer lag,
 dead-letter events, and connector command outcomes. Sign in to ChargePilot and
 open **Set up a device** to create a reusable, 24-hour enrollment token. It
-can enroll multiple devices across platforms and is shown only once; revoke
-the token to prevent future exchanges. Existing Windows agents remain
-compatible with legacy tenant tokens while new installs use per-install
-credentials.
+can enroll multiple devices across platforms; its creator can reveal or hide
+it until expiry. Revoke it to prevent future exchanges. Existing Windows
+agents remain compatible with legacy tenant tokens while new installs use
+per-install credentials.
 
-Extract `chargepilot-agent-scripts.zip`, open PowerShell in that folder, and
-run the displayed command. The installer prompts for the enrollment token,
-exchanges it for a per-install credential, protects that credential with
-Windows user-scoped DPAPI, and registers the recurring scheduled task. The ZIP
-download requires an authenticated ChargePilot session and contains no
-credential.
+On the Windows device, open PowerShell and run the displayed setup command.
+The installer prompts for the enrollment token, exchanges it for a per-install
+credential, protects that credential with Windows user-scoped DPAPI, downloads
+the Windows executable, and registers its recurring scheduled task. The
+executable is a wrapper around the existing PowerShell agent, is unsigned, and
+may trigger a Windows SmartScreen warning. The Windows source archive is also
+available from device setup. A Windows executable cannot run on macOS; use the
+macOS DMG or Swift source project there.
 
 For macOS, the setup page provides the Swift source archive. Build the package
 with Swift 5.9+ on macOS 13+, enter the enrollment token when prompted, enroll

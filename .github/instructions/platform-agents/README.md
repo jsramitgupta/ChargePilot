@@ -1,13 +1,16 @@
 # Platform Agent Streams
 
 This directory tracks ChargePilot's cross-platform telemetry work. The
-platform-aware backend contract, Windows PowerShell enrollment, a SwiftUI
+platform-aware backend contract, Windows PowerShell enrollment and an unsigned
+Windows executable wrapper, a SwiftUI
 macOS menu-bar app with CLI diagnostics, and Kotlin/Compose Android and SwiftUI
 iOS clients are implemented. Existing Windows agents remain compatible with
 the shared-token flow. GitHub Releases publish an Android debug APK, an
 unsigned iOS IPA, and an unsigned, unnotarized macOS DMG with platform source
 archives. Android has an emulator smoke test; iOS has a simulator smoke test.
 Physical-device validation and signed store distribution remain pending.
+The Windows executable is built on a Windows GitHub Actions runner and is
+configured by the existing PowerShell installer; it cannot run on macOS.
 
 ## Objectives
 

@@ -283,12 +283,15 @@ The GitHub Actions pipeline keeps routine validation separate from publishing:
   manifest-only commits do not start another CI run.
 
 Agent source is not copied into the API image. `build-agent-artifacts.yml`
-builds APK, unsigned IPA, and DMG artifacts for changes under `agent/`; an
-`agents-v*` tag also publishes those binaries and platform source archives as a
-GitHub Release. The public `/agent/.../download` API routes redirect to the
-latest stable release assets. Before deploying API code that uses those
-redirects, publish the first agent release (for example, create and push
-`agents-v0.1.0`). No additional GitHub secret or application environment
+builds the Windows executable, APK, unsigned IPA, and DMG artifacts for
+changes under `agent/`. Windows builds run on a Windows runner because the
+EXE cannot be built or run natively on macOS. An `agents-v*` tag also publishes
+those binaries and platform source archives as a GitHub Release. The Windows
+executable wraps the existing PowerShell telemetry script; it is unsigned and
+does not make the script confidential. The public `/agent/.../download` API
+routes redirect to the latest stable release assets. Before deploying API
+code that uses those redirects, publish the first agent release, for example
+`agents-v0.1.0`. No additional GitHub secret or application environment
 variable is required for release creation.
 
 Use short-lived branches named `server/<change>`, `agents/<change>`, or
@@ -734,10 +737,13 @@ python -m connector.chargepilot_connector --server-url "https://api-chargepilot.
 ### Windows agent
 
 On **Set up a device**, select the workspace, create an enrollment token, and
-copy the generated PowerShell command. Run it on the Windows device; it
-downloads the installer and agent over HTTPS, prompts for the enrollment token,
-and registers the recurring task. The command uses `iex`; run it only against
-a ChargePilot server you trust. Public release assets contain no credentials.
+run the generated PowerShell command on the Windows device. The installer
+downloads the Windows executable over HTTPS, prompts for the enrollment
+token, protects the per-install credential with Windows user-scoped DPAPI, and
+registers the recurring task. The command uses `iex`; run it only against a
+ChargePilot server you trust. The executable is unsigned, so SmartScreen may
+warn when it is downloaded or started. Public release assets contain no
+credentials.
 Setup APIs and token management remain authenticated. Existing Windows agents
 using the legacy shared-token protocol must use their assigned tenant's token;
 the global token is only for unassigned endpoints.

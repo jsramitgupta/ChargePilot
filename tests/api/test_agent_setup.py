@@ -67,6 +67,7 @@ def test_agent_setup_requires_authentication_but_agent_sources_are_public():
     assert client.get("/api/v1/agent/setup").status_code == 401
     downloads = {
         "/agent/download": "chargepilot-windows-agent-source.zip",
+        "/agent/ChargePilotAgent.exe": "ChargePilotAgent.exe",
         "/agent/install.ps1": "chargepilot-windows-agent-installer.ps1",
         "/agent/BatteryAgent.ps1": "chargepilot-windows-battery-agent.ps1",
         "/agent/macos/download": "chargepilot-macos-agent-source.zip",

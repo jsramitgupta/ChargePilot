@@ -104,6 +104,27 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  windows:
+    name: Build Windows executable
+    runs-on: windows-2022
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Build Windows executable
+        shell: powershell
+        run: |
+          .\agent\windows\BuildAgentExe.ps1 `
+            -OutputPath "$env:RUNNER_TEMP\ChargePilotAgent.exe"
+
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chargepilot-windows-exe
+          path: ${{ runner.temp }}/ChargePilotAgent.exe
+          if-no-files-found: error
+          retention-days: 90
+
   release:
     name: Publish GitHub release assets
     if: startsWith(github.ref, 'refs/tags/agents-v')
@@ -111,6 +132,7 @@ jobs:
       - android
       - ios
       - macos
+      - windows
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -136,6 +158,12 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: chargepilot-macos-development-dmg
+          path: artifacts
+
+      - name: Download Windows executable
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: chargepilot-windows-exe
           path: artifacts
 
       - name: Package public agent source downloads
@@ -176,6 +204,8 @@ jobs:
           windows_files = (
               ("agent/BatteryAgent.ps1", "BatteryAgent.ps1"),
               ("agent/CreateAgentScheduledTask.ps1", "CreateAgentScheduledTask.ps1"),
+              ("agent/windows/BuildAgentExe.ps1", "windows/BuildAgentExe.ps1"),
+              ("agent/windows/README.md", "windows/README.md"),
           )
           with zipfile.ZipFile(
               root / "artifacts" / "chargepilot-windows-agent-source.zip",
@@ -203,4 +233,4 @@ jobs:
           gh release create "$TAG" artifacts/* \
             --title "ChargePilot endpoint agents $TAG" \
             --latest \
-            --notes "Development builds and source archives generated from this tag. The Android APK is debug-signed. The iOS IPA is unsigned and requires signing before installation. The macOS DMG is unsigned and not notarized."
+            --notes "Development builds and source archives generated from this tag. The Windows executable is unsigned and wraps the PowerShell agent. The Android APK is debug-signed. The iOS IPA is unsigned and requires signing before installation. The macOS DMG is unsigned and not notarized."

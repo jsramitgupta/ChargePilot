@@ -18,7 +18,7 @@ for the canonical implementation design and deployment boundaries.
 ## 2. Runtime topology
 
 ```text
-Windows PowerShell telemetry agent
+Windows scheduled executable (PS2EXE wrapper around PowerShell telemetry agent)
   -> PowerShell telemetry agent
   -> POST /api/v1/telemetry
   -> API validates token, updates endpoint, writes transactional outbox event
@@ -31,10 +31,13 @@ Windows PowerShell telemetry agent
 ```
 
 Windows and enrolled macOS clients are implemented as HTTPS telemetry
-producers. Android Kotlin/Compose and iOS SwiftUI source projects are also
-implemented. Android has a debug APK build and emulator smoke test; iOS has an
-unsigned device IPA build and simulator smoke test. Physical-device
-validation remains pending for both platforms.
+producers. Windows distributes its existing PowerShell agent both as source
+and as an unsigned 64-bit executable wrapper; its installer configures
+user-protected credentials and the scheduled task. Android Kotlin/Compose and
+iOS SwiftUI source projects are also implemented. Android has a debug APK
+build and emulator smoke test; iOS has an unsigned device IPA build and
+simulator smoke test. Physical-device validation remains pending for both
+mobile platforms.
 Every agent sends readings only; it must not replace the site connector or own
 automation decisions. New installations are telemetry-only until an
 administrator opts in after a fresh sample. See

@@ -50,19 +50,22 @@ high-entropy enrollment token valid for 24 hours across multiple devices.
 Each admin can have at most five active tokens across workspaces. The page
 lists only that admin's active tokens, allows a token to be revealed or hidden
 until expiry, and allows active tokens to be revoked. Expired and revoked
-tokens are not shown. Windows, macOS, Android, and iOS agents exchange a token for a
-per-install credential and persist it using platform-appropriate protected
-storage. Existing Windows agents using shared tenant tokens remain compatible
-during migration. The setup page links to the latest GitHub Release for the
-published Android debug APK, unsigned iOS IPA, and unsigned, unnotarized macOS
-DMG, and separately offers source projects. Explain how to install each build;
+tokens are not shown. Windows, macOS, Android, and iOS agents exchange a token
+for a per-install credential and persist it using platform-appropriate
+protected storage. Existing Windows agents using shared tenant tokens remain
+compatible during migration. Windows setup offers the PowerShell install
+command, which enrolls the device, downloads the executable, and configures its
+scheduled task, plus a direct link to the unsigned executable. The setup page
+links to the latest GitHub Release for the Windows executable, Android debug
+APK, unsigned iOS IPA, and unsigned, unnotarized macOS DMG, and separately
+offers source projects. Explain how to install each build;
 the iOS IPA requires signing and provisioning before installation. Clearly
 explain Android's inexact WorkManager
 timing and iOS Shortcuts automation best-effort limits. The iOS setup guidance
 should suggest both a battery-level and charger-connected trigger and must not
-promise exact timing. The page shows token expiry and enrollment count without exposing token values
-unless its creator explicitly reveals one. Revoking a token prevents new
-exchanges; admins separately revoke already-issued endpoint
+promise exact timing. The page shows token expiry and enrollment count without
+exposing token values unless its creator explicitly reveals one. Revoking a
+token prevents new exchanges; admins separately revoke already-issued endpoint
 credentials. The Endpoints
 page shows platform and enrollment state and allows admins to opt endpoints
 into automation only when the backend reports an allowed platform and fresh

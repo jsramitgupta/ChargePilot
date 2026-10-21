@@ -23,10 +23,12 @@ for an existing API or runtime feature.
 ## What this codebase does now
 
 The implemented product is a cloud-capable, local-first battery automation
-platform. Windows and macOS agents are device-validated; Android and iOS
-source projects are implemented. GitHub Releases publish an Android debug APK,
-an unsigned iOS IPA, and an unsigned, unnotarized macOS DMG. Android has an
-emulator smoke test; iOS has a simulator smoke test. Physical-device
+platform. Windows PowerShell and macOS agents are device-validated; Android
+and iOS source projects are implemented. The artifact workflow builds a
+Windows EXE wrapper, Android debug APK, unsigned iOS IPA, and unsigned,
+unnotarized macOS DMG; an `agents-v*` tag publishes the built assets to a
+GitHub Release. The Windows EXE build and runtime validation are pending.
+Android has an emulator smoke test; iOS has a simulator smoke test. Physical-device
 validation and signed distribution remain pending. The current product
 includes:
 

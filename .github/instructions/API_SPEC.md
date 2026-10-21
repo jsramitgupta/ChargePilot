@@ -211,12 +211,15 @@ on the latest stable `agents-v*` GitHub Release. The agent workflow publishes
 these source files alongside the platform build artifacts:
 
 - `GET /agent/download` redirects to the Windows PowerShell source ZIP.
+- `GET /agent/ChargePilotAgent.exe` redirects to the unsigned Windows
+  executable built from the PowerShell agent.
 - `GET /agent/macos/download` redirects to the Swift/macOS source ZIP.
 - `GET /agent/android/download` redirects to the Kotlin/Compose Android source
   project ZIP.
 - `GET /agent/ios/download` redirects to the SwiftUI Xcode project ZIP.
 - `GET /agent/install.ps1` redirects to the scheduled-task installer used by
-  the one-line command.
+  the one-line command. The installer downloads the Windows executable,
+  enrolls the device, and registers the recurring scheduled task.
 - `GET /agent/BatteryAgent.ps1` redirects to the telemetry script fetched by
   the installer.
 
@@ -227,6 +230,7 @@ available. No application environment variable is required.
 The authenticated **Set up a device** page links to the latest GitHub Release
 for published platform builds: Android `app-debug.apk`, macOS
 `ChargePilotAgent-0.1.0.dmg`, and iOS `ChargePilotAgent-0.1.0-unsigned.ipa`.
+It also links to the Windows `ChargePilotAgent.exe`.
 The Android APK is debug-signed; the macOS DMG is unsigned and not notarized;
 the iOS IPA requires signing and provisioning before installation. The page
 also links to each platform's source archive and gives installation steps.

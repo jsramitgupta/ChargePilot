@@ -3096,12 +3096,14 @@ function AgentSetupPage() {
     <section className="max-w-3xl space-y-4">
       <div className="panel p-5 sm:p-6">
         <h2 className="text-lg font-bold text-slate-900">Windows</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">Copy this command to PowerShell on the device. The installer asks for the enrollment token without echoing it, then saves the endpoint credential using Windows user protection.</p>
+        <p className="mt-1 text-sm leading-6 text-slate-600">On the Windows device, run this command in PowerShell to enroll it, protect its credential, and install the recurring agent task.</p>
         <code className="mt-4 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{data?.install_command}</code>
         <button type="button" className="btn-secondary mt-3" onClick={() => void copyText(data?.install_command ?? '', 'Windows install command copied.')}>Copy install command</button>
         <p className="mt-2 min-h-5 text-xs text-[var(--muted)]" role="status">{copyStatus}</p>
+        <a className="btn-secondary mt-2 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/ChargePilotAgent.exe`}>Download Windows executable</a>
+        <p className="mt-3 text-xs text-amber-800">The executable is unsigned and runs on Windows only. Use the setup command to configure it; it will not run on this Mac.</p>
         <a className="btn-secondary mt-2 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-windows-agent-source.zip`}>Download Windows scripts from GitHub</a>
-        <p className="mt-3 text-xs text-amber-800">The command downloads and runs scripts from this HTTPS server. Run it only if you trust this ChargePilot server.</p>
+        <p className="mt-3 text-xs text-amber-800">The setup command downloads and runs the installer from this HTTPS server. Run it only if you trust this ChargePilot server.</p>
       </div>
       <div className="panel p-5 sm:p-6">
         <h2 className="text-lg font-bold text-slate-900">macOS</h2>

@@ -177,51 +177,66 @@ function Get-EnrolledAgentConfig {
 function Install-ChargePilotAgent {
     param(
         [string]$DestinationDir,
-        [string]$SourceScriptPath,
         [string]$ConfigFilePath,
         [string]$ServerUrlValue,
         [string]$AgentVersionValue
     )
 
-    $agentConfig = Get-EnrolledAgentConfig `
-        -ServerUrlValue $ServerUrlValue `
-        -ConfigFilePath $ConfigFilePath `
-        -AgentVersionValue $AgentVersionValue
+    $temporaryExecutablePath = Join-Path `
+        ([System.IO.Path]::GetTempPath()) `
+        "ChargePilotAgent-$([guid]::NewGuid().ToString('N')).exe"
 
-    if (Test-Path -LiteralPath $DestinationDir) {
-        Remove-Item -LiteralPath $DestinationDir -Recurse -Force -ErrorAction Stop
+    try {
+        $agentExecutableUri = "$($ServerUrlValue.TrimEnd('/'))/agent/ChargePilotAgent.exe"
+        Invoke-WebRequest -Uri $agentExecutableUri -OutFile $temporaryExecutablePath -UseBasicParsing
+        if (-not (Test-Path -LiteralPath $temporaryExecutablePath)) {
+            throw "The ChargePilot Windows agent executable could not be downloaded."
+        }
+
+        $stream = [System.IO.File]::OpenRead($temporaryExecutablePath)
+        try {
+            $firstByte = $stream.ReadByte()
+            $secondByte = $stream.ReadByte()
+        }
+        finally {
+            $stream.Dispose()
+        }
+        if ($firstByte -ne 0x4D -or $secondByte -ne 0x5A) {
+            throw "The downloaded ChargePilot agent is not a valid Windows executable."
+        }
+
+        $agentConfig = Get-EnrolledAgentConfig `
+            -ServerUrlValue $ServerUrlValue `
+            -ConfigFilePath $ConfigFilePath `
+            -AgentVersionValue $AgentVersionValue
+
+        if (Test-Path -LiteralPath $DestinationDir) {
+            Remove-Item -LiteralPath $DestinationDir -Recurse -Force -ErrorAction Stop
+        }
+        New-Item -ItemType Directory -Path $DestinationDir -Force | Out-Null
+
+        $agentDestination = Join-Path $DestinationDir "ChargePilotAgent.exe"
+        Move-Item -LiteralPath $temporaryExecutablePath -Destination $agentDestination -Force
+
+        $configDir = Split-Path -Parent $ConfigFilePath
+        if (-not (Test-Path -LiteralPath $configDir)) {
+            New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+        }
+
+        $agentConfig | ConvertTo-Json -Depth 5 | Set-Content -Path $ConfigFilePath -Encoding UTF8
+        Set-PrivateConfigPermissions -ConfigDirectory $configDir -ConfigFilePath $ConfigFilePath
+        if (Test-Path -LiteralPath $LegacyConfigPath) {
+            Remove-Item -LiteralPath $LegacyConfigPath -Force -ErrorAction Stop
+        }
+
+        Write-Host "Agent installed to: $DestinationDir"
+        Write-Host "Per-install credential stored with Windows user protection at: $ConfigFilePath"
     }
-    New-Item -ItemType Directory -Path $DestinationDir -Force | Out-Null
-
-    $agentDestination = Join-Path $DestinationDir "BatteryAgent.ps1"
-    if (-not [string]::IsNullOrWhiteSpace($SourceScriptPath) -and (Test-Path -LiteralPath $SourceScriptPath)) {
-        Copy-Item -Path $SourceScriptPath -Destination $agentDestination -Force
+    finally {
+        if (Test-Path -LiteralPath $temporaryExecutablePath) {
+            Remove-Item -LiteralPath $temporaryExecutablePath -Force -ErrorAction SilentlyContinue
+        }
     }
-    else {
-        $agentScriptUri = "$($ServerUrlValue.TrimEnd('/'))/agent/BatteryAgent.ps1"
-        Invoke-WebRequest -Uri $agentScriptUri -OutFile $agentDestination -UseBasicParsing
-    }
-
-    $configDir = Split-Path -Parent $ConfigFilePath
-    if (-not (Test-Path -LiteralPath $configDir)) {
-        New-Item -ItemType Directory -Path $configDir -Force | Out-Null
-    }
-
-    $agentConfig | ConvertTo-Json -Depth 5 | Set-Content -Path $ConfigFilePath -Encoding UTF8
-    Set-PrivateConfigPermissions -ConfigDirectory $configDir -ConfigFilePath $ConfigFilePath
-    if (Test-Path -LiteralPath $LegacyConfigPath) {
-        Remove-Item -LiteralPath $LegacyConfigPath -Force -ErrorAction Stop
-    }
-
-    Write-Host "Agent installed to: $DestinationDir"
-    Write-Host "Per-install credential stored with Windows user protection at: $ConfigFilePath"
-}
-
-$scriptPath = if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
-    Join-Path $PSScriptRoot "BatteryAgent.ps1"
-}
-else {
-    ""
 }
 
 if ($DeleteOnly) {
@@ -237,7 +252,6 @@ if ($DeleteExisting) {
 
 Install-ChargePilotAgent `
     -DestinationDir $InstallDir `
-    -SourceScriptPath $scriptPath `
     -ConfigFilePath $ConfigPath `
     -ServerUrlValue $ServerUrl `
     -AgentVersionValue $AgentVersion
@@ -247,13 +261,12 @@ if ($existingTask) {
     Remove-ChargePilotTask -TaskNameToRemove $TaskName
 }
 
-$installedScriptPath = Join-Path $InstallDir "BatteryAgent.ps1"
-$taskArguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -ServerUrl "{1}" -AgentVersion "{2}" -ConfigPath "{3}"' -f `
-    $installedScriptPath,
+$installedExecutablePath = Join-Path $InstallDir "ChargePilotAgent.exe"
+$taskArguments = '-ServerUrl "{0}" -AgentVersion "{1}" -ConfigPath "{2}"' -f `
     $ServerUrl,
     $AgentVersion,
     $ConfigPath
-$taskAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArguments
+$taskAction = New-ScheduledTaskAction -Execute $installedExecutablePath -Argument $taskArguments
 
 $firstRunTime = (Get-Date).AddSeconds(10)
 $taskTrigger = New-ScheduledTaskTrigger -Once -At $firstRunTime -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)
@@ -266,4 +279,4 @@ Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force | Out-Null
 
 Write-Host "Scheduled task '$TaskName' created."
 Write-Host "The agent will run after 10 seconds and then every $IntervalMinutes minutes."
-Write-Host "Installed script: $installedScriptPath"
+Write-Host "Installed executable: $installedExecutablePath"
