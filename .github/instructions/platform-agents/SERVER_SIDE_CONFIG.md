@@ -1,21 +1,20 @@
 # Cross-Platform Telemetry Server Contract
 
-**Status: partially implemented.** The additive platform-aware schema,
-tenant-scoped reusable 24-hour enrollment tokens, hash-only per-install
-credentials, revocation, freshness checks, automation opt-in, migration, and
-Windows/macOS agents are shipped. Kotlin/Compose Android and SwiftUI iOS
-source projects are implemented. Android has a debug APK build and emulator
-smoke test; iOS has an unsigned device IPA build and simulator smoke test.
-Physical-device validation and signed distribution remain pending; signed app
-releases are not available.
+**Status: implemented with platform-specific validation gaps.** The additive
+platform-aware schema, tenant-scoped reusable 24-hour enrollment tokens,
+hash-only per-install credentials, revocation, freshness checks, automation
+opt-in, migration, and Windows/macOS/Android/iOS clients are shipped. GitHub
+Releases publish an Android debug APK, an unsigned iOS IPA, and an unsigned,
+unnotarized macOS DMG. Android has an emulator smoke test; iOS has a simulator
+smoke test. Physical-device validation and signed distribution remain pending.
 
 ## Current server contract
 
-The device-validated telemetry clients are the Windows PowerShell agent and
-the existing macOS CLI. The macOS SwiftUI menu-bar app now provides enrollment,
-background reporting, and optional launch-at-login behavior; its packaged UI
-still needs macOS-target QA. Android and iOS source projects are available but
-are not yet device-validated. The live `POST /api/v1/telemetry` schema is
+Windows and macOS clients have been validated on their target platforms.
+Android has an emulator smoke test and iOS a simulator smoke test; neither has
+physical-device validation. The macOS SwiftUI menu-bar app provides enrollment,
+background reporting, and optional launch-at-login behavior; further
+distribution QA remains. The live `POST /api/v1/telemetry` schema is
 `app/schemas/telemetry.py`:
 
 - required: `hostname`, `battery_percentage` (0–100), `charging`, `timestamp`,
@@ -23,13 +22,13 @@ are not yet device-validated. The live `POST /api/v1/telemetry` schema is
 - optional: `hardware_uuid`, `installation_id`, `platform` (defaults to
   `windows`), `device_class`, `ip_address`, and `ac_connected`
 - Existing Windows installations retain the `hardware_uuid` and shared-token
-  behavior during migration; new Windows and macOS installs exchange a
-  reusable enrollment token for a backend endpoint ID and installation UUID
+  behavior during migration; new installations on all four platforms exchange
+  a reusable enrollment token for a backend endpoint ID and installation UUID
 - the default ingress age limit is seven days, future skew is five minutes,
   and automation freshness is ten minutes
 - legacy shared-token auth remains accepted only for Windows during migration;
-  new Windows and macOS installs use tenant-bound, hash-only, revocable
-  per-install credentials
+  new installations use tenant-bound, hash-only, revocable per-install
+  credentials
 - endpoint snapshots and outbox events are committed together; delayed
   samples cannot regress the current snapshot, and automation is checked
   asynchronously for opt-in/platform/freshness
@@ -44,8 +43,9 @@ See [API_SPEC.md](../API_SPEC.md) for the authoritative current contract.
 - Make a backend-generated endpoint ID and a random per-installation UUID the
   identity basis for new mobile sources; an app-generated ID is not claimed to
   be a hardware ID.
-- Make mobile endpoints telemetry-only by default. Do not allow them to trigger
-  mappings until an explicit automation policy and freshness gate are shipped.
+- Keep mobile endpoints telemetry-only by default. Automation is separately
+  allow-listed (Windows/macOS by default), requires explicit endpoint opt-in,
+  and is subject to the server freshness gate.
 - Preserve tenant isolation, durable outbox processing, and the site connector
   boundary. Endpoint agents never control Tuya devices directly.
 
@@ -138,10 +138,10 @@ CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS
 
 Telemetry and enrollment default to all four platforms. Automation defaults
 to Windows/macOS only, and each enrolled endpoint still requires explicit
-admin opt-in. Android has only been smoke-tested on an emulator; neither
-mobile client is physical-device validated or available as a signed release.
-Use the 600-second sample-age gate rather than assuming OS schedulers guarantee
-a reporting interval.
+admin opt-in. Android has only been smoke-tested on an emulator; neither mobile client has
+physical-device validation. The Android APK is debug-signed and the iOS IPA is
+unsigned, so neither is a signed store release. Use the 600-second sample-age
+gate rather than assuming OS schedulers guarantee a reporting interval.
 
 ### 5. API, event, and operator surfaces
 

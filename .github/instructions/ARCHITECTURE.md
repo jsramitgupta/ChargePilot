@@ -18,7 +18,7 @@ for the canonical implementation design and deployment boundaries.
 ## 2. Runtime topology
 
 ```text
-Windows laptop (implemented agent)
+Windows PowerShell telemetry agent
   -> PowerShell telemetry agent
   -> POST /api/v1/telemetry
   -> API validates token, updates endpoint, writes transactional outbox event
@@ -152,7 +152,7 @@ Current services include:
 3. The API upserts by hardware UUID for legacy Windows agents; a UUID-less legacy endpoint can be matched
    by tenant and hostname once to preserve its existing ID and mappings.
    Global-token telemetry can only register/update unassigned endpoints.
-   Tenant-assigned laptops use that tenant's token. Mapping creation requires
+   Tenant-assigned legacy Windows endpoints use that tenant's token. Mapping creation requires
    endpoint and device tenant IDs to match; the UI exposes ownership and lets
    the Super Admin assign an unassigned endpoint without weakening isolation.
 4. Delayed reports cannot overwrite a newer snapshot. Endpoint snapshot and
@@ -273,14 +273,16 @@ The SmartLife bridge handles:
   operations before changing a user-facing workflow
 - retain coherent light/dark themes and left-aligned authenticated navigation
 
-### Remaining telemetry clients
+### Cross-platform telemetry clients
 
-Android and iOS are future native clients, not modules in the current
-repository runtime. The backend contract now provides tenant-bound enrollment,
-revocation, installation identity, optional platform telemetry fields, and
-explicit automation eligibility. Do not put shared tenant tokens in clients;
-keep mobile telemetry informational by default because background samples can
-be delayed. The platform PRDs and rollout guidance are indexed in
+Windows PowerShell, macOS SwiftUI, Android Kotlin/Compose, and iOS SwiftUI
+clients use the platform-aware backend enrollment and telemetry contract.
+Android has an emulator smoke test and iOS a simulator smoke test; physical
+device validation and signed distribution remain outstanding for mobile
+clients. Do not put shared tenant tokens in clients; mobile reporting and
+background scheduling are best-effort. Automation remains separately
+allow-listed and requires explicit endpoint opt-in. Platform-specific status
+and rollout guidance are indexed in
 [platform-agents/README.md](platform-agents/README.md).
 
 ### Distributed runtime and capacity limits

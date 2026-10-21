@@ -21,7 +21,7 @@
 
 ## 3. Battery telemetry integration
 
-Use the Android battery APIs to capture battery percentage, charging state, and AC power status. Treat health values as optional because they are not a fully analogous battery-health metric to a laptop's power-source API.
+Use the Android battery APIs to capture battery percentage, charging state, and AC power status. Treat health values as optional because mobile battery-health values are not fully analogous to the power-source APIs on desktop platforms.
 
 ## 4. Upload flow
 

@@ -6,8 +6,8 @@ with `frontend/src/App.tsx`, `frontend/src/index.css`,
 
 ## Product and interface goals
 
-ChargePilot is an operational workspace for local-first laptop battery
-automation and LAN-connected switches. Make live ownership, connectivity,
+ChargePilot is an operational workspace for battery telemetry from multiple
+device platforms and LAN-connected switches. Make live ownership, connectivity,
 battery state, and automation outcomes easy to scan without obscuring the
 underlying device relationships. Keep actions explicit and explain unavailable
 or empty states with the next useful step.
@@ -47,12 +47,14 @@ authenticated session. Keep tenant authorization and automation decisions in
 the backend; presentation must not become an authorization or rule boundary.
 The Set up a device page creates a tenant-scoped, platform-independent,
 high-entropy enrollment token, shown once and valid for 24 hours across
-multiple devices. Windows and macOS agents exchange it for a per-install
-credential and persist that credential using Windows user-scoped DPAPI or
-macOS Keychain. Existing Windows agents using shared tenant tokens remain
-compatible during migration. Android and iOS source projects are available
-from the setup page; users build them with Android Studio or Xcode, and they
-are not signed store releases. Clearly explain Android's inexact WorkManager
+multiple devices. Windows, macOS, Android, and iOS agents exchange it for a
+per-install credential and persist it using platform-appropriate protected
+storage. Existing Windows agents using shared tenant tokens remain compatible
+during migration. The setup page links to the latest GitHub Release for the
+published Android debug APK, unsigned iOS IPA, and unsigned, unnotarized macOS
+DMG, and separately offers source projects. Explain how to install each build;
+the iOS IPA requires signing and provisioning before installation. Clearly
+explain Android's inexact WorkManager
 timing and iOS Shortcuts automation best-effort limits. The iOS setup guidance
 should suggest both a battery-level and charger-connected trigger and must not
 promise exact timing. The page lists token expiry,
@@ -70,7 +72,7 @@ Mapping setup advances only on an explicit user action and saves only from its
 explicit create/save action.
 The mapping rule editor can disable automatic turn-on independently from the
 regular turn-off threshold, and can enable a separate charging-completion
-cutoff that uses the laptop's `charging` telemetry flag. Show threshold labels
+cutoff that uses the selected device's `charging` telemetry flag. Show threshold labels
 in a wrapping legend rather than overlaid on the battery scale so coincident
 thresholds remain legible.
 Endpoint-level automation opt-in is separate from an individual mapping's
@@ -105,7 +107,7 @@ Semantic status colors have matching light and dark tokens. Retain their
 meaning and verify text contrast on each surface. A state should not be
 communicated by color alone; pair it with readable text or an icon.
 Text selection uses theme-aware ink and surface colors, and battery readings
-in the mapping laptop picker use the shared foreground token in both themes.
+in the mapping device picker use the shared foreground token in both themes.
 Overview metric icons use the shared leaf token in both themes; reserve
 operational state colors for explicit status indicators.
 
@@ -142,7 +144,7 @@ operational state colors for explicit status indicators.
   manual refresh with the last successful update time. Sort endpoints newest
   first and place missing timestamps last. The table identifies each endpoint's
   platform and device class alongside its label so mobile endpoints are
-  distinguishable from laptops.
+  distinguishable across device types.
 - The Smart switches page orders discovery, manual setup, and inventory by
   task. Keep scan location and action together, give inventory search and
   filters usable tap targets, and let device cards collapse to one column

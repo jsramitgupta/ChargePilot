@@ -24,16 +24,18 @@ for an existing API or runtime feature.
 
 The implemented product is a cloud-capable, local-first battery automation
 platform. Windows and macOS agents are device-validated; Android and iOS
-source projects are implemented. Android has a debug APK build and emulator
-smoke test; iOS has an unsigned device IPA build and simulator smoke test.
-Physical-device validation and signed distribution remain pending. The current product
+source projects are implemented. GitHub Releases publish an Android debug APK,
+an unsigned iOS IPA, and an unsigned, unnotarized macOS DMG. Android has an
+emulator smoke test; iOS has a simulator smoke test. Physical-device
+validation and signed distribution remain pending. The current product
 includes:
 
-- Windows laptop telemetry ingestion via a PowerShell agent
+- Battery telemetry from Windows, macOS, Android, and iOS endpoint agents
 - enrolled macOS battery telemetry via a SwiftUI menu-bar app and CLI, with
   per-install credentials, explicit user labels, and an optional login item
-- Android Kotlin/Compose and iOS SwiftUI telemetry source projects with
-  secure per-install credential storage; signed releases are not available
+- Android Kotlin/Compose and iOS SwiftUI telemetry apps with secure per-install
+  credential storage; development builds are published, while signed store
+  releases and physical-device validation remain outstanding
 - platform-aware telemetry, endpoint enrollment, credential revocation, and
   server-enforced automation opt-in/freshness gates
 - endpoint-to-device mappings and automation rules
@@ -58,7 +60,7 @@ contract without a separately reviewed backend change.
 - Runtime stack: Python 3.15 production image (Python 3.12+ supported for local
   development), FastAPI, SQLAlchemy 2.x, PostgreSQL, Kafka/aiokafka,
   TinyTuya, tuya-device-sharing-sdk, pytest.
-- App entrypoint: `app/main.py` registers JSON APIs, serves public agent/connector source downloads and bootstrap scripts, and redirects legacy page paths to React routes.
+- App entrypoint: `app/main.py` registers JSON APIs, serves public connector downloads and redirects agent downloads to GitHub Release assets, and redirects legacy page paths to React routes.
 - Settings prefix: `CHARGEPILOT_` via `app/core/config.py`.
 - Database bootstrap: `create_db_and_tables()` runs on startup and ensures missing columns are added.
 - Telemetry auth: the current bearer token remains available for backward-compatible Windows telemetry; enrolled
@@ -121,10 +123,10 @@ If this project has to be rebuilt from scratch, the safe order is:
 6. add battery rules and automation event logging
 7. add SmartLife QR onboarding and local-key matching flow
 8. add the React UI and SSE for operational visibility; follow FRONTEND_DESIGN.md for route, typography, and theme decisions
-9. Android and iOS source reporters use the shipped platform-aware backend
-   contract. Android has a debug APK build and emulator smoke test; physical
-   device validation and signed distribution remain follow-up work. iOS still
-   needs a native build, device validation, and signed distribution.
+9. Android and iOS reporters use the shipped platform-aware backend contract.
+   Android has a published debug APK and emulator smoke test; iOS has a
+   published unsigned IPA and simulator smoke test. Physical-device validation
+   and signed distribution remain follow-up work.
 
 This order preserves the local-first architecture and distinguishes source
 availability from validated, distributable mobile apps.

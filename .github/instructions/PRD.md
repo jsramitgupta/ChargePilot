@@ -2,17 +2,19 @@
 
 ## 1. Product vision
 
-ChargePilot is a local-first automation platform whose implemented telemetry
-agent currently supports Windows laptops. The cloud-hosted control plane
-monitors battery state and routes switch commands through a site connector on
-the same LAN as Tuya devices. Device control remains local and does not require
-Tuya cloud control.
+ChargePilot is a local-first automation platform with telemetry clients for
+Windows, macOS, Android, and iOS devices. Windows and macOS agents are
+device-validated; Android and iOS builds are published for development, with
+physical-device validation and signed distribution still outstanding. The
+cloud-hosted control plane monitors battery state and routes switch commands
+through a site connector on the same LAN as Tuya devices. Device control
+remains local and does not require Tuya cloud control.
 
 The current product state extends the original battery automation idea with a missing but important layer: discovering and registering local Tuya devices via LAN scan, and optionally linking devices through the SmartLife/Tuya QR login flow when the user needs a local key or wants to import a device that was previously paired via the mobile app.
 
 ## 2. Problem statement
 
-Users want an automatic way to keep a laptop or accessory powered in a safe, energy-aware pattern:
+Users want an automatic way to manage battery-powered devices in a safe, energy-aware pattern:
 
 - turn on power when the battery is low
 - turn off power when the battery is high enough
@@ -21,7 +23,7 @@ Users want an automatic way to keep a laptop or accessory powered in a safe, ene
 
 The codebase addresses this with:
 
-- telemetry ingestion from a Windows laptop agent
+- platform-aware telemetry ingestion from endpoint agents
 - endpoint-to-device mapping for automation targets
 - local Tuya switch discovery and control over the LAN
 - outbound-HTTPS site connectors for cloud-to-private-LAN control
@@ -33,7 +35,7 @@ The codebase addresses this with:
 
 ### Primary user
 
-A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch or plug, and a desire to automate charging behavior without depending on a cloud app or SaaS backend.
+A self-hosting user with one or more battery-powered devices, a local Tuya-compatible smart switch or plug, and a desire to automate charging behavior without depending on a cloud app or SaaS backend.
 
 ### Secondary users
 
@@ -44,7 +46,7 @@ A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch 
 
 ## 4. Core user goals
 
-1. Send laptop battery telemetry to a local or cloud-hosted ChargePilot server.
+1. Send supported device battery telemetry to a local or cloud-hosted ChargePilot server.
 2. Identify or import the local switch or plug for a mapped endpoint.
 3. Discover devices available on the LAN or recover them from a SmartLife linked-device session.
 4. Auto-match discovered devices with SmartLife session state to populate local keys and IP addresses.
@@ -55,8 +57,9 @@ A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch 
 
 ### 5.1 Telemetry ingestion
 
-- The system currently accepts authenticated telemetry from the Windows
-  PowerShell agent only.
+- The system accepts authenticated telemetry from Windows, macOS, Android,
+  and iOS agents using per-install enrollment credentials. The legacy shared
+  token remains Windows-only.
 - Payload includes hostname, IP, battery percentage, charging status, AC status, switch state, timestamp, and agent version.
 - The app records the latest battery state per endpoint and uses it to evaluate mappings.
 - Stale telemetry is rejected, and invalid bearer tokens are rejected.
@@ -125,7 +128,7 @@ A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch 
 
 ### 6.3 Connector requirements
 
-- Connector credentials are separate from laptop agent tokens and are
+- Connector credentials are separate from endpoint enrollment credentials and are
   revocable and tenant-scoped.
 - Connector identity and command-result authorization are enforced on every
   request.
@@ -197,7 +200,8 @@ A self-hosting user with a Windows laptop, a local Tuya-compatible smart switch 
 
 The product is considered successful when:
 
-- a Windows laptop sends telemetry to the app reliably
+- supported devices send telemetry to the app reliably within their platform's
+  background execution limits
 - the server updates endpoint state and evaluates mappings
 - a smart switch toggles according to battery thresholds with hysteresis and cooldown rules
 - a user can discover a device locally and add it from the wizard
@@ -225,16 +229,18 @@ The backend now supports a backward-compatible platform-aware telemetry
 schema, tenant-scoped reusable 24-hour enrollment tokens, hash-only
 per-install credentials, credential revocation, stale/future timestamp
 handling, and explicit endpoint-level automation opt-in with a server
-freshness gate. New Windows PowerShell and macOS Swift agents exchange the
-token for an endpoint credential persisted locally (Windows user-scoped
-DPAPI, macOS Keychain); existing Windows shared-token agents remain
-compatible during migration.
+freshness gate. Windows PowerShell and macOS Swift agents are validated;
+Android Kotlin/Compose and iOS SwiftUI clients use the same enrollment and
+telemetry contract. The GitHub release publishes an Android debug APK, an
+unsigned iOS IPA, and an unsigned, unnotarized macOS DMG alongside source
+archives. Existing Windows shared-token agents remain compatible during
+migration.
 
-Android Kotlin/Compose and iOS SwiftUI source projects are implemented in
-`agent/{android,ios}/` and available from device setup. Android has a debug APK
-build and emulator smoke test, but still requires physical-device validation;
-iOS has an unsigned device IPA build and simulator smoke test, but still
-requires physical-device validation and signing. No signed mobile releases
-are available. macOS reports only while awake and running; no
-mobile client guarantees a real-time reporting interval. Automation remains
-separately allow-listed and requires explicit admin opt-in.
+The authenticated **Set up a device** page links to the latest GitHub Release
+assets and platform source projects, and gives platform-specific install
+guidance. Android has an emulator smoke test, but still requires
+physical-device validation; iOS has a simulator smoke test, but its unsigned
+IPA requires signing and provisioning before installation. macOS reports only
+while awake and running; no mobile client guarantees a real-time reporting
+interval. Mobile automation remains separately allow-listed and requires
+explicit admin opt-in.

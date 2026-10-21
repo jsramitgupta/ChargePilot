@@ -1,9 +1,10 @@
 # Android Agent Stream
 
-The native Kotlin/Compose Android telemetry client source project is
-implemented in `agent/android`. It uses the platform-aware backend schema and
-reusable enrollment flow. It has not yet been built or validated on an Android
-device, and no signed APK is distributed.
+The native Kotlin/Compose Android telemetry client is implemented in
+`agent/android`. It uses the platform-aware backend schema and reusable
+enrollment flow. GitHub Releases publish a debug-signed APK and the source
+project; the APK is not a Google Play release. It has an emulator smoke test,
+but physical-device validation remains outstanding.
 
 ## Scope
 

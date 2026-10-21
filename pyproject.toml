@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "chargepilot"
 version = "0.1.0"
-description = "Self-hosted laptop battery automation for local Tuya control"
+description = "Self-hosted device battery automation for local Tuya control"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

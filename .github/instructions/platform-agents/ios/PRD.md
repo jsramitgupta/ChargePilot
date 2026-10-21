@@ -42,4 +42,4 @@ release. Shortcut/background delivery remains opportunistic.
   it and the device has been unlocked once after reboot
 - existing Windows telemetry remains compatible
 - delayed reports never trigger switch control as fresh data
-- the app never implies that iOS telemetry is equivalent to a continuously connected laptop telemetry source
+- the app never implies that iOS telemetry is equivalent to a continuously connected desktop telemetry source

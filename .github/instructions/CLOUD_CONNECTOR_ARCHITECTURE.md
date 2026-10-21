@@ -19,7 +19,7 @@ or result acknowledgement.
 ## Runtime topology
 
 ```text
-Windows laptop agent --> API --> PostgreSQL outbox --> Kafka
+Endpoint telemetry agent --> API --> PostgreSQL outbox --> Kafka
                                                     |
                                              automation workers
                                                     |
@@ -89,7 +89,7 @@ HTTP contract versioned for later connector upgrades.
 
 ## Automation path
 
-1. The existing laptop agent continues to submit the existing telemetry
+1. Existing endpoint agents submit their platform-aware telemetry
    payload and token.
 2. ChargePilot saves endpoint telemetry and evaluates the mapping's
    hysteresis and cooldown rules. Automatic turn-on can be disabled
@@ -131,8 +131,8 @@ Site deployment:
 
 - Install one connector process/service per device LAN.
 - Store the ChargePilot URL, connector credential, and connector ID in a
-  separate connector-local configuration file; this does not alter the laptop
-  agent configuration format.
+  separate connector-local configuration file; this does not alter endpoint
+  agent configuration formats.
 - Run as a restricted OS account and restart on failure.
 - Allow outbound HTTPS to ChargePilot and required local Tuya traffic only.
 - Keep connector logs diagnostic but scrub credentials and local keys.
@@ -146,14 +146,15 @@ Cross-platform telemetry adds platform fields and per-install enrollment
 without replacing the Windows contract. Connector configuration and
 enrollment are separate interfaces.
 
-Windows PowerShell and the enrolled macOS SwiftUI menu-bar app with CLI
-diagnostics are implemented telemetry agents. Android Kotlin/Compose and iOS SwiftUI source clients are available.
+Windows PowerShell, the enrolled macOS SwiftUI menu-bar app with CLI
+diagnostics, Android Kotlin/Compose, and iOS SwiftUI clients are implemented.
 Android has a debug APK build and emulator smoke test; physical-device
 validation remains pending. iOS has an unsigned device IPA build and simulator
-smoke test; physical-device validation remains pending. All agents submit telemetry to the control plane; the site
-connector remains the only component responsible for LAN-bound Tuya discovery
-and control. The shared identity, enrollment, and payload contract is
-documented in `platform-agents/SERVER_SIDE_CONFIG.md`.
+smoke test; physical-device validation remains pending. All agents submit
+telemetry to the control plane; the site connector remains the only component
+responsible for LAN-bound Tuya discovery and control. The shared identity,
+enrollment, and payload contract is documented in
+`platform-agents/SERVER_SIDE_CONFIG.md`.
 
 ## Schema and rollout
 

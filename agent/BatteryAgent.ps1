@@ -138,12 +138,12 @@ function Get-HardwareUuid {
         $uuid = [guid]$hardware.UUID
     }
     catch {
-        throw "Unable to read the laptop hardware UUID from Win32_ComputerSystemProduct."
+        throw "Unable to read the device hardware UUID from Win32_ComputerSystemProduct."
     }
 
     $normalized = $uuid.ToString("D").ToLowerInvariant()
     if ($uuid -eq [guid]::Empty -or $normalized -eq "ffffffff-ffff-ffff-ffff-ffffffffffff") {
-        throw "The laptop firmware does not provide a usable hardware UUID."
+        throw "The device firmware does not provide a usable hardware UUID."
     }
 
     return $normalized
@@ -258,7 +258,7 @@ function Get-LatestAgentConfig {
         }
 
         if ($statusCode -eq 404) {
-            Write-Host "Laptop is not registered yet; sending its first telemetry now."
+            Write-Host "Device is not registered yet; sending its first telemetry now."
         }
         elseif ($statusCode -eq 401) {
             Write-Warning "ChargePilot rejected the agent token (HTTP 401). Download a fresh installer from Agent setup."

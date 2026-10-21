@@ -115,7 +115,7 @@ receives device control details only when it claims authorized work.
 
 ### `Endpoint`
 
-Represents a laptop or endpoint sending telemetry.
+Represents a supported device sending battery telemetry.
 
 Key fields:
 
@@ -321,10 +321,10 @@ These tests are the baseline regression suite for the core automation path and s
 
 The live telemetry schema supports `windows`, `macos`, `android`, and `ios`
 metadata while retaining the legacy Windows payload for existing agents.
-New agents exchange a reusable, 24-hour, tenant-scoped token for a backend
+Agents exchange a reusable, 24-hour, tenant-scoped token for a backend
 endpoint ID and hash-only per-install credential. All four platforms are
-enabled for enrollment and telemetry by default. Android has a debug APK
-build and emulator smoke test; iOS has an unsigned device IPA build and
+enabled for enrollment and telemetry by default. Android has a debug-signed
+APK build and emulator smoke test; iOS has an unsigned device IPA build and
 simulator smoke test. Both need physical-device validation and signed
 distribution.
 

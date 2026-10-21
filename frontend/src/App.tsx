@@ -63,6 +63,9 @@ const queryClient = new QueryClient({
   },
 })
 
+const AGENT_RELEASE_URL = 'https://github.com/jsramitgupta/ChargePilot/releases/latest'
+const AGENT_RELEASE_DOWNLOAD_URL = `${AGENT_RELEASE_URL}/download`
+
 type User = {
   id: string
   username: string
@@ -529,7 +532,7 @@ function AppShell({ user }: { user: User }) {
               <Icon size={17} aria-hidden="true" /><span>{label}</span>
             </NavLink>
           ))}
-          <NavLink to="/agent" onClick={() => setMobileOpen(false)} className="rail-link"><Plus size={17} aria-hidden="true" /><span>Set up a laptop</span></NavLink>
+          <NavLink to="/agent" onClick={() => setMobileOpen(false)} className="rail-link"><Plus size={17} aria-hidden="true" /><span>Set up a device</span></NavLink>
           {(user.role === 'super_admin' || user.role === 'tenant_admin' || user.role === 'manager') && <>
             <p className="rail-caption rail-caption-spaced">Manage</p>
             <NavLink to="/users" onClick={() => setMobileOpen(false)} className="rail-link"><Users size={17} aria-hidden="true" /><span>People & invites</span></NavLink>
@@ -568,10 +571,10 @@ function AuthBrandPanel() {
       <div className="auth-story-copy">
         <span className="auth-story-kicker">Local energy, under control</span>
         <h2>Keep the battery.<br />Lose the guesswork.</h2>
-        <p>Reliable laptop monitoring, paired with switches that stay on their own network.</p>
+        <p>Battery monitoring across your devices, paired with switches that stay on their own network.</p>
       </div>
-      <div className="energy-path" aria-label="Laptop telemetry flows through your site connector to your switch">
-        <div className="energy-node"><MonitorSmartphone size={18} /><span>Laptop</span></div>
+      <div className="energy-path" aria-label="Device telemetry flows through your site connector to your switch">
+        <div className="energy-node"><MonitorSmartphone size={18} /><span>Device</span></div>
         <span className="energy-wire"><i /></span>
         <div className="energy-node"><Network size={18} /><span>Site link</span></div>
         <span className="energy-wire"><i /></span>
@@ -1772,7 +1775,7 @@ function MappingsPage() {
       form.reset()
       setEditingMappingId(null)
       setStep(1)
-      setStatusMessage(mappingId ? 'Mapping changes saved.' : 'Laptop and switch are now linked.')
+      setStatusMessage(mappingId ? 'Mapping changes saved.' : 'Device and switch are now linked.')
     },
   })
   const deleteMutation = useMutation({
@@ -1833,22 +1836,22 @@ function MappingsPage() {
     <div className="mapping-workspace">
       <PageHeader
         eyebrow="Automation"
-        title="Laptop to switch mappings"
-        description="Link a laptop to a switch, then set the battery levels that control it."
+        title="Device to switch mappings"
+        description="Link a device to a switch, then set the battery levels that control it."
       />
 
       <section className="mapping-builder" aria-labelledby="mapping-builder-title">
         <div className="mapping-builder-heading">
           <div>
             <h2 id="mapping-builder-title">{editingMappingId ? 'Edit mapping' : 'Create a mapping'}</h2>
-            <p>{editingMappingId ? 'Review the linked laptop and switch, then adjust the automation rules.' : 'Choose what should be connected, then set how the battery should control it.'}</p>
+            <p>{editingMappingId ? 'Review the linked device and switch, then adjust the automation rules.' : 'Choose what should be connected, then set how the battery should control it.'}</p>
           </div>
           <span className="mapping-step-count">Step {step} of 3</span>
         </div>
 
         <ol className="mapping-stepper" aria-label="Mapping setup">
           {[
-            { number: 1, title: 'Choose laptop' },
+            { number: 1, title: 'Choose device' },
             { number: 2, title: 'Choose switch' },
             { number: 3, title: 'Set battery rules' },
           ].map((item) => (
@@ -1869,15 +1872,15 @@ function MappingsPage() {
         <div className="mapping-wizard-content">
           {step === 1 && <div className="mapping-step-content">
             <div className="mapping-step-copy">
-              <span className="mapping-step-kicker">01 / Laptop</span>
-              <h3>Which laptop should this switch follow?</h3>
-              <p>Only laptops in the same tenant can be linked to a switch.</p>
+              <span className="mapping-step-kicker">01 / Device</span>
+              <h3>Which device should this switch follow?</h3>
+              <p>Only devices in the same workspace can be linked to a switch.</p>
             </div>
             {!endpoints.length ? (
               <div className="mapping-empty-inline">
                 <MonitorSmartphone size={22} />
-                <div><strong>No laptops registered</strong><p>Register a laptop and send its first telemetry before creating a mapping.</p></div>
-                <NavLink to="/endpoints" className="btn-secondary">View laptops</NavLink>
+                <div><strong>No devices reporting yet</strong><p>Enroll a device and send its first reading before creating a mapping.</p></div>
+                <NavLink to="/endpoints" className="btn-secondary">View devices</NavLink>
               </div>
             ) : <div className="mapping-choice-grid">
               {endpoints.map((endpoint) => (
@@ -1902,7 +1905,7 @@ function MappingsPage() {
                 </button>
               ))}
             </div>}
-            {form.formState.errors.endpoint_id && <FieldError>Select a laptop to continue.</FieldError>}
+            {form.formState.errors.endpoint_id && <FieldError>Select a device to continue.</FieldError>}
             {selectedEndpoint && matchingDevices.length === 0 && (
               <div className="mapping-guidance" role="status">
                 <span>No switches are assigned to <strong>{selectedEndpoint.tenant_name ?? 'this tenant'}</strong> yet.</span>
@@ -1915,12 +1918,12 @@ function MappingsPage() {
             <div className="mapping-step-copy">
               <span className="mapping-step-kicker">02 / Switch</span>
               <h3>Choose the switch and output</h3>
-              <p>{selectedEndpoint ? `Available switches for ${selectedEndpoint.hostname}.` : 'Return to step 1 and choose a laptop first.'}</p>
+              <p>{selectedEndpoint ? `Available switches for ${selectedEndpoint.hostname}.` : 'Return to step 1 and choose a device first.'}</p>
             </div>
             {!matchingDevices.length ? (
               <div className="mapping-empty-inline">
                 <PlugZap size={22} />
-                <div><strong>No matching switch is ready</strong><p>Add a switch to the same tenant as the selected laptop.</p></div>
+                <div><strong>No matching switch is ready</strong><p>Add a switch to the same workspace as the selected device.</p></div>
                 <NavLink to="/devices" className="btn-secondary">Set up a switch</NavLink>
               </div>
             ) : <div className="mapping-switch-options">
@@ -1969,14 +1972,14 @@ function MappingsPage() {
                 <label className="mapping-rule-field" htmlFor="on-threshold"><span>Turn on at or below</span><span className="mapping-number-input"><input id="on-threshold" type="number" min={0} max={100} required={turnOnEnabled} disabled={!turnOnEnabled} {...form.register('on_threshold', { valueAsNumber: true, required: turnOnEnabled, min: 0, max: 100 })} /><b>%</b></span></label>
                 <label className="mapping-enable-control" htmlFor="mapping-charging-off-enabled">
                   <input id="mapping-charging-off-enabled" type="checkbox" {...form.register('turn_off_when_charging_enabled')} />
-                  <span><strong>Turn off at charge completion</strong><small>When the laptop is charging, turn the switch off at its separate battery threshold.</small></span>
+                  <span><strong>Turn off at charge completion</strong><small>When the device is charging, turn the switch off at its separate battery threshold.</small></span>
                 </label>
                 <label className="mapping-rule-field" htmlFor="charging-off-threshold"><span>Turn off while charging at or above</span><span className="mapping-number-input"><input id="charging-off-threshold" type="number" min={0} max={100} required={turnOffWhenChargingEnabled} disabled={!turnOffWhenChargingEnabled} {...form.register('charging_off_threshold', { valueAsNumber: true, required: turnOffWhenChargingEnabled, min: 0, max: 100 })} /><b>%</b></span></label>
                 <label className="mapping-rule-field" htmlFor="off-threshold"><span>Turn off at or above</span><span className="mapping-number-input"><input id="off-threshold" type="number" min={0} max={100} required {...form.register('off_threshold', { valueAsNumber: true, required: true, min: 0, max: 100 })} /><b>%</b></span></label>
                 <label className="mapping-rule-field" htmlFor="mapping-interval"><span>Minimum time between changes</span><span className="mapping-number-input"><input id="mapping-interval" type="number" min={0} required {...form.register('minimum_state_change_interval', { valueAsNumber: true, required: true, min: 0 })} /><b>sec</b></span></label>
                 <label className="mapping-enable-control" htmlFor="mapping-enabled">
                   <input id="mapping-enabled" type="checkbox" {...form.register('enabled')} />
-                  <span><strong>Enable automation now</strong><small>The laptop will control this switch as soon as the mapping is saved.</small></span>
+                  <span><strong>Enable automation now</strong><small>This device will control the switch as soon as the mapping is saved.</small></span>
                 </label>
               </div>
               <div className="mapping-rule-preview" aria-label={`Battery automation preview: ${turnOnEnabled ? `turn on at or below ${onThreshold} percent` : 'automatic turn-on disabled'}, turn off at or above ${offThreshold} percent${turnOffWhenChargingEnabled ? ` or while charging at or above ${chargingOffThreshold} percent` : ''}`}>
@@ -1998,7 +2001,7 @@ function MappingsPage() {
               </div>
             </div>
             <div className="mapping-review-route">
-              <span className="mapping-review-endpoint"><MonitorSmartphone size={16} />{selectedEndpoint?.hostname ?? 'Laptop not selected'}</span>
+              <span className="mapping-review-endpoint"><MonitorSmartphone size={16} />{selectedEndpoint?.hostname ?? 'No device selected'}</span>
               <ChevronRight size={17} aria-hidden="true" />
               <span className="mapping-review-device"><PlugZap size={16} />{selectedDevice?.name ?? 'Switch not selected'}{form.getValues('channel_id') ? ` · ${availableChannels.find((channel) => channel.id === form.getValues('channel_id'))?.name ?? 'Channel'}` : ''}</span>
             </div>
@@ -2032,7 +2035,7 @@ function MappingsPage() {
       {deleteMutation.isError && <ErrorCard message={deleteMutation.error.message} />}
       <section className="mapping-list-panel" aria-labelledby="mapping-list-title">
         <div className="mapping-list-heading">
-          <div><h2 id="mapping-list-title">Current mappings</h2><p>Battery rules currently connecting laptops to switches.</p></div>
+          <div><h2 id="mapping-list-title">Current mappings</h2><p>Battery rules connecting devices to switches.</p></div>
           <span className="mapping-total">{mappings?.length ?? 0}<small>configured</small></span>
         </div>
         <div className="mapping-list">
@@ -2045,7 +2048,7 @@ function MappingsPage() {
                 <div className="mapping-route">
                   <div className="mapping-entity">
                     <span className="mapping-entity-icon endpoint-icon"><MonitorSmartphone size={18} aria-hidden="true" /></span>
-                    <div className="min-w-0"><span className="mapping-overline">Laptop</span><h3 className="mapping-entity-name">{endpoint?.hostname ?? 'Unknown laptop'}</h3><small>{endpoint?.tenant_name ?? 'Unassigned tenant'}</small></div>
+                    <div className="min-w-0"><span className="mapping-overline">Device</span><h3 className="mapping-entity-name">{endpoint?.hostname ?? 'Unknown device'}</h3><small>{endpoint?.tenant_name ?? 'Unassigned workspace'}</small></div>
                   </div>
                   <ChevronRight className="mapping-route-arrow" size={19} aria-hidden="true" />
                   <div className="mapping-entity">
@@ -2071,7 +2074,7 @@ function MappingsPage() {
               </div>
             </article>
           })}
-          {!mappings?.length && <div className="mapping-empty-state"><Cable size={22} aria-hidden="true" /><h3>No mappings yet</h3><p>Use the three steps above to connect a laptop with a switch.</p></div>}
+          {!mappings?.length && <div className="mapping-empty-state"><Cable size={22} aria-hidden="true" /><h3>No mappings yet</h3><p>Use the three steps above to connect a device with a switch.</p></div>}
         </div>
       </section>
     </div>
@@ -2281,7 +2284,7 @@ function EventsPage() {
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Time</th><th>Type</th><th>Laptop</th><th>Battery</th><th>Activity</th><th>Result</th></tr></thead>
+            <thead><tr><th>Time</th><th>Type</th><th>Device</th><th>Battery</th><th>Activity</th><th>Result</th></tr></thead>
             <tbody>
               {data.items.map((event) => <tr key={event.id}>
                 <td>{formatTimestamp(event.created_at ?? null)}</td>
@@ -3001,30 +3004,50 @@ function AgentSetupPage() {
         <code className="mt-4 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{data?.install_command}</code>
         <button type="button" className="btn-secondary mt-3" onClick={() => void copyText(data?.install_command ?? '', 'Windows install command copied.')}>Copy install command</button>
         <p className="mt-2 min-h-5 text-xs text-[var(--muted)]" role="status">{copyStatus}</p>
-        <a className="btn-secondary mt-2 inline-flex" href={backendUrl('/agent/download')}>Download Windows agent scripts</a>
+        <a className="btn-secondary mt-2 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-windows-agent-source.zip`}>Download Windows scripts from GitHub</a>
         <p className="mt-3 text-xs text-amber-800">The command downloads and runs scripts from this HTTPS server. Run it only if you trust this ChargePilot server.</p>
       </div>
       <div className="panel p-5 sm:p-6">
         <h2 className="text-lg font-bold text-slate-900">macOS</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">The foreground Swift agent stores its persistent endpoint credential in the macOS Keychain. It reports while running and while the Mac is awake.</p>
-        <a className="btn-secondary mt-3 inline-flex" href={backendUrl('/agent/macos/download')}>Download macOS agent source</a>
-        <code className="mt-4 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">swift run -c release ChargePilotAgent enroll --server-url {serverUrl} --label "Office Mac"</code>
-        <p className="mt-2 text-sm text-[var(--muted)]">Paste the enrollment token when prompted, then start reporting with <code>swift run -c release ChargePilotAgent run</code>.</p>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Install the menu-bar app from the DMG. It stores its per-device credential in macOS Keychain and reports every five minutes while the app is running and the Mac is awake.</p>
+        <a className="btn-secondary mt-3 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/ChargePilotAgent-0.1.0.dmg`}>Download macOS DMG from GitHub</a>
+        <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
+          <li>Open the downloaded DMG and drag ChargePilotAgent to Applications.</li>
+          <li>Open the app, enter this API origin, a device label, and the enrollment token, then select <strong>Connect this Mac</strong>.</li>
+        </ol>
+        <p className="mt-2 text-sm text-amber-800">This DMG is unsigned and not notarized. macOS may require you to approve opening it in Privacy &amp; Security.</p>
+        <a className="mt-3 inline-flex text-sm font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-macos-agent-source.zip`}>Download macOS source project</a>
+        <p className="mt-3 text-sm font-medium text-[var(--ink)]">API origin to enter in the app</p>
+        <code className="mt-1 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{serverUrl}</code>
       </div>
       <div className="panel p-5 sm:p-6">
         <h2 className="text-lg font-bold text-slate-900">Android</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">The native Kotlin app stores its per-device credential using Android Keystore. WorkManager sends fresh readings on an inexact schedule; use Android Studio to build and install the source project.</p>
-        <a className="btn-secondary mt-3 inline-flex" href={backendUrl('/agent/android/download')}>Download Android agent source</a>
-        <p className="mt-2 text-sm text-[var(--muted)]">Open the extracted project in Android Studio, install it on the device, and enter the API origin, label, and enrollment token.</p>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Install the debug APK on an Android 8 or later device. The app protects its per-device credential with Android Keystore and sends fresh readings on an inexact schedule.</p>
+        <a className="btn-secondary mt-3 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/app-debug.apk`}>Download Android APK from GitHub</a>
+        <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
+          <li>Download the APK on the Android device and open it. If prompted, allow your browser or file manager to install this app.</li>
+          <li>Open ChargePilot, enter the API origin, a device label, and the enrollment token.</li>
+        </ol>
+        <p className="mt-3 text-sm font-medium text-[var(--ink)]">API origin to enter in the app</p>
+        <code className="mt-1 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{serverUrl}</code>
+        <p className="mt-2 text-sm text-[var(--muted)]">This is a debug-signed APK, not a Play Store release. Android may delay background reports; use <strong>Send reading now</strong> to test a report. <a className="font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-android-agent-source.zip`}>Download Android source</a>.</p>
       </div>
       <div className="panel p-5 sm:p-6">
         <h2 className="text-lg font-bold text-slate-900">iPhone and iPad</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">The native SwiftUI app stores its per-device credential in Keychain and adds a ChargePilot action to Shortcuts. Use a battery-level automation and a charger-connected automation to request fresh reports; iOS may delay or skip background actions.</p>
-        <a className="btn-secondary mt-3 inline-flex" href={backendUrl('/agent/ios/download')}>Download iOS Xcode project</a>
-        <p className="mt-2 text-sm text-[var(--muted)]">Open the project on a Mac with Xcode, choose a signing team, build and install it, then set up the automations described in its README. Reports are best-effort, not an exact-threshold guarantee.</p>
+        <p className="mt-1 text-sm leading-6 text-slate-600">The published IPA is unsigned. To install on your device, build the Xcode project with your Apple signing team, or sign the IPA yourself with a matching provisioning profile.</p>
+        <a className="btn-secondary mt-3 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/ChargePilotAgent-0.1.0-unsigned.ipa`}>Download unsigned iOS IPA from GitHub</a>
+        <a className="mt-3 inline-flex text-sm font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-ios-agent-source.zip`}>Download iOS Xcode project</a>
+        <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
+          <li>On a Mac with Xcode, open <code>ChargePilotAgent.xcodeproj</code>, select your signing team, then build and install the app on your iPhone or iPad.</li>
+          <li>Enter the API origin, a device label, and the enrollment token. The app adds a <strong>Report battery to ChargePilot</strong> action to Shortcuts.</li>
+          <li>In Shortcuts, add that action to a Battery Level automation and a Charger automation set to <strong>Is Connected</strong>.</li>
+        </ol>
+        <p className="mt-3 text-sm font-medium text-[var(--ink)]">API origin to enter in the app</p>
+        <code className="mt-1 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{serverUrl}</code>
+        <p className="mt-2 text-sm text-[var(--muted)]">iOS may delay or skip background automations. They do not guarantee a report or switch action at an exact battery level.</p>
       </div>
       <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-4 text-sm leading-6 text-[var(--muted)]">
-        These are source projects, not signed app-store releases. New endpoints start with automation off; an administrator can opt in only after a fresh reading and when server policy allows that platform.
+        These builds are development distributions, not app-store releases. New devices start with automation off; an administrator can opt in only after a fresh reading and when server policy allows that platform. <a className="font-semibold text-[var(--leaf)] underline" href={AGENT_RELEASE_URL}>View all agent builds and release notes on GitHub</a>.
       </div>
       {!canManageEnrollments && <p className="text-sm text-[var(--muted)]">An administrator must create an enrollment token for this workspace.</p>}
       <p className="text-sm text-[var(--muted)]">After the first report, review devices on the <NavLink to="/endpoints" className="font-semibold text-[var(--leaf)] underline">Endpoints</NavLink> page.</p>

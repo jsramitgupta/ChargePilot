@@ -14,6 +14,35 @@ The connector initiates outbound HTTPS connections to ChargePilot and performs
 TinyTuya discovery/control locally. Do not expose a site listener or route the
 cloud app directly into the device LAN.
 
+## Remote Linux validation host
+
+The user has authorized validation on the deployed Linux server at
+`rootuser@192.168.1.21`. When a task requires checking Linux-specific shell
+behavior, Docker, or the k3s cluster, the agent may connect with SSH using the
+existing local SSH key or SSH configuration:
+
+```bash
+ssh rootuser@192.168.1.21
+```
+
+Use the host for task-relevant validation only. Prefer read-only inspection
+commands for cluster and deployment checks (for example, `kubectl get`,
+`kubectl describe`, `kubectl logs`, and Docker status/image inspection). Do not
+print or copy secrets from the host. Never save passwords, private keys, or
+tokens in this repository. The deployed k3s cluster may be used for
+development integration checks, but it is shared infrastructure, not a
+disposable local cluster. Do not use it for destructive tests or modify
+workloads, persistent data, or cluster configuration unless the user
+explicitly requests that specific operation.
+
+For a requested application update, prefer the established GitHub Actions
+image publish and GitOps manifest update workflow. Do not manually set image
+tags or apply manifests unless the user specifically requests a direct
+operational change. Validate the resulting rollout with read-only status,
+image, and pod checks. The standing authorization to validate alone does not
+authorize deployments, restarts, data changes, or other operational
+mutations.
+
 ## 2. Prerequisites
 
 - Python 3.12+ for local installs; production images use Python 3.15, the latest
@@ -23,7 +52,7 @@ cloud app directly into the device LAN.
 - Docker Desktop or Docker Engine with Compose
 - local network access from the site connector to the Tuya device
 - outbound HTTPS access from each site connector to ChargePilot
-- Windows laptop capable of running the currently supported
+- Windows device with a battery capable of running the currently supported
   `agent/BatteryAgent.ps1` agent
 - macOS 13+ with Swift 5.9+ for the `agent/macos` menu-bar app and CLI
 - Node.js 24 LTS for frontend local development
@@ -66,13 +95,15 @@ CHARGEPILOT_TELEMETRY_DEAD_LETTER_TOPIC=chargepilot.telemetry.dlq.v1
 CHARGEPILOT_TELEMETRY_CONSUMER_GROUP=chargepilot-automation-v1
 ```
 
-The defaults enable Windows and macOS telemetry. Android and iOS are not
-enabled for enrollment until their clients are ready; add `android` or `ios`
-to `CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS` only after native-client and
-real-device validation. New endpoints start with automation off. Endpoint
-opt-in also requires a fresh sample and the platform must be present in
-`CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`. Keep the ingress limit
-at seven days unless a compatibility change is reviewed; the 600-second
+The application defaults enable enrollment and telemetry for Windows, macOS,
+Android, and iOS. Set `CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS` to a narrower
+comma-separated list if production rollout should restrict enrollment.
+Automation defaults to Windows/macOS only and is independently configured by
+`CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`. New endpoints start
+with automation off; endpoint opt-in also requires a fresh sample and an
+allow-listed platform. Android has an emulator smoke test and iOS a simulator
+smoke test; physical-device validation remains outstanding. Keep the ingress
+limit at seven days unless a compatibility change is reviewed; the 600-second
 automation maximum is intentionally separate.
 
 Production Kafka should use TLS and preferably SASL over TLS. Set
@@ -564,7 +595,7 @@ private database service before deploying the application. Its rollback
 invalidates all universal tokens and converts them to expired Windows-scoped
 records; already enrolled endpoint credentials remain intact.
 
-Laptop endpoints are identified by the Windows
+Legacy Windows endpoints are identified by the
 `Win32_ComputerSystemProduct.UUID`; hostname remains mutable display and
 diagnostic data. The endpoint `hardware_uuid` column is nullable for existing
 rows, and a unique index permits those unassigned legacy rows while preventing
@@ -676,29 +707,32 @@ python -m pip install -r requirements.txt
 python -m connector.chargepilot_connector --server-url "https://api-chargepilot.endusercompute.in"
 ```
 
-### Windows laptop agent
+### Windows agent
 
-On **Install Agent**, select the correct tenant and copy the generated
-PowerShell command. It downloads the installer and agent over HTTPS and
-registers the recurring task. The command uses `iex`; run it only against a
-ChargePilot server you trust. The agent and connector archives are public
-source downloads and contain no credentials. Setup APIs and token management
-remain authenticated. Tenant-assigned laptops must use their tenant's agent
-token; the global token is only for unassigned endpoints.
+On **Set up a device**, select the workspace, create an enrollment token, and
+copy the generated PowerShell command. Run it on the Windows device; it
+downloads the installer and agent over HTTPS, prompts for the enrollment token,
+and registers the recurring task. The command uses `iex`; run it only against
+a ChargePilot server you trust. Public release assets contain no credentials.
+Setup APIs and token management remain authenticated. Existing Windows agents
+using the legacy shared-token protocol must use their assigned tenant's token;
+the global token is only for unassigned endpoints.
 
 ### macOS agent
 
 On **Set up a device**, choose the correct tenant and create a reusable
 24-hour enrollment token. The same token can enroll multiple devices across
 enabled platforms until it expires or is revoked. The raw value is shown once.
-Download the macOS source ZIP, build with Swift 5.9+ on macOS 13+, and follow
-`agent/macos/README.md`. Enter the token interactively; it is not saved. The
-per-install credential is stored in the user's Keychain. The CLI reports only
-while running and the Mac is awake; a signed login-item app is not included.
-Revoke a token to prevent new enrollments and revoke individual endpoint
-credentials from the **Endpoints** page to stop already-enrolled devices.
-New endpoints remain telemetry-only until an authorized admin enables
-automation after a fresh sample.
+Download the macOS DMG from the GitHub Release, move the app to Applications,
+and enter the API origin, device label, and enrollment token in the menu-bar
+app. The per-install credential is stored in the user's Keychain. The
+development DMG is unsigned and not notarized; follow the macOS approval
+prompt if needed. The app reports only while running and the Mac is awake.
+The source project is also available from the release for users who prefer to
+build it. Revoke a token to prevent new enrollments and revoke individual
+endpoint credentials from the **Endpoints** page to stop already-enrolled
+devices. New endpoints remain telemetry-only until an authorized admin
+enables automation after a fresh sample.
 
 Keep the connector on the switch LAN and allow outbound HTTPS plus local Tuya
 traffic (UDP 6666, 6667, 7000 and TCP 6668). Assign switches to the enrolled
@@ -710,9 +744,10 @@ connector on the **Switches** page.
 2. Discover the device through that connector, or add it manually.
 3. Save its device ID, local key, IP, protocol version, and device type.
 4. Assign the device to the correct connector.
-5. Register laptops using the tenant's agent token. If a laptop was registered
-   with the global token, assign it to the tenant from the Super Admin
-   Endpoints page, then re-run its installer using the tenant-specific command.
+5. Enroll supported devices using a workspace enrollment token. If a legacy
+   Windows device was registered with the global token, assign it to the tenant
+   from the Super Admin Endpoints page, then re-run its installer using the
+   tenant-specific command.
 6. Create a mapping only when the endpoint and switch belong to the same tenant.
    Tenant ownership is visible on the dashboard, endpoint/switch lists, and
    mapping form.

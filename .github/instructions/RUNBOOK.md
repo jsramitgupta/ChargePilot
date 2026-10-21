@@ -222,10 +222,10 @@ uvicorn app.main:app --host 127.0.0.1 --port 8010
   per-install credentials protected with Windows user-scoped DPAPI; existing
   Windows shared-token agents remain compatible during migration. macOS uses
   the foreground Swift CLI and per-install Keychain credential. New endpoints
-  start with automation disabled. Android has a debug APK build and emulator
-  smoke test, but physical-device validation and signed distribution remain
+  start with automation disabled. Android has a debug-signed APK build and
+  emulator smoke test, but physical-device validation and store signing remain
   outstanding. iOS has an unsigned IPA build and simulator smoke test; physical
-  device validation and signed distribution remain outstanding.
+  device validation and signing remain outstanding.
   See `.github/instructions/platform-agents/SERVER_SIDE_CONFIG.md` for current
   configuration and rollout behavior.
 - For an existing PostgreSQL database, apply

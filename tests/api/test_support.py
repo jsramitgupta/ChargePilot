@@ -35,8 +35,8 @@ def test_authenticated_user_can_send_support_email(monkeypatch):
         "/api/v1/support/email",
         json={
             "reply_email": "  Person@Example.Test ",
-            "subject": "Laptop setup question",
-            "body": "I need help finishing the laptop setup.",
+            "subject": "Device setup question",
+            "body": "I need help finishing the device setup.",
         },
     )
 
@@ -46,8 +46,8 @@ def test_authenticated_user_can_send_support_email(monkeypatch):
     assert sent == {
         "recipient": settings.support_recipient,
         "reply_email": "person@example.test",
-        "subject": "Laptop setup question",
-        "body": "I need help finishing the laptop setup.",
+        "subject": "Device setup question",
+        "body": "I need help finishing the device setup.",
         "username": settings.admin_username,
         "tenant_name": None,
     }
@@ -63,8 +63,8 @@ def test_support_email_is_unavailable_when_smtp_is_not_configured(monkeypatch):
         "/api/v1/support/email",
         json={
             "reply_email": "person@example.test",
-            "subject": "Laptop setup question",
-            "body": "I need help finishing the laptop setup.",
+            "subject": "Device setup question",
+            "body": "I need help finishing the device setup.",
         },
     )
 
@@ -80,7 +80,7 @@ def test_support_email_rejects_invalid_headers_and_short_messages():
         json={
             "reply_email": "person@example.test",
             "subject": "Bad subject\nBcc: attacker@example.test",
-            "body": "I need help finishing the laptop setup.",
+            "body": "I need help finishing the device setup.",
         },
     )
 
@@ -99,8 +99,8 @@ def test_support_email_delivery_failure_is_reported(monkeypatch):
         "/api/v1/support/email",
         json={
             "reply_email": "person@example.test",
-            "subject": "Laptop setup question",
-            "body": "I need help finishing the laptop setup.",
+            "subject": "Device setup question",
+            "body": "I need help finishing the device setup.",
         },
     )
 

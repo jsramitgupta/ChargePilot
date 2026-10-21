@@ -118,7 +118,7 @@ def test_send_support_email_uses_fixed_recipient_and_reply_to(monkeypatch):
         recipient="support@example.test",
         reply_email="person@example.test",
         subject="Setup question",
-        body="I need help configuring a laptop.",
+        body="I need help configuring a device.",
         username="person",
         tenant_name="Home lab",
     )
@@ -130,4 +130,4 @@ def test_send_support_email_uses_fixed_recipient_and_reply_to(monkeypatch):
     content = sent[0].get_content()
     assert "Support request from person" in content
     assert "Tenant: Home lab" in content
-    assert "I need help configuring a laptop." in content
+    assert "I need help configuring a device." in content

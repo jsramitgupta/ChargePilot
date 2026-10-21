@@ -6,6 +6,9 @@ background while the user is signed in and the Mac is awake. It does not
 control switches or promise reports during sleep, logout, network loss, or
 when the app is stopped.
 
+The latest development DMG and source archive are published at
+[ChargePilot GitHub Releases](https://github.com/jsramitgupta/ChargePilot/releases/latest).
+
 ## Requirements
 
 - macOS 13 or later

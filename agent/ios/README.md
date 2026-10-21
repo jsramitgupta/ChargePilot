@@ -3,7 +3,10 @@
 This SwiftUI iPhone/iPad app enrolls with a tenant-scoped, reusable 24-hour
 token and reports battery telemetry while open, when it returns to the
 foreground, or when invoked by a Shortcuts automation. It is source code for
-Xcode; ChargePilot does not distribute a signed iOS app.
+Xcode. GitHub Releases publish the unsigned IPA and source project; the IPA
+requires signing and provisioning for installation.
+
+Latest IPA and source downloads: [ChargePilot GitHub Releases](https://github.com/jsramitgupta/ChargePilot/releases/latest).
 
 ## Requirements
 
@@ -24,10 +27,9 @@ Xcode; ChargePilot does not distribute a signed iOS app.
    per-install credential in the device-only Keychain.
 
 For an unsigned device-build IPA, use Xcode's **Product > Archive** with
-automatic signing disabled, or run the repository's **Build endpoint agent
-artifacts** GitHub Actions workflow. Its IPA is a build artifact only and
-cannot be installed on a device until signed with an Apple distribution
-certificate and provisioning profile.
+automatic signing disabled, or download the IPA from the latest GitHub Release.
+It cannot be installed on a device until signed with an Apple signing identity
+and a matching provisioning profile.
 
 The app exposes **Report battery to ChargePilot** as an App Shortcut. After
 enrollment, set up these personal automations in the Shortcuts app:

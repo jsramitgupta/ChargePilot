@@ -24,14 +24,15 @@ and label proposals as proposals.
 - Treat `.github/instructions/FRONTEND_DESIGN.md` as the canonical reference
   for frontend routes, typography, design decisions, and light/dark theme
   behavior; keep it aligned when changing the UI.
-- The Windows PowerShell script is the only implemented endpoint telemetry
-  agent. macOS, Android, and iOS are planned streams under
-  `.github/instructions/platform-agents/`; their proposed fields/settings are
-  not live API or deployment configuration. Do not assume the current
-  tenant-wide agent token is safe as a per-device mobile credential. Keep
-  endpoint automation server-authoritative and mobile sources ineligible for
-  switch mappings until enrollment, freshness, and opt-in automation policy
-  are implemented and tested.
+- Windows PowerShell, macOS SwiftUI, Android Kotlin, and iOS SwiftUI telemetry
+  clients use the live platform-aware enrollment contract. Their validation
+  and distribution maturity differs; see `.github/instructions/CURRENT_STATE.md`
+  and `.github/instructions/platform-agents/`. Never use the legacy
+  tenant-wide Windows token as a per-device mobile credential. Keep automation
+  server-authoritative: only platforms in
+  `CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS` may be opted in, and
+  every endpoint still requires a fresh report and explicit admin opt-in.
+  Mobile reporting and OS background scheduling are best-effort.
 
 ## Deployment and secrets
 
@@ -49,6 +50,14 @@ and label proposals as proposals.
   not versioned Alembic revisions. Treat schema changes as migrations that
   need backup and a reviewed upgrade/rollback path; do not rely on startup
   `create_all()` to upgrade an existing production schema.
+- For user-authorized Linux, Docker, or k3s validation, see the remote host and
+  safety scope documented in `.github/instructions/DEPLOYMENT.md`. Use existing
+  SSH credentials only; validation permission does not authorize deployment
+  mutations or secret disclosure.
+- For repeatable local-development or integration checks against the authorized
+  k3s host, follow `.github/skills/k3s-validation/SKILL.md`. Treat the deployed
+  cluster as shared infrastructure, and use the CI/GitOps publishing path for
+  requested updates rather than manually changing images.
 
 ## Tests and delivery
 

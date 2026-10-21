@@ -1,9 +1,10 @@
 # ChargePilot
 
 ChargePilot is a cloud-capable, local-first battery automation platform. It
-receives telemetry from Windows and enrolled macOS agents, evaluates battery
-thresholds on the backend, and routes Tuya switch commands through a site
-connector on the device LAN. Day-to-day control does not rely on the Tuya cloud.
+receives telemetry from Windows, macOS, Android, and iOS devices, evaluates
+battery thresholds on the backend, and routes Tuya switch commands through a
+site connector on the device LAN. Day-to-day control does not rely on the Tuya
+cloud.
 
 ## Project summary
 
@@ -20,7 +21,8 @@ The product contains:
 - TinyTuya wrappers for local switch discovery and control
 - React, TypeScript, Tailwind, and Vite frontend in `frontend/`, serving the
   complete browser experience through JSON APIs
-- a PowerShell Windows agent and a Swift foreground macOS agent
+- Windows PowerShell and macOS menu-bar agents, plus Android and iOS telemetry
+  apps
 - an outbound-HTTPS site connector that scans and controls devices on private LANs
 
 ## Runtime stack
@@ -51,7 +53,7 @@ The product contains:
 │   └── main.py              # FastAPI app setup, redirects, and downloads
 ├── frontend/                # React application and design system
 ├── agent/
-│   ├── BatteryAgent.ps1               # Windows laptop telemetry sender
+│   ├── BatteryAgent.ps1               # Windows battery telemetry sender
 │   ├── CreateAgentScheduledTask.ps1   # creates the recurring Windows task
 │   ├── macos/                         # Swift macOS telemetry CLI
 │   ├── android/                       # Kotlin/Compose Android source project
@@ -282,7 +284,7 @@ site firewall rule is needed. The connector image is rebuilt and pushed to
 Docker Hub when files under `connector/` change on `main`; the build publishes
 both supported CPU architectures.
 
-The existing Windows laptop agent, its config JSON, telemetry contract,
+The existing Windows agent, its config JSON, telemetry contract,
 `CHARGEPILOT_` settings, and Compose variables are unchanged. The connector is
 a separate process with its own configuration.
 

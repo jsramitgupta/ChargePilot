@@ -21,7 +21,7 @@ It does not issue switch commands or route control decisions locally.
 
 - app behavior must be resilient to Doze and background delays
 - last-report freshness must be visible to operators and users
-- telemetry should include optional platform fields rather than assume laptop semantics
+- telemetry should include optional platform fields rather than assume all device platforms expose identical battery semantics
 - backend policy remains the authority for automation decisions
 
 ## 4. Data flow

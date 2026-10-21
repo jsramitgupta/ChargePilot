@@ -4,8 +4,10 @@ This document is the rebuild guide for creating ChargePilot from scratch with Cl
 
 ## 1. Product summary
 
-ChargePilot is a local-first battery automation platform with Windows and
-macOS telemetry clients; Android and iOS telemetry clients remain planned.
+ChargePilot is a local-first battery automation platform with Windows, macOS,
+Android, and iOS telemetry clients. Windows and macOS are device-validated;
+Android and iOS builds are available for development, with physical-device
+validation and signed distribution still outstanding.
 When hosted in the cloud, a site connector on each Tuya LAN claims durable
 desired-state commands over outbound HTTPS and performs local TinyTuya
 discovery/control. The canonical design is in
@@ -26,7 +28,7 @@ The system has grown beyond the original battery-only flow and now includes:
 
 ## 2. Core product goals
 
-- detect and maintain laptop battery telemetry
+- detect and maintain battery telemetry from supported devices
 - map endpoints to local smart switches or plugs
 - trigger switch actions based on battery thresholds
 - support local smart-device discovery and onboarding
@@ -77,7 +79,7 @@ strategy.
 ## 6. Core domain model
 
 ### Endpoint
-Represents a battery-monitoring laptop or device.
+Represents a battery-reporting device.
 
 Fields to include:
 - hostname

@@ -133,14 +133,14 @@ async def receive_telemetry(
         if len(hostname_matches) > 1:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Multiple endpoints share this hostname; send the hardware UUID to identify this laptop.",
+                detail="Multiple endpoints share this hostname; send the hardware UUID to identify this device.",
             )
         endpoint = hostname_matches[0] if hostname_matches else None
 
     if endpoint is None and hardware_uuid is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="hardware_uuid is required to register a new laptop. Update the ChargePilot agent and retry.",
+            detail="hardware_uuid is required to register a new Windows endpoint. Update the ChargePilot agent and retry.",
         )
 
     if endpoint is None:

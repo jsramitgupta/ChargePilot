@@ -1,8 +1,11 @@
 # ChargePilot Android telemetry agent
 
 This native Android app enrolls with a tenant-scoped, reusable 24-hour
-enrollment token and sends battery telemetry to ChargePilot. It is source code
-for Android Studio; no signed APK is distributed by the server yet.
+enrollment token and sends battery telemetry to ChargePilot. GitHub Releases
+publish a debug-signed APK for sideloading and the source project; this is not
+a Google Play release.
+
+Latest APK and source downloads: [ChargePilot GitHub Releases](https://github.com/jsramitgupta/ChargePilot/releases/latest).
 
 ## Requirements
 
@@ -30,9 +33,8 @@ for Android Studio; no signed APK is distributed by the server yet.
 6. Use **Send reading now** for an immediate sample. WorkManager also schedules
    fresh reports at an inexact interval of at least 15 minutes.
 
-The **Build endpoint agent artifacts** GitHub Actions workflow also builds the
-debug APK. The downloadable Actions artifact is debug-signed, not a Play Store
-release.
+The **Build endpoint agent artifacts** GitHub Actions workflow builds the debug
+APK and publishes it on `agents-v*` releases.
 
 The first report is submitted after enrollment. If saving the issued
 credential fails, revoke that endpoint from the ChargePilot Endpoints page

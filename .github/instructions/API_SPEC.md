@@ -210,7 +210,7 @@ contain no credentials. They issue a `302` redirect to the corresponding asset
 on the latest stable `agents-v*` GitHub Release. The agent workflow publishes
 these source files alongside the platform build artifacts:
 
-- `GET /agent/download` redirects to the PowerShell source ZIP.
+- `GET /agent/download` redirects to the Windows PowerShell source ZIP.
 - `GET /agent/macos/download` redirects to the Swift/macOS source ZIP.
 - `GET /agent/android/download` redirects to the Kotlin/Compose Android source
   project ZIP.
@@ -223,6 +223,13 @@ these source files alongside the platform build artifacts:
 Create an `agents-v*` release before deploying an API version that uses these
 redirects; without a published agent release, the GitHub asset URLs are not
 available. No application environment variable is required.
+
+The authenticated **Set up a device** page links to the latest GitHub Release
+for published platform builds: Android `app-debug.apk`, macOS
+`ChargePilotAgent-0.1.0.dmg`, and iOS `ChargePilotAgent-0.1.0-unsigned.ipa`.
+The Android APK is debug-signed; the macOS DMG is unsigned and not notarized;
+the iOS IPA requires signing and provisioning before installation. The page
+also links to each platform's source archive and gives installation steps.
 
 - `GET /connectors/download` returns the Python/Docker source ZIP.
 - `GET /connectors/install.sh` returns the Python bootstrap script; it prompts
@@ -324,7 +331,7 @@ Behavior:
   overwrite a newer endpoint snapshot or `last_seen_at`
 - identifies an endpoint by `hardware_uuid`, while capturing the current
   hostname as mutable display metadata; a hostname change updates the existing
-  hardware record rather than creating another laptop
+  hardware record rather than creating another endpoint
 - identifies enrolled installations by their opaque per-install credential;
   platform and installation ID in the request must match the server-side
   endpoint record
@@ -356,8 +363,8 @@ existing tenant/global bearer-token flow. New Windows installs use
 platform-independent enrollment and a per-install credential instead.
 Kafka-specific service settings use the `CHARGEPILOT_` prefix.
 
-The PowerShell and macOS agents exchange a tenant-scoped enrollment token for
-a per-install credential. Windows protects the saved credential with Windows
+Agents on all four platforms exchange a tenant-scoped enrollment token for a
+per-install credential. Windows protects the saved credential with Windows
 user-scoped DPAPI; macOS and iOS store it in Keychain, and Android encrypts it
 using Android Keystore. New Windows enrollments use an installation UUID
 rather than a hardware UUID. Existing Windows agents using the legacy shared
@@ -442,7 +449,7 @@ request, keeping the existing endpoint ID and mappings.
 Assigns an unassigned endpoint to an existing tenant. Super Admin only.
 Endpoints already assigned to another tenant cannot be transferred through
 this operation, and an endpoint with mappings cannot be assigned. After
-assignment, reconfigure the laptop agent with the tenant-specific token.
+assignment, reconfigure the Windows agent with the tenant-specific token.
 
 `DELETE /api/v1/endpoints/{endpoint_id}` removes an endpoint and its mappings.
 

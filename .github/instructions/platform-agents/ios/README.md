@@ -1,9 +1,10 @@
 # iOS Agent Stream
 
-The native SwiftUI iOS telemetry companion source project is implemented in
-`agent/ios`. It uses the platform-aware backend schema and reusable enrollment
-flow. It has an unsigned device IPA build and simulator smoke test, but has not
-been validated on physical iOS hardware. No signed app is distributed.
+The native SwiftUI iOS telemetry companion is implemented in `agent/ios`. It
+uses the platform-aware backend schema and reusable enrollment flow. GitHub
+Releases publish an unsigned device IPA and source project. The IPA has a
+simulator smoke test, but physical-device validation and signing for
+installation remain outstanding.
 
 ## Scope
 
