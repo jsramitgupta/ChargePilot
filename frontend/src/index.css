@@ -722,6 +722,62 @@ button, a {
   font-weight: 650;
 }
 
+.endpoint-identity {
+  display: flex;
+  min-width: 148px;
+  align-items: center;
+  gap: 10px;
+}
+
+.endpoint-identity-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.endpoint-identity-hostname {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endpoint-identity-platform {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.platform-mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  background: var(--surface-muted);
+}
+
+.platform-mark svg {
+  display: block;
+  width: 19px;
+  height: 19px;
+}
+
+.platform-mark-windows {
+  color: #0878d1;
+  background: #edf6fc;
+}
+
+.platform-mark-android {
+  color: #278c55;
+  background: #edf8f0;
+}
+
 .badge.success {
   border-color: #c5e1cf;
   color: #285d49;

@@ -407,6 +407,56 @@ function sortEndpointsByLastSeen(endpoints: Endpoint[]) {
   })
 }
 
+const PLATFORM_NAMES: Record<Endpoint['platform'], string> = {
+  windows: 'Windows',
+  macos: 'macOS',
+  android: 'Android',
+  ios: 'iOS',
+}
+
+function PlatformMark({ platform }: { platform: Endpoint['platform'] }) {
+  return (
+    <span className={`platform-mark platform-mark-${platform}`} aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false">
+        {platform === 'windows' && <path d="M3 5.2 10.5 4v7H3V5.2Zm9-1.4L21 2.5V11h-9V3.8ZM3 13h7.5v7L3 18.8V13Zm9 0h9v8.5l-9-1.3V13Z" fill="currentColor" />}
+        {platform === 'android' && <g fill="currentColor">
+          <path d="m6.1 4.8 1.2-.7 1.4 2.1a8.8 8.8 0 0 1 6.6 0l1.4-2.1 1.2.7-1.3 2a6.8 6.8 0 0 1 2.8 5.2H4.6a6.8 6.8 0 0 1 2.8-5.2l-1.3-2Z" />
+          <path d="M4.6 13.2h14.8v5.3a1 1 0 0 1-1 1h-1.2v2h-1.7v-2h-6v2H7.8v-2H6a1.4 1.4 0 0 1-1.4-1.4v-5Zm-2 0h1.4v4.6H2.6a1 1 0 0 1-1-1v-2.6a1 1 0 0 1 1-1Zm17.4 0h1.4a1 1 0 0 1 1 1v2.6a1 1 0 0 1-1 1H20v-4.6Z" />
+        </g>}
+        {platform === 'macos' && <g>
+          <rect x="2.5" y="3.5" width="19" height="13.2" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.7" />
+          <path d="M9 21h6m-3-4.3V21" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+          <g transform="translate(8.4 5.6) scale(.31)" fill="currentColor">
+            <path d="M20.2 8.5c-1.8 0-3.2 1-4.3 1s-2.3-1-4.4-1c-3 0-6.1 2.5-6.1 6.8 0 2.6 1 5.5 2.3 7.8 1.1 1.8 2.2 3.4 3.8 3.4 1.3 0 1.8-.8 3.8-.8s2.4.8 3.8.8c1.6 0 2.7-1.5 3.7-3.2.8-1.3 1.3-2.6 1.6-3.4-4.9-1.8-5-8.4-.2-10.3-1.2-2-3.5-3.1-5.3-3.1Z" />
+            <path d="M14.5 4c.9-1.1 2.5-1.9 3.8-2-.1 1.3-.6 2.6-1.6 3.6-.9.9-2.3 1.5-3.6 1.4-.1-1.1.5-2.2 1.4-3Z" />
+          </g>
+        </g>}
+        {platform === 'ios' && <g>
+          <rect x="5.2" y="1.7" width="13.6" height="20.6" rx="2.6" fill="none" stroke="currentColor" strokeWidth="1.7" />
+          <path d="M10 4h4" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.3" />
+          <circle cx="12" cy="19.7" r=".8" fill="currentColor" />
+          <g transform="translate(9 7.8) scale(.25)" fill="currentColor">
+            <path d="M20.2 8.5c-1.8 0-3.2 1-4.3 1s-2.3-1-4.4-1c-3 0-6.1 2.5-6.1 6.8 0 2.6 1 5.5 2.3 7.8 1.1 1.8 2.2 3.4 3.8 3.4 1.3 0 1.8-.8 3.8-.8s2.4.8 3.8.8c1.6 0 2.7-1.5 3.7-3.2.8-1.3 1.3-2.6 1.6-3.4-4.9-1.8-5-8.4-.2-10.3-1.2-2-3.5-3.1-5.3-3.1Z" />
+            <path d="M14.5 4c.9-1.1 2.5-1.9 3.8-2-.1 1.3-.6 2.6-1.6 3.6-.9.9-2.3 1.5-3.6 1.4-.1-1.1.5-2.2 1.4-3Z" />
+          </g>
+        </g>}
+      </svg>
+    </span>
+  )
+}
+
+function EndpointIdentity({ endpoint }: { endpoint: Endpoint }) {
+  return (
+    <div className="endpoint-identity">
+      <PlatformMark platform={endpoint.platform} />
+      <span className="endpoint-identity-copy">
+        <span className="endpoint-identity-hostname">{endpoint.hostname}</span>
+        <span className="endpoint-identity-platform">{PLATFORM_NAMES[endpoint.platform]}</span>
+      </span>
+    </div>
+  )
+}
+
 function useSession() {
   return useQuery({
     queryKey: ['session'],
@@ -1256,12 +1306,11 @@ function DashboardPage() {
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Device</th><th>Platform</th><th>Tenant</th><th>Battery</th><th>Power</th><th>Switch</th><th>Switch tenant</th><th>State</th><th aria-sort="descending">Last seen</th></tr></thead>
+            <thead><tr><th>Device</th><th>Tenant</th><th>Battery</th><th>Power</th><th>Switch</th><th>Switch tenant</th><th>State</th><th aria-sort="descending">Last seen</th></tr></thead>
             <tbody>
               {recentEndpoints.map((endpoint) => (
                 <tr key={endpoint.id}>
-                  <td className="strong-cell">{endpoint.hostname}</td>
-                  <td><span className="badge muted">{endpoint.platform}</span>{endpoint.device_class && <small className="ml-1 text-slate-500">{endpoint.device_class}</small>}</td>
+                  <td><EndpointIdentity endpoint={endpoint} /></td>
                   <td>{endpoint.tenant_name ?? 'Unassigned'}</td>
                   <td>{endpoint.battery}%</td>
                   <td><span className={`badge ${endpoint.charging || endpoint.ac_connected ? 'success' : 'muted'}`}>{endpoint.charging ? 'Charging' : endpoint.ac_connected ? 'On AC' : 'On battery'}</span></td>
@@ -1271,7 +1320,7 @@ function DashboardPage() {
                   <td>{formatTimestamp(endpoint.last_seen_at)}</td>
                 </tr>
               ))}
-              {!endpoints.length && <tr><td colSpan={9} className="empty-state">No endpoint telemetry has been received yet.</td></tr>}
+              {!endpoints.length && <tr><td colSpan={8} className="empty-state">No endpoint telemetry has been received yet.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -2146,7 +2195,6 @@ function EndpointsPage() {
     const searchable = [
       endpoint.hostname,
       endpoint.platform,
-      endpoint.device_class ?? '',
       endpoint.tenant_name ?? '',
       endpoint.ip_address ?? '',
       endpoint.status,
@@ -2203,11 +2251,10 @@ function EndpointsPage() {
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Device</th><th>Platform</th><th>Tenant</th><th>Identity</th><th>IP</th><th>Battery</th><th>Power</th><th aria-sort="descending">Last seen</th><th>Status</th><th>Automation</th><th className="align-right">Actions</th></tr></thead>
+            <thead><tr><th>Device</th><th>Tenant</th><th>Identity</th><th>IP</th><th>Battery</th><th>Power</th><th aria-sort="descending">Last seen</th><th>Status</th><th>Automation</th><th className="align-right">Actions</th></tr></thead>
             <tbody>
               {visibleEndpoints.map((endpoint) => <tr key={endpoint.id}>
-                <td className="strong-cell">{endpoint.hostname}</td>
-                <td><span className="badge muted">{endpoint.platform}</span>{endpoint.device_class && <small className="ml-1 text-slate-500">{endpoint.device_class}</small>}</td>
+                <td><EndpointIdentity endpoint={endpoint} /></td>
                 <td>{endpoint.tenant_id ? endpoint.tenant_name ?? 'Unknown tenant' : user?.role === 'super_admin' ? <div className="flex min-w-56 flex-col gap-2"><span className="badge muted w-fit">Unassigned</span><form className="flex items-center gap-2" onSubmit={(event) => {
                   event.preventDefault()
                   const tenantId = String(new FormData(event.currentTarget).get('tenant_id') ?? '')
@@ -2237,7 +2284,7 @@ function EndpointsPage() {
                   }}>Delete endpoint</button>
                 </div></td>
               </tr>)}
-              {!filteredEndpoints.length && <tr><td colSpan={11} className="empty-state">{data.length ? 'No endpoints match this search.' : 'No endpoints have reported telemetry yet.'}</td></tr>}
+              {!filteredEndpoints.length && <tr><td colSpan={10} className="empty-state">{data.length ? 'No endpoints match this search.' : 'No endpoints have reported telemetry yet.'}</td></tr>}
             </tbody>
           </table>
         </div>

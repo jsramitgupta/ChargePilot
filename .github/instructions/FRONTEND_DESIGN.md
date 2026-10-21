@@ -142,9 +142,12 @@ operational state colors for explicit status indicators.
   endpoints. The Endpoints table includes search, 50/100-row page sizing, and
   pagination; both pages refresh every 30 seconds while visible and provide a
   manual refresh with the last successful update time. Sort endpoints newest
-  first and place missing timestamps last. The table identifies each endpoint's
-  platform and device class alongside its label so mobile endpoints are
-  distinguishable across device types.
+  first and place missing timestamps last. Show a recognizable platform mark,
+  hostname, and platform name together in the device identity cell on both
+  pages; do not display the telemetry device-class value in these views.
+  macOS uses an Apple-mark display and iOS an Apple-mark phone; Windows and
+  Android use their platform marks. Keep the visible platform name accessible
+  as text and omit protocol values such as `laptop`.
 - The Smart switches page orders discovery, manual setup, and inventory by
   task. Keep scan location and action together, give inventory search and
   filters usable tap targets, and let device cards collapse to one column

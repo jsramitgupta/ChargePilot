@@ -217,6 +217,18 @@ body.theme-dark .page-shell .table-wrap .badge.muted {
   background: #21312b;
 }
 
+body.theme-dark .platform-mark-windows {
+  border-color: rgba(86, 168, 229, 0.36);
+  color: #73b9ec;
+  background: rgba(17, 91, 143, 0.22);
+}
+
+body.theme-dark .platform-mark-android {
+  border-color: rgba(105, 196, 133, 0.34);
+  color: #8bdda1;
+  background: rgba(42, 112, 63, 0.22);
+}
+
 body.theme-dark .connector-deploy-guide {
   border-color: #34463e;
   color: #dce9e1;

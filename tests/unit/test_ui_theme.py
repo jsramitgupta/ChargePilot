@@ -103,6 +103,25 @@ def test_device_setup_links_to_published_builds_and_explains_installation():
     assert "Set up a laptop" not in app
 
 
+def test_overview_and_endpoints_pair_platform_marks_with_device_identity():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    dark = DARK_THEME.read_text(encoding="utf-8")
+
+    assert app.count("<EndpointIdentity endpoint={endpoint} />") == 2
+    assert "platform === 'windows'" in app
+    assert "platform === 'android'" in app
+    assert "platform === 'macos'" in app
+    assert "platform === 'ios'" in app
+    assert "endpoint.device_class" not in app
+    assert 'endpoint-identity-platform">{PLATFORM_NAMES[endpoint.platform]}' in app
+    assert ".endpoint-identity {" in light
+    assert ".platform-mark-windows {" in light
+    assert ".platform-mark-android {" in light
+    assert "body.theme-dark .platform-mark-windows" in dark
+    assert "body.theme-dark .platform-mark-android" in dark
+
+
 def test_mapping_threshold_preview_keeps_labels_clear_when_thresholds_coincide():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     light = LIGHT_THEME.read_text(encoding="utf-8")
@@ -154,10 +173,10 @@ def test_overview_and_switch_pages_have_responsive_operational_layouts():
 
     assert 'className="dashboard-page"' in app
     dashboard = app.split("function DashboardPage()", 1)[1].split("\nfunction ", 1)[0]
-    assert "<th>Platform</th>" in dashboard
-    assert "{endpoint.platform}</span>" in dashboard
-    assert "endpoint.device_class" in dashboard
-    assert "colSpan={9}" in dashboard
+    assert "<th>Device</th>" in dashboard
+    assert "<EndpointIdentity endpoint={endpoint} />" in dashboard
+    assert "endpoint.device_class" not in dashboard
+    assert "colSpan={8}" in dashboard
     assert "Latest reports" in dashboard
     assert "sortEndpointsByLastSeen(endpoints)" in dashboard
     assert "refetchInterval: ENDPOINTS_REFRESH_INTERVAL" in dashboard
