@@ -74,7 +74,7 @@ jobs:
               "frontend": re.compile(r"(?ms)- name: endusercompute/chargepilot-frontend\s+newTag:\s*sha-([0-9a-f]{40})"),
           }
           scopes = {
-              "api": re.compile(r"^(app/|agent/|connector/|docker/Dockerfile$|pyproject.toml$|README.md$|\.dockerignore$)"),
+              "api": re.compile(r"^(app/|connector/|docker/Dockerfile$|pyproject.toml$|README.md$|\.dockerignore$)"),
               "frontend": re.compile(r"^(frontend/|app/frontend_server\.py$|\.dockerignore$)"),
           }
 

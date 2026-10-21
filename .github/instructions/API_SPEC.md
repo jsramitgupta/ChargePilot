@@ -205,17 +205,25 @@ Super Admin; it does not expose tenant or global agent credentials. The
 command downloads the installer over HTTPS and uses `iex`; the response is
 marked `private, no-store`.
 
-The following source downloads do not require a browser session and contain no
-credentials:
+The following agent source downloads do not require a browser session and
+contain no credentials. They issue a `302` redirect to the corresponding asset
+on the latest stable `agents-v*` GitHub Release. The agent workflow publishes
+these source files alongside the platform build artifacts:
 
-- `GET /agent/download` returns the PowerShell source ZIP.
-- `GET /agent/android/download` returns the Kotlin/Compose Android source
+- `GET /agent/download` redirects to the PowerShell source ZIP.
+- `GET /agent/macos/download` redirects to the Swift/macOS source ZIP.
+- `GET /agent/android/download` redirects to the Kotlin/Compose Android source
   project ZIP.
-- `GET /agent/ios/download` returns the SwiftUI Xcode project ZIP.
-- `GET /agent/install.ps1` returns the scheduled-task installer used by the
-  one-line command.
-- `GET /agent/BatteryAgent.ps1` returns the telemetry script fetched by the
-  installer.
+- `GET /agent/ios/download` redirects to the SwiftUI Xcode project ZIP.
+- `GET /agent/install.ps1` redirects to the scheduled-task installer used by
+  the one-line command.
+- `GET /agent/BatteryAgent.ps1` redirects to the telemetry script fetched by
+  the installer.
+
+Create an `agents-v*` release before deploying an API version that uses these
+redirects; without a published agent release, the GitHub asset URLs are not
+available. No application environment variable is required.
+
 - `GET /connectors/download` returns the Python/Docker source ZIP.
 - `GET /connectors/install.sh` returns the Python bootstrap script; it prompts
   locally for the one-time connector enrollment code.

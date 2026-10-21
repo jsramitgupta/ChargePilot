@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    paths-ignore:
-      - "deploy/k3s/kustomization.yaml"
   pull_request:
     branches:
       - main
@@ -55,17 +53,17 @@ jobs:
           fi
 
           printf '%s\n' "$changed_files"
-          if printf '%s\n' "$changed_files" | grep -Eq '^(app/|agent/|connector/|docker/Dockerfile$|pyproject.toml$|README.md$|\.dockerignore$)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(app/|connector/|docker/Dockerfile$|pyproject.toml$|README.md$|\.dockerignore$|\.github/workflows/(ci|publish-deploy|connector-multiarch)\.yml$)'; then
             echo "api=true" >> "$GITHUB_OUTPUT"
           else
             echo "api=false" >> "$GITHUB_OUTPUT"
           fi
-          if printf '%s\n' "$changed_files" | grep -Eq '^(frontend/|app/frontend_server\.py$|\.dockerignore$)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(frontend/|app/frontend_server\.py$|\.dockerignore$|\.github/workflows/(ci|publish-deploy)\.yml$)'; then
             echo "frontend=true" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=false" >> "$GITHUB_OUTPUT"
           fi
-          if printf '%s\n' "$changed_files" | grep -Eq '^(connector/(Dockerfile|requirements\.txt|[^/]+\.py)$|\.dockerignore$)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(connector/(Dockerfile|requirements\.txt|[^/]+\.py)$|\.dockerignore$|\.github/workflows/(ci|connector-multiarch)\.yml$)'; then
             echo "connector=true" >> "$GITHUB_OUTPUT"
           else
             echo "connector=false" >> "$GITHUB_OUTPUT"
@@ -73,6 +71,8 @@ jobs:
 
   backend:
     name: Backend tests and lint
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -172,6 +172,8 @@ jobs:
 
   frontend:
     name: Frontend lint and production build
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source code

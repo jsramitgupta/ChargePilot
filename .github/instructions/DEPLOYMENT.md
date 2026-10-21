@@ -213,7 +213,8 @@ data untouched until the k3s instance has been independently validated.
    `endusercompute`; never put the token in a workflow or repository file.
 3. Ensure Actions is allowed to use the repository `GITHUB_TOKEN` with
    **Read and write permissions**. `publish-deploy.yml` needs `contents: write`
-   to update the deployed image tag in `deploy/k3s/kustomization.yaml`.
+   to update the deployed image tag in `deploy/k3s/kustomization.yaml`; the
+   agent release job needs it to publish tagged release assets.
 4. Keep `main` writable by the workflow bot for that deployment-tag commit.
    The CI workflow ignores commits that only change the generated image tag,
    preventing a publish loop.
@@ -222,9 +223,10 @@ data untouched until the k3s instance has been independently validated.
 
 The GitHub Actions pipeline keeps routine validation separate from publishing:
 
-- `ci.yml` runs Python tests/lint and frontend lint/build, then detects which
-  component image inputs changed. It only builds and scans affected API,
-  frontend, and connector images.
+- `ci.yml` always reports a PR check, then runs Python tests/lint, frontend
+  lint/build, and container builds only for affected server components. This
+  avoids path-filtered workflow skips leaving required branch-protection checks
+  pending.
 - `publish-deploy.yml` runs only after successful CI for the latest `main`
   commit from this repository. It compares API/frontend source files with the
   source revision recorded in their deployed image tags, so stale CI runs and
@@ -240,13 +242,39 @@ The GitHub Actions pipeline keeps routine validation separate from publishing:
   filesystem into a `scratch` stage so scanners do not report vulnerable
   bundled packages left in upstream image layers.
 - Workflows grant read-only repository permissions by default; only the
-  deployment workflow gets `contents: write`. Third-party actions are pinned
-  to full commit SHAs, registry credentials stay in Actions secrets, and
-  generated manifest-only commits do not start another CI run.
+  deployment workflow and tagged agent release job receive the narrowly
+  scoped `contents: write` permission. Third-party actions are pinned to full
+  commit SHAs, registry credentials stay in Actions secrets, and generated
+  manifest-only commits do not start another CI run.
 
-Protect `main` with required CI checks and review before merging workflow or
-Dockerfile changes. Review Trivy reports and update vulnerable dependencies or
-base-image pins rather than bypassing scans.
+Agent source is not copied into the API image. `build-agent-artifacts.yml`
+builds APK, unsigned IPA, and DMG artifacts for changes under `agent/`; an
+`agents-v*` tag also publishes those binaries and platform source archives as a
+GitHub Release. The public `/agent/.../download` API routes redirect to the
+latest stable release assets. Before deploying API code that uses those
+redirects, publish the first agent release (for example, create and push
+`agents-v0.1.0`). No additional GitHub secret or application environment
+variable is required for release creation.
+
+Use short-lived branches named `server/<change>`, `agents/<change>`, or
+`connector/<change>` and merge them into protected `main` through pull
+requests. The names make work easy to identify; the workflows enforce
+component boundaries by changed files:
+
+- Agent-only changes run the agent artifact workflow and do not run server
+  tests, build server images, or trigger a deployment.
+- API/frontend changes run the corresponding CI checks and publish only the
+  changed images after merge to `main`.
+- Connector changes validate and publish the connector image; the API image
+  is also rebuilt when connector source changes because the API currently
+  serves the connector source package.
+
+The image workflow updates immutable image tags in the GitOps manifest, and
+Argo CD reconciles those workload changes. Routine application deployments do
+not rebuild the k3s cluster or its control plane. Protect `main` with required
+CI checks and review before merging workflow or Dockerfile changes. Review
+Trivy reports and update vulnerable dependencies or base-image pins rather
+than bypassing scans.
 
 #### First deployment
 

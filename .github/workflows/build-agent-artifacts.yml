@@ -7,15 +7,11 @@ on:
     tags:
       - "agents-v*"
     paths:
-      - "agent/android/**"
-      - "agent/ios/**"
-      - "agent/macos/**"
+      - "agent/**"
       - ".github/workflows/build-agent-artifacts.yml"
   pull_request:
     paths:
-      - "agent/android/**"
-      - "agent/ios/**"
-      - "agent/macos/**"
+      - "agent/**"
       - ".github/workflows/build-agent-artifacts.yml"
   workflow_dispatch:
 
@@ -119,6 +115,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.ref }}
+
       - name: Download Android APK
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -137,6 +138,63 @@ jobs:
           name: chargepilot-macos-development-dmg
           path: artifacts
 
+      - name: Package public agent source downloads
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          import zipfile
+          from pathlib import Path
+
+          root = Path.cwd()
+          tracked = subprocess.run(
+              ["git", "ls-files", "-z"],
+              check=True,
+              capture_output=True,
+          ).stdout.decode().split("\0")
+          tracked = [Path(path) for path in tracked if path]
+          targets = {
+              "android": "chargepilot-android-agent-source.zip",
+              "ios": "chargepilot-ios-agent-source.zip",
+              "macos": "chargepilot-macos-agent-source.zip",
+          }
+          for platform, archive_name in targets.items():
+              prefix = Path("agent") / platform
+              sources = [path for path in tracked if path.is_relative_to(prefix)]
+              if not sources:
+                  raise SystemExit(f"No tracked {platform} agent files found")
+              with zipfile.ZipFile(
+                  root / "artifacts" / archive_name,
+                  "w",
+                  compression=zipfile.ZIP_DEFLATED,
+              ) as archive:
+                  for path in sources:
+                      archive.write(
+                          root / path,
+                          Path(f"chargepilot-{platform}-agent") / path.relative_to(prefix),
+                      )
+
+          windows_files = (
+              ("agent/BatteryAgent.ps1", "BatteryAgent.ps1"),
+              ("agent/CreateAgentScheduledTask.ps1", "CreateAgentScheduledTask.ps1"),
+          )
+          with zipfile.ZipFile(
+              root / "artifacts" / "chargepilot-windows-agent-source.zip",
+              "w",
+              compression=zipfile.ZIP_DEFLATED,
+          ) as archive:
+              for source, name in windows_files:
+                  archive.write(root / source, name)
+
+          for source, asset in (
+              ("agent/BatteryAgent.ps1", "chargepilot-windows-battery-agent.ps1"),
+              (
+                  "agent/CreateAgentScheduledTask.ps1",
+                  "chargepilot-windows-agent-installer.ps1",
+              ),
+          ):
+              (root / "artifacts" / asset).write_bytes((root / source).read_bytes())
+          PY
+
       - name: Publish development builds
         env:
           GH_TOKEN: ${{ github.token }}
@@ -144,4 +202,5 @@ jobs:
         run: |
           gh release create "$TAG" artifacts/* \
             --title "ChargePilot endpoint agents $TAG" \
-            --notes "Development builds generated from this tag. The Android APK is debug-signed. The iOS IPA is unsigned and requires signing before installation. The macOS DMG is unsigned and not notarized."
+            --latest \
+            --notes "Development builds and source archives generated from this tag. The Android APK is debug-signed. The iOS IPA is unsigned and requires signing before installation. The macOS DMG is unsigned and not notarized."

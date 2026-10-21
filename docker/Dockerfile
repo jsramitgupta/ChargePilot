@@ -11,7 +11,6 @@ RUN apt-get update \
 
 COPY pyproject.toml README.md ./
 COPY app ./app
-COPY agent ./agent
 COPY connector ./connector
 
 RUN python -m venv /opt/venv \
@@ -30,7 +29,6 @@ RUN groupadd --system --gid 10001 chargepilot \
 
 COPY --from=build /opt/venv /opt/venv
 COPY app ./app
-COPY agent ./agent
 COPY connector ./connector
 
 RUN /opt/venv/bin/python -m pip uninstall --yes pip setuptools \

@@ -1,5 +1,3 @@
-import io
-import zipfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,9 +13,9 @@ from app.services.endpoint_service import validate_endpoint_auth
 from conftest import api_login, register_standard_user, register_tenant_admin
 
 
-def test_docker_image_includes_scripts_required_by_agent_download():
+def test_docker_image_does_not_bundle_agent_sources():
     dockerfile = Path(__file__).resolve().parents[2] / "docker" / "Dockerfile"
-    assert "COPY agent ./agent" in dockerfile.read_text(encoding="utf-8")
+    assert "COPY agent ./agent" not in dockerfile.read_text(encoding="utf-8")
 
 
 def test_agent_setup_api_returns_credential_free_install_command_and_enrollment_agent(monkeypatch):
@@ -42,17 +40,12 @@ def test_agent_setup_api_returns_credential_free_install_command_and_enrollment_
     monkeypatch.setattr(settings, "frontend_url", "")
     assert client.get("/agent", follow_redirects=False).headers["location"] == "/agent"
 
-    download = client.get("/agent/download")
-    assert download.status_code == 200
-    assert download.headers["content-type"].startswith("application/zip")
+    download = client.get("/agent/download", follow_redirects=False)
+    assert download.status_code == 302
+    assert download.headers["location"].endswith(
+        "/chargepilot-windows-agent-source.zip"
+    )
     assert download.headers["cache-control"] == "public, max-age=300"
-    with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
-        assert set(archive.namelist()) == {"BatteryAgent.ps1", "CreateAgentScheduledTask.ps1"}
-        battery_agent = archive.read("BatteryAgent.ps1")
-        installer = archive.read("CreateAgentScheduledTask.ps1")
-        assert b"installation_id = $InstallationId" in battery_agent
-        assert b"protectedEndpointToken" in installer
-        assert b"-EndpointToken " not in installer
     assert "iex" in payload["install_command"]
     assert "$(irm" in payload["install_command"]
 
@@ -72,55 +65,22 @@ def test_agent_setup_uses_configured_public_api_origin(monkeypatch):
 def test_agent_setup_requires_authentication_but_agent_sources_are_public():
     client = TestClient(app)
     assert client.get("/api/v1/agent/setup").status_code == 401
-    assert client.get("/agent/download", follow_redirects=False).status_code == 200
-    installer = client.get("/agent/install.ps1")
-    battery_script = client.get("/agent/BatteryAgent.ps1")
-    assert installer.status_code == 200
-    assert battery_script.status_code == 200
-    assert "public" in installer.headers["cache-control"]
-    assert "Invoke-WebRequest" in installer.text
-    assert "Invoke-WebRequest" in battery_script.text or "Get-BatteryStatus" in battery_script.text
-
-
-def test_mobile_agent_source_archives_include_native_projects_without_credentials():
-    client = TestClient(app)
-
-    android = client.get("/agent/android/download")
-    assert android.status_code == 200
-    assert android.headers["content-type"].startswith("application/zip")
-    with zipfile.ZipFile(io.BytesIO(android.content)) as archive:
-        assert len(archive.namelist()) == len(set(archive.namelist()))
-        names = set(archive.namelist())
-        assert "chargepilot-android-agent/app/build.gradle.kts" in names
-        assert (
-            "chargepilot-android-agent/app/src/main/java/in/chargepilot/agent/MainActivity.kt"
-            in names
+    downloads = {
+        "/agent/download": "chargepilot-windows-agent-source.zip",
+        "/agent/install.ps1": "chargepilot-windows-agent-installer.ps1",
+        "/agent/BatteryAgent.ps1": "chargepilot-windows-battery-agent.ps1",
+        "/agent/macos/download": "chargepilot-macos-agent-source.zip",
+        "/agent/android/download": "chargepilot-android-agent-source.zip",
+        "/agent/ios/download": "chargepilot-ios-agent-source.zip",
+    }
+    for route, asset in downloads.items():
+        response = client.get(route, follow_redirects=False)
+        assert response.status_code == 302, route
+        assert response.headers["location"] == (
+            "https://github.com/jsramitgupta/ChargePilot/releases/latest/download/"
+            f"{asset}"
         )
-        source = archive.read(
-            "chargepilot-android-agent/app/src/main/java/in/chargepilot/agent/AgentApi.kt"
-        )
-        assert b"endpoint-enrollment/exchange" in source
-        assert b"Authorization" in source
-        assert b"tenant_token" not in source
-
-    ios = client.get("/agent/ios/download")
-    assert ios.status_code == 200
-    assert ios.headers["content-type"].startswith("application/zip")
-    with zipfile.ZipFile(io.BytesIO(ios.content)) as archive:
-        assert len(archive.namelist()) == len(set(archive.namelist()))
-        names = set(archive.namelist())
-        assert "chargepilot-ios-agent/ChargePilotAgent.xcodeproj/project.pbxproj" in names
-        source = archive.read(
-            "chargepilot-ios-agent/ChargePilotAgent/ChargePilotAgentApp.swift"
-        )
-        assert b"endpoint-enrollment" in source
-        assert b"ReportBatteryTelemetryIntent" in source
-        assert b"authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed" in source
-        assert b"kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly" in source
-        assert b"tenant_token" not in source
-        readme = archive.read("chargepilot-ios-agent/README.md")
-        assert b"Rises Above 90%" in readme
-        assert b"Charger" in readme
+        assert response.headers["cache-control"] == "public, max-age=300"
 
 
 def test_standard_user_can_download_but_cannot_rotate_tenant_token():
@@ -128,7 +88,7 @@ def test_standard_user_can_download_but_cannot_rotate_tenant_token():
     register_standard_user(client, "agent_standard_user", "standard-agent-password")
 
     assert client.get("/api/v1/agent/setup").status_code == 200
-    assert client.get("/agent/download").status_code == 200
+    assert client.get("/agent/download", follow_redirects=False).status_code == 302
     assert client.put("/api/v1/admin/tenant-agent-token").status_code == 403
     assert client.put(
         "/api/v1/admin/global-agent-token",

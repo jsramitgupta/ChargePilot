@@ -39,6 +39,9 @@ from app.services.connector_service import expire_overdue_commands
 from app.services.event_retention import purge_expired_events
 
 BASE_DIR = Path(__file__).resolve().parent
+AGENT_RELEASE_DOWNLOAD_BASE = (
+    "https://github.com/jsramitgupta/ChargePilot/releases/latest/download"
+)
 logger = logging.getLogger("chargepilot.main")
 
 
@@ -229,137 +232,40 @@ async def get_agent_setup(
 
 @app.get("/agent/download")
 async def download_agent_scripts():
-    agent_dir = BASE_DIR.parent / "agent"
-    archive = io.BytesIO()
-    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-        for script_name in ("BatteryAgent.ps1", "CreateAgentScheduledTask.ps1"):
-            script_path = agent_dir / script_name
-            if not script_path.is_file():
-                raise HTTPException(status_code=500, detail=f"Required agent script is missing: {script_name}")
-            bundle.write(script_path, arcname=script_name)
-    archive.seek(0)
-    return StreamingResponse(
-        archive,
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": 'attachment; filename="chargepilot-agent-scripts.zip"',
-            "Cache-Control": "public, max-age=300",
-        },
-    )
+    return _redirect_to_agent_release("chargepilot-windows-agent-source.zip")
 
 
 @app.get("/agent/macos/download")
 async def download_macos_agent():
-    macos_agent_dir = BASE_DIR.parent / "agent" / "macos"
-    archive = io.BytesIO()
-    sources = (
-        ("Package.swift", "chargepilot-macos-agent/Package.swift"),
-        ("README.md", "chargepilot-macos-agent/README.md"),
-        ("Sources/ChargePilotAgent/main.swift", "chargepilot-macos-agent/Sources/ChargePilotAgent/main.swift"),
-    )
-    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-        for source, name in sources:
-            source_path = macos_agent_dir / source
-            if not source_path.is_file():
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Required macOS agent source is missing: {source}",
-                )
-            bundle.write(source_path, arcname=name)
-    archive.seek(0)
-    return StreamingResponse(
-        archive,
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": 'attachment; filename="chargepilot-macos-agent.zip"',
-            "Cache-Control": "public, max-age=300",
-        },
-    )
+    return _redirect_to_agent_release("chargepilot-macos-agent-source.zip")
 
 
-async def _download_native_agent(platform: str, archive_filename: str):
-    agent_dir = BASE_DIR.parent / "agent" / platform
-    archive = io.BytesIO()
-    required_files = {
-        "android": (
-            "README.md",
-            "settings.gradle.kts",
-            "build.gradle.kts",
-            "gradle.properties",
-            "app/build.gradle.kts",
-            "app/src/main/AndroidManifest.xml",
-        ),
-        "ios": (
-            "README.md",
-            "Info.plist",
-            "ChargePilotAgent.xcodeproj/project.pbxproj",
-            "ChargePilotAgent/ChargePilotAgentApp.swift",
-        ),
-    }
-    sources = required_files.get(platform)
-    if sources is None:
-        raise HTTPException(status_code=404, detail="Native agent platform not found.")
-    included_sources = set(sources)
-    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-        for source in sources:
-            source_path = agent_dir / source
-            if not source_path.is_file():
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Required {platform} agent source is missing: {source}",
-                )
-            bundle.write(source_path, arcname=f"chargepilot-{platform}-agent/{source}")
-        source_root = agent_dir / "app/src/main/java" if platform == "android" else agent_dir / "ChargePilotAgent"
-        for source_path in sorted(source_root.rglob("*")):
-            if source_path.is_file():
-                relative_path = source_path.relative_to(agent_dir)
-                if relative_path.as_posix() in included_sources:
-                    continue
-                bundle.write(
-                    source_path,
-                    arcname=f"chargepilot-{platform}-agent/{relative_path.as_posix()}",
-                )
-    archive.seek(0)
-    return StreamingResponse(
-        archive,
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{archive_filename}"',
-            "Cache-Control": "public, max-age=300",
-        },
+def _redirect_to_agent_release(asset_name: str) -> RedirectResponse:
+    return RedirectResponse(
+        url=f"{AGENT_RELEASE_DOWNLOAD_BASE}/{asset_name}",
+        status_code=302,
+        headers={"Cache-Control": "public, max-age=300"},
     )
 
 
 @app.get("/agent/android/download")
 async def download_android_agent():
-    return await _download_native_agent("android", "chargepilot-android-agent.zip")
+    return _redirect_to_agent_release("chargepilot-android-agent-source.zip")
 
 
 @app.get("/agent/ios/download")
 async def download_ios_agent():
-    return await _download_native_agent("ios", "chargepilot-ios-agent.zip")
+    return _redirect_to_agent_release("chargepilot-ios-agent-source.zip")
 
 
 @app.get("/agent/install.ps1", include_in_schema=False)
 async def download_agent_installer():
-    script_path = BASE_DIR.parent / "agent" / "CreateAgentScheduledTask.ps1"
-    if not script_path.is_file():
-        raise HTTPException(status_code=500, detail="The agent installer script is missing.")
-    return PlainTextResponse(
-        script_path.read_text(encoding="utf-8"),
-        headers={"Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff"},
-    )
+    return _redirect_to_agent_release("chargepilot-windows-agent-installer.ps1")
 
 
 @app.get("/agent/BatteryAgent.ps1", include_in_schema=False)
 async def download_battery_agent():
-    script_path = BASE_DIR.parent / "agent" / "BatteryAgent.ps1"
-    if not script_path.is_file():
-        raise HTTPException(status_code=500, detail="The battery agent script is missing.")
-    return PlainTextResponse(
-        script_path.read_text(encoding="utf-8"),
-        headers={"Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff"},
-    )
+    return _redirect_to_agent_release("chargepilot-windows-battery-agent.ps1")
 
 
 @app.get("/connectors/download")

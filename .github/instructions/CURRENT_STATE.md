@@ -33,9 +33,10 @@ provides sign-in/registration, dashboard, switches, mappings, endpoints,
 events, connector administration, profile, user/tenant administration, agent
 setup, and super-admin account pages. Authenticated in-app navigation stays
 within React Router, with the dev server serving the SPA for direct page loads.
-FastAPI serves JSON APIs and downloads; agent and connector source archives and
-their bootstrap scripts are public, while setup APIs and all credential
-management remain authenticated. The built React app is the only browser UI.
+FastAPI serves JSON APIs and downloads; agent-source download endpoints redirect
+to assets on the latest stable `agents-v*` GitHub Release, while connector
+source and its bootstrap script remain public API downloads. Setup APIs and
+credential management remain authenticated. The built React app is the only browser UI.
 Legacy page GETs redirect to the matching React route.
 React admin pages use authenticated, tenant-scoped API data and preserve
 server-side authorization and business rules. The UI has responsive
