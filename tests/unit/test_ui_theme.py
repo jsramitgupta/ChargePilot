@@ -197,6 +197,7 @@ def test_overview_and_switch_pages_have_responsive_operational_layouts():
 def test_endpoints_page_has_recent_first_pagination_search_and_refresh():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     endpoints = app.split("function EndpointsPage()", 1)[1].split("\nfunction ", 1)[0]
+    dashboard = app.split("function DashboardPage()", 1)[1].split("\nfunction ", 1)[0]
 
     assert "<h1>Endpoints</h1>" in endpoints
     assert "sortEndpointsByLastSeen(data)" in endpoints
@@ -206,6 +207,16 @@ def test_endpoints_page_has_recent_first_pagination_search_and_refresh():
     assert "<option value={100}>100 devices</option>" in endpoints
     assert "aria-label=\"Endpoint pages\"" in endpoints
     assert "aria-sort=\"descending\"" in endpoints
+    assert "<th>Automation</th>" not in endpoints
+    assert "automationMutation" not in endpoints
+    assert "formatTimestampWithSeconds(endpoint.last_seen_at)" in endpoints
+    assert "colSpan={9}" in endpoints
+    assert "<RelativeTimestamp value={endpoint.last_seen_at} now={now} />" in dashboard
+    assert "Intl.RelativeTimeFormat" in app
+    assert "timeStyle: 'medium'" in app
+    assert "absoluteSeconds < 60" in app
+    assert "absoluteSeconds < 3_600" in app
+    assert "absoluteSeconds < 86_400" in app
 
 
 def test_switch_setup_routes_and_smartlife_dialog_follow_the_shared_theme():

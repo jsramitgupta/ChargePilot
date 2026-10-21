@@ -50,8 +50,9 @@ If Android cannot provide a valid battery reading, no sample is sent.
 
 WorkManager respects network availability, Doze, and system scheduling. Its
 15-minute minimum is not a promise of exact reporting time. The app does not
-control switches; new endpoints are telemetry-only until explicitly enabled
-by an authorized ChargePilot administrator under server policy.
+control switches. New endpoints default to automation enabled, but the
+backend requires a fresh report, an allow-listed platform, and a
+tenant-matching enabled mapping before creating switch commands.
 
 ## Revoke
 

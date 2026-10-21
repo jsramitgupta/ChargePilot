@@ -17,8 +17,10 @@ The latest development DMG and source archive are published at
   `localhost` development
 - a tenant-admin generated, reusable 24-hour enrollment token
 
-New endpoints start with automation disabled. Only an authorized administrator
-can explicitly enable automation after a fresh sample.
+New endpoints are automation-enabled by default across all platforms. The
+server still requires a fresh sample, an allow-listed platform, and an enabled
+tenant-matching mapping before it can issue a switch command. macOS reports
+only while the app is running and the Mac is awake.
 
 ## Build and install
 

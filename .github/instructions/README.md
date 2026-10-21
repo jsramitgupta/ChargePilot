@@ -25,9 +25,10 @@ for an existing API or runtime feature.
 The implemented product is a cloud-capable, local-first battery automation
 platform. Windows PowerShell and macOS agents are device-validated; Android
 and iOS source projects are implemented. The artifact workflow builds a
-Windows EXE wrapper, Android debug APK, unsigned iOS IPA, and unsigned,
-unnotarized macOS DMG; an `agents-v*` tag publishes the built assets to a
-GitHub Release. The Windows EXE build and runtime validation are pending.
+self-contained .NET Windows service executable with setup UI/CLI, Android
+debug APK, unsigned iOS IPA, and unsigned, unnotarized macOS DMG; an
+`agents-v*` tag publishes the built assets to a GitHub Release. The Windows
+service executable build and runtime validation are pending.
 Android has an emulator smoke test; iOS has a simulator smoke test. Physical-device
 validation and signed distribution remain pending. The current product
 includes:
@@ -39,7 +40,7 @@ includes:
   credential storage; development builds are published, while signed store
   releases and physical-device validation remain outstanding
 - platform-aware telemetry, endpoint enrollment, credential revocation, and
-  server-enforced automation opt-in/freshness gates
+  server-enforced all-platform automation defaults with freshness gates
 - endpoint-to-device mappings and automation rules
 - connector-based Tuya discovery and state control over the LAN
 - PostgreSQL transactional outbox and command delivery, Kafka telemetry events,

@@ -85,9 +85,9 @@ The product contains:
 ### Telemetry ingestion
 
 New Windows and macOS agents exchange a tenant-scoped, reusable 24-hour
-enrollment token for a per-install credential; Windows protects it with
-user-scoped DPAPI and macOS stores it in Keychain. Existing Windows agents
-using tenant-wide tokens remain compatible during migration.
+enrollment token for a per-install credential; the Windows service protects
+it with machine-scoped DPAPI and macOS stores it in Keychain. Existing Windows
+agents using tenant-wide tokens remain compatible during migration.
 
 Expected payload:
 
@@ -107,9 +107,10 @@ Expected payload:
 For enrolled agents, the request's bearer credential resolves to one endpoint
 and tenant; the platform and installation identity must match that enrollment.
 The API commits the latest endpoint snapshot and a transactional outbox event
-together. Delayed samples cannot regress the current snapshot. Automation
-consumers require endpoint opt-in, an allowed platform, and a fresh sample
-before evaluating mappings. An HTTP accepted response confirms durable
+together. Delayed samples cannot regress the current snapshot. Automation is
+enabled by default for all platforms, while consumers still require an
+allowed platform, a fresh sample, and an enabled tenant-matching mapping before
+evaluating rules. An HTTP accepted response confirms durable
 ingestion, not completed switch control. Monitor outbox age, consumer lag,
 dead-letter events, and connector command outcomes. Sign in to ChargePilot and
 open **Set up a device** to create a reusable, 24-hour enrollment token. It
@@ -118,22 +119,48 @@ it until expiry. Revoke it to prevent future exchanges. Existing Windows
 agents remain compatible with legacy tenant tokens while new installs use
 per-install credentials.
 
-On the Windows device, open PowerShell and run the displayed setup command.
-The installer prompts for the enrollment token, exchanges it for a per-install
-credential, protects that credential with Windows user-scoped DPAPI, downloads
-the Windows executable, and registers its recurring scheduled task. The
-executable is a wrapper around the existing PowerShell agent, is unsigned, and
-may trigger a Windows SmartScreen warning. The Windows source archive is also
-available from device setup. A Windows executable cannot run on macOS; use the
-macOS DMG or Swift source project there.
+On the Windows device, run the displayed setup command in PowerShell and
+approve the administrator prompt. The command downloads the self-contained
+Windows executable and opens its setup window. Enter the enrollment token in
+the window, choose a device name, device class, and reporting interval, then
+select **Save and start service**. ChargePilot installs a Windows service that
+reports even when no user is signed in; new installations do not use Task
+Scheduler.
+
+The enrollment token is entered in the setup window, never included in the
+PowerShell command or saved to disk. The endpoint credential is encrypted with
+Windows machine DPAPI in a ProgramData directory readable only by SYSTEM and
+Administrators. Existing user-scoped Windows enrollment is migrated during
+elevated setup, and the old scheduled task is removed after the service starts.
+The executable is unsigned and may trigger a SmartScreen warning.
+
+To configure or control the service from an elevated PowerShell window, open
+the downloaded executable folder and run:
+
+```powershell
+.\ChargePilotAgent.exe install --server-url "https://api-chargepilot.endusercompute.in" --name "Office device" --class laptop --interval-minutes 5
+.\ChargePilotAgent.exe status
+.\ChargePilotAgent.exe start
+.\ChargePilotAgent.exe stop
+.\ChargePilotAgent.exe send-once
+.\ChargePilotAgent.exe uninstall
+```
+
+The `install` command prompts for an enrollment token without displaying its
+characters. `status`, `start`, `stop`, and `send-once` are also available
+without opening the setup window. `uninstall` removes the service and retains
+its configuration; pass `--purge-config` to delete the saved enrollment.
+Device setup also links the Windows executable and source archive. A Windows
+executable cannot run on macOS; use the macOS DMG or Swift source project there.
 
 For macOS, the setup page provides the Swift source archive. Build the package
 with Swift 5.9+ on macOS 13+, enter the enrollment token when prompted, enroll
 using the explicit device label, and start its foreground reporting process.
 The agent omits IP address and system hostname, stores the credential in
 Keychain, and sends no report while the Mac sleeps or the process is stopped.
-New endpoints remain telemetry-only until an authorized administrator
-enables automation after a fresh report. Android and iOS source projects are
+New endpoints are automation-enabled by default; server-side freshness,
+platform-policy, tenant, and mapping checks remain required. Android and iOS
+source projects are
 available from device setup; they require Android Studio or Xcode, have not
 been validated on physical devices, and are not signed store releases.
 

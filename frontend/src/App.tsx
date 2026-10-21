@@ -94,8 +94,6 @@ type Endpoint = {
   last_seen_at: string | null
   status: 'online' | 'offline'
   credential_enrolled: boolean
-  automation_enabled: boolean
-  automation_available: boolean
   mapped_device: string
   mapped_device_tenant?: string | null
   switch_state: boolean | null
@@ -1262,12 +1260,18 @@ function ChangePasswordSection() {
 }
 
 function DashboardPage() {
+  const [now, setNow] = useState(() => Date.now())
   const { data, isLoading, error, dataUpdatedAt, isFetching, refetch } = useQuery({
     queryKey: ['dashboard'],
     queryFn: fetchDashboardData,
     refetchInterval: ENDPOINTS_REFRESH_INTERVAL,
     refetchIntervalInBackground: false,
   })
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000)
+    return () => window.clearInterval(interval)
+  }, [])
 
   if (isLoading) return <LoadingCard />
   if (error && !data) return <ErrorCard message={error.message} />
@@ -1323,7 +1327,7 @@ function DashboardPage() {
                   <td>{endpoint.mapped_device}</td>
                   <td>{endpoint.mapped_device_tenant ?? '—'}</td>
                   <td>{endpoint.switch_state === null ? '—' : endpoint.switch_state ? 'On' : 'Off'}</td>
-                  <td>{formatTimestamp(endpoint.last_seen_at)}</td>
+                  <td><RelativeTimestamp value={endpoint.last_seen_at} now={now} /></td>
                 </tr>
               ))}
               {!endpoints.length && <tr><td colSpan={8} className="empty-state">No endpoint telemetry has been received yet.</td></tr>}
@@ -2169,14 +2173,6 @@ function EndpointsPage() {
       queryClient.invalidateQueries({ queryKey: ['mappings'] })
     },
   })
-  const automationMutation = useMutation({
-    mutationFn: ({ endpointId, enabled }: { endpointId: string; enabled: boolean }) =>
-      apiFetch<{ automation_enabled: boolean }>(`/api/v1/endpoints/${endpointId}/automation`, {
-        method: 'PATCH',
-        body: JSON.stringify({ enabled }),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['endpoints'] }),
-  })
   const revokeCredentialMutation = useMutation({
     mutationFn: (endpointId: string) =>
       apiFetch<{ status: string }>(`/api/v1/endpoints/${endpointId}/credential/revoke`, { method: 'POST' }),
@@ -2219,13 +2215,12 @@ function EndpointsPage() {
         <div>
           <p className="eyebrow">Fleet</p>
           <h1>Endpoints</h1>
-          <p className="page-description">Review device identity, recent battery reports, and automation status.</p>
+          <p className="page-description">Review device identity and recent battery reports.</p>
         </div>
       </div>
       {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage} <NavLink to={assignedTenantId ? `/agent?tenant_id=${assignedTenantId}` : '/agent'} className="font-semibold underline">Open tenant agent setup</NavLink></p>}
       {assignTenantMutation.error && <ErrorCard message={assignTenantMutation.error.message} />}
       {deleteMutation.isError && <ErrorCard message={deleteMutation.error.message} />}
-      {automationMutation.error && <ErrorCard message={automationMutation.error.message} />}
       {revokeCredentialMutation.error && <ErrorCard message={revokeCredentialMutation.error.message} />}
       {error && <ErrorCard message={`Could not refresh endpoints: ${error.message}. Showing the last successful data.`} />}
       <section className="panel table-panel">
@@ -2257,7 +2252,7 @@ function EndpointsPage() {
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Device</th><th>Tenant</th><th>Identity</th><th>IP</th><th>Battery</th><th>Power</th><th aria-sort="descending">Last seen</th><th>Status</th><th>Automation</th><th className="align-right">Actions</th></tr></thead>
+            <thead><tr><th>Device</th><th>Tenant</th><th>Identity</th><th>IP</th><th>Battery</th><th>Power</th><th aria-sort="descending">Last seen</th><th>Status</th><th className="align-right">Actions</th></tr></thead>
             <tbody>
               {visibleEndpoints.map((endpoint) => <tr key={endpoint.id}>
                 <td><EndpointIdentity endpoint={endpoint} /></td>
@@ -2273,14 +2268,8 @@ function EndpointsPage() {
                 <td>{endpoint.ip_address || 'unknown'}</td>
                 <td>{endpoint.battery}%</td>
                 <td><span className={`badge ${endpoint.charging || endpoint.ac_connected ? 'success' : 'muted'}`}>{endpoint.charging ? 'Charging' : endpoint.ac_connected ? 'On AC' : 'On battery'}</span></td>
-                <td>{formatTimestamp(endpoint.last_seen_at)}</td>
+                <td><time dateTime={endpoint.last_seen_at ?? undefined}>{formatTimestampWithSeconds(endpoint.last_seen_at)}</time></td>
                 <td><span className={`badge ${endpoint.status === 'online' ? 'success' : 'muted'}`}>{endpoint.status}</span></td>
-                <td><div className="flex min-w-40 flex-col gap-1">
-                  <button type="button" className="mapping-edit-button w-fit" disabled={automationMutation.isPending || (!endpoint.automation_enabled && !endpoint.automation_available)} onClick={() => automationMutation.mutate({ endpointId: endpoint.id, enabled: !endpoint.automation_enabled })}>
-                    {endpoint.automation_enabled ? 'Disable automation' : 'Enable automation'}
-                  </button>
-                  <small className="text-slate-500">{endpoint.automation_enabled ? 'Opted in' : endpoint.automation_available ? 'Telemetry only' : 'Needs fresh sample / server approval'}</small>
-                </div></td>
                 <td className="align-right"><div className="flex flex-col items-end gap-2">
                   {endpoint.credential_enrolled && <button type="button" className="danger-btn small-btn" disabled={revokeCredentialMutation.isPending} onClick={() => {
                     if (window.confirm(`Revoke the installation credential for ${endpoint.hostname}? Its agent will stop reporting.`)) revokeCredentialMutation.mutate(endpoint.id)
@@ -2290,7 +2279,7 @@ function EndpointsPage() {
                   }}>Delete endpoint</button>
                 </div></td>
               </tr>)}
-              {!filteredEndpoints.length && <tr><td colSpan={10} className="empty-state">{data.length ? 'No endpoints match this search.' : 'No endpoints have reported telemetry yet.'}</td></tr>}
+              {!filteredEndpoints.length && <tr><td colSpan={9} className="empty-state">{data.length ? 'No endpoints match this search.' : 'No endpoints have reported telemetry yet.'}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -3096,14 +3085,25 @@ function AgentSetupPage() {
     <section className="max-w-3xl space-y-4">
       <div className="panel p-5 sm:p-6">
         <h2 className="text-lg font-bold text-slate-900">Windows</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">On the Windows device, run this command in PowerShell to enroll it, protect its credential, and install the recurring agent task.</p>
+        <p className="mt-1 text-sm leading-6 text-slate-600">On the Windows device, run this command in PowerShell. It downloads the agent and opens its setup window; approve the Windows prompt to install the background service.</p>
         <code className="mt-4 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{data?.install_command}</code>
         <button type="button" className="btn-secondary mt-3" onClick={() => void copyText(data?.install_command ?? '', 'Windows install command copied.')}>Copy install command</button>
         <p className="mt-2 min-h-5 text-xs text-[var(--muted)]" role="status">{copyStatus}</p>
+        <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
+          <li>Choose a current enrollment token above. The command does not contain the token.</li>
+          <li>Run the command on Windows and approve the administrator prompt.</li>
+          <li>In the setup window, enter the token and choose a device name, type, and reporting interval. Select <strong>Save and start service</strong>.</li>
+        </ol>
         <a className="btn-secondary mt-2 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/ChargePilotAgent.exe`}>Download Windows executable</a>
-        <p className="mt-3 text-xs text-amber-800">The executable is unsigned and runs on Windows only. Use the setup command to configure it; it will not run on this Mac.</p>
+        <p className="mt-3 text-xs text-amber-800">The executable is unsigned and runs on Windows only. It installs a Windows service that reports while no user is signed in; it does not use Task Scheduler. Use the setup window or CLI to configure it.</p>
         <a className="btn-secondary mt-2 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-windows-agent-source.zip`}>Download Windows scripts from GitHub</a>
-        <p className="mt-3 text-xs text-amber-800">The setup command downloads and runs the installer from this HTTPS server. Run it only if you trust this ChargePilot server.</p>
+        <details className="mt-4 rounded-lg border border-[var(--line)] p-3">
+          <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">Command-line controls</summary>
+          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Open an elevated PowerShell window in the folder containing the executable. Install or update configuration with a hidden enrollment-token prompt:</p>
+          <code className="mt-2 block break-all rounded-lg bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">.\ChargePilotAgent.exe install --server-url '{serverUrl}' --name 'My Windows device' --class laptop --interval-minutes 5</code>
+          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Use <code>status</code>, <code>start</code>, <code>stop</code>, <code>send-once</code>, or <code>uninstall</code> to manage the service. Never put an enrollment token in command-line arguments.</p>
+        </details>
+        <p className="mt-3 text-xs text-amber-800">The setup command downloads the installer over HTTPS and opens the setup window. Run it only if you trust this ChargePilot server.</p>
       </div>
       <div className="panel p-5 sm:p-6">
         <h2 className="text-lg font-bold text-slate-900">macOS</h2>
@@ -3145,7 +3145,7 @@ function AgentSetupPage() {
         <p className="mt-2 text-sm text-[var(--muted)]">iOS may delay or skip background automations. They do not guarantee a report or switch action at an exact battery level.</p>
       </div>
       <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-4 text-sm leading-6 text-[var(--muted)]">
-        These builds are development distributions, not app-store releases. New devices start with automation off; an administrator can opt in only after a fresh reading and when server policy allows that platform. <a className="font-semibold text-[var(--leaf)] underline" href={AGENT_RELEASE_URL}>View all agent builds and release notes on GitHub</a>.
+        These builds are development distributions, not app-store releases. Automation starts enabled for every platform, but the server still requires a fresh report, an allowed platform, and an enabled device-to-switch mapping. Android and iOS background reports may be delayed or skipped. <a className="font-semibold text-[var(--leaf)] underline" href={AGENT_RELEASE_URL}>View all agent builds and release notes on GitHub</a>.
       </div>
       {!canManageEnrollments && <p className="text-sm text-[var(--muted)]">An administrator must create an enrollment token for this workspace.</p>}
       <p className="text-sm text-[var(--muted)]">After the first report, review devices on the <NavLink to="/endpoints" className="font-semibold text-[var(--leaf)] underline">Endpoints</NavLink> page.</p>
@@ -3167,6 +3167,43 @@ function formatTimestamp(value: string | null) {
   } catch {
     return timestamp.toLocaleString()
   }
+}
+
+function formatTimestampWithSeconds(value: string | null) {
+  if (!value) return '—'
+  const timestamp = new Date(value)
+  if (Number.isNaN(timestamp.getTime())) return value
+  const timezone = document.body.dataset.userTimezone
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+      ...(timezone && timezone !== 'local' ? { timeZone: timezone } : {}),
+    }).format(timestamp)
+  } catch {
+    return timestamp.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
+  }
+}
+
+function RelativeTimestamp({ value, now }: { value: string | null; now: number }) {
+  if (!value) return '—'
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return value
+
+  const differenceSeconds = (timestamp - now) / 1_000
+  const absoluteSeconds = Math.abs(differenceSeconds)
+  const unit: Intl.RelativeTimeFormatUnit = absoluteSeconds < 60
+    ? 'second'
+    : absoluteSeconds < 3_600
+      ? 'minute'
+      : absoluteSeconds < 86_400
+        ? 'hour'
+        : 'day'
+  const divisor = unit === 'second' ? 1 : unit === 'minute' ? 60 : unit === 'hour' ? 3_600 : 86_400
+  const amount = Math.round(differenceSeconds / divisor)
+  const relativeTime = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(amount, unit)
+
+  return <time dateTime={value} title={formatTimestampWithSeconds(value)}>{relativeTime}</time>
 }
 
 function FieldError({ children }: { children: ReactNode }) {

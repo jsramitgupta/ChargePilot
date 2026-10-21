@@ -213,7 +213,7 @@ private struct AgentHomeView: View {
                     enrollmentForm
                 }
 
-                Text("New endpoints are telemetry-only. Automation decisions remain on the ChargePilot server.")
+                Text("Automation is enabled by default. ChargePilot checks fresh reports, platform policy, and device mappings before controlling a switch.")
                     .font(.system(size: 13))
                     .foregroundStyle(muted)
                     .fixedSize(horizontal: false, vertical: true)

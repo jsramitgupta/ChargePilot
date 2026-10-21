@@ -14,8 +14,9 @@
 The menu-bar app displays its latest accepted report and any upload errors.
 Use **Pause reports** to stop telemetry, or **Quit** to close the background
 app. Sleep, logout, and network loss can interrupt reporting; this is not a
-real-time service. New endpoints remain telemetry-only until an authorized
-administrator explicitly enables automation.
+real-time service. New endpoints default to automation enabled, but the
+backend requires a fresh report, an allow-listed platform, and a
+tenant-matching enabled mapping before creating switch commands.
 
 ## Command-line checks
 

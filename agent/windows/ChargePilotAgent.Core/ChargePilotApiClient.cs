@@ -1,0 +1,90 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+
+namespace ChargePilotAgent.Core;
+
+public sealed class ChargePilotApiClient(HttpClient httpClient)
+{
+    public async Task<EnrollmentResponse> EnrollAsync(
+        Uri serverUri,
+        string enrollmentCode,
+        Guid installationId,
+        string hostname,
+        string deviceClass,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureSecureOrigin(serverUri);
+        if (string.IsNullOrWhiteSpace(enrollmentCode))
+        {
+            throw new ArgumentException("An enrollment token is required.", nameof(enrollmentCode));
+        }
+
+        var request = new EnrollmentRequest(
+            enrollmentCode,
+            "windows",
+            installationId,
+            hostname,
+            deviceClass);
+        using var response = await httpClient.PostAsJsonAsync(
+            new Uri(serverUri, "/api/v1/endpoint-enrollment/exchange"),
+            request,
+            cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"Enrollment failed with HTTP {(int)response.StatusCode}. Check the token, expiry, server URL, and enabled platform settings.",
+                null,
+                response.StatusCode);
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<EnrollmentResponse>(
+            cancellationToken: cancellationToken);
+        if (result is null ||
+            result.EndpointId == Guid.Empty ||
+            result.InstallationId != installationId ||
+            string.IsNullOrWhiteSpace(result.Credential))
+        {
+            throw new InvalidDataException("The server returned an incomplete endpoint credential response.");
+        }
+
+        return result;
+    }
+
+    public async Task SendTelemetryAsync(
+        AgentOptions options,
+        TelemetryReading reading,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            new Uri(options.ServerUri, "/api/v1/telemetry"))
+        {
+            Content = JsonContent.Create(TelemetryRequest.From(options, reading)),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Credential);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"Telemetry was rejected with HTTP {(int)response.StatusCode}. Check the service configuration and endpoint enrollment.",
+                null,
+                response.StatusCode);
+        }
+    }
+
+    private static void EnsureSecureOrigin(Uri serverUri)
+    {
+        var isLocalhost = serverUri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                          serverUri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                          serverUri.Host.Equals("::1", StringComparison.OrdinalIgnoreCase);
+        if (serverUri.Scheme != Uri.UriSchemeHttps &&
+            !(serverUri.Scheme == Uri.UriSchemeHttp && isLocalhost))
+        {
+            throw new ArgumentException(
+                "Enrollment requires HTTPS. Plain HTTP is allowed only for localhost development.",
+                nameof(serverUri));
+        }
+    }
+}

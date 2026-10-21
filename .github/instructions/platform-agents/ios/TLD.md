@@ -41,5 +41,7 @@ Use the public battery APIs to read level and charging state. Do not assume broa
 
 - the app should be launchable and useful even when background delivery is unavailable
 - the UI should display stale state clearly to users and operators
-- iOS telemetry is informational and telemetry-only by default, not a
-  replacement for a continuously reporting endpoint or an automation trigger
+- iOS reports are best-effort and may be delayed or skipped. Automation is
+  enabled by default but still requires a fresh sample and server approval;
+  iOS is not a continuously reporting endpoint and cannot promise exact
+  threshold timing

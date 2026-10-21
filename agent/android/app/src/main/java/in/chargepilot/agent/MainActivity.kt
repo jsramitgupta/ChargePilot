@@ -233,7 +233,7 @@ private fun AgentScreen(store: AgentStore) {
             StatusNotice(statusMessage, statusIsError)
         }
         Text(
-            "New endpoints are telemetry-only. ChargePilot keeps automation decisions on the server.",
+            "Automation is enabled by default. ChargePilot checks fresh reports, platform policy, and device mappings before controlling a switch.",
             color = Muted,
             fontSize = 13.sp,
             lineHeight = 19.sp,

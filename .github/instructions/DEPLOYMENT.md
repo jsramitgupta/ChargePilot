@@ -81,8 +81,8 @@ CHARGEPILOT_ENDPOINT_OFFLINE_TIMEOUT_SECONDS=600
 CHARGEPILOT_TELEMETRY_MAX_AGE_SECONDS=604800
 CHARGEPILOT_TELEMETRY_MAX_FUTURE_SKEW_SECONDS=300
 CHARGEPILOT_TELEMETRY_AUTOMATION_MAX_AGE_SECONDS=600
-CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS=windows,macos
-CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS=windows,macos
+CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS=windows,macos,android,ios
+CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS=windows,macos,android,ios
 CHARGEPILOT_API_URL=https://api.example.com
 CHARGEPILOT_FRONTEND_URL=https://app.example.com
 CHARGEPILOT_TURNSTILE_SITE_KEY=<public-turnstile-site-key>
@@ -95,16 +95,18 @@ CHARGEPILOT_TELEMETRY_DEAD_LETTER_TOPIC=chargepilot.telemetry.dlq.v1
 CHARGEPILOT_TELEMETRY_CONSUMER_GROUP=chargepilot-automation-v1
 ```
 
-The application defaults enable enrollment and telemetry for Windows, macOS,
-Android, and iOS. Set `CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS` to a narrower
-comma-separated list if production rollout should restrict enrollment.
-Automation defaults to Windows/macOS only and is independently configured by
-`CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`. New endpoints start
-with automation off; endpoint opt-in also requires a fresh sample and an
-allow-listed platform. Android has an emulator smoke test and iOS a simulator
-smoke test; physical-device validation remains outstanding. Keep the ingress
-limit at seven days unless a compatibility change is reviewed; the 600-second
-automation maximum is intentionally separate.
+The application defaults enable enrollment, telemetry, and automation for
+Windows, macOS, Android, and iOS. Set
+`CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS` or
+`CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS` to a narrower
+comma-separated list if policy should restrict a platform. New enrolled
+endpoints default to automation enabled, but each event still needs a fresh
+sample and tenant-matching enabled mapping to trigger the server-authoritative
+battery rules. Android has an emulator smoke test and iOS a simulator smoke
+test; physical-device validation remains outstanding, and their background
+reporting is best-effort. Keep the ingress limit at seven days unless a
+compatibility change is reviewed; the 600-second automation maximum is
+intentionally separate.
 
 Production Kafka should use TLS and preferably SASL over TLS. Set
 `CHARGEPILOT_KAFKA_SECURITY_PROTOCOL=SASL_SSL`,
@@ -283,16 +285,16 @@ The GitHub Actions pipeline keeps routine validation separate from publishing:
   manifest-only commits do not start another CI run.
 
 Agent source is not copied into the API image. `build-agent-artifacts.yml`
-builds the Windows executable, APK, unsigned IPA, and DMG artifacts for
-changes under `agent/`. Windows builds run on a Windows runner because the
-EXE cannot be built or run natively on macOS. An `agents-v*` tag also publishes
-those binaries and platform source archives as a GitHub Release. The Windows
-executable wraps the existing PowerShell telemetry script; it is unsigned and
-does not make the script confidential. The public `/agent/.../download` API
-routes redirect to the latest stable release assets. Before deploying API
-code that uses those redirects, publish the first agent release, for example
-`agents-v0.1.0`. No additional GitHub secret or application environment
-variable is required for release creation.
+builds a self-contained Windows service executable, APK, unsigned IPA, and DMG
+artifacts for changes under `agent/`. The Windows x64 executable is built on a
+Windows runner; its .NET 10 project can also be cross-published from macOS with
+the .NET 10 SDK. An `agents-v*` tag publishes those binaries and platform
+source archives as a GitHub Release. The Windows executable installs a
+background Windows service and provides a separate administrator UI and CLI;
+it is unsigned and does not conceal its source. The public
+`/agent/.../download` API routes redirect to the latest stable release assets.
+No additional GitHub secret or application environment variable is required
+for release creation.
 
 Use short-lived branches named `server/<change>`, `agents/<change>`, or
 `connector/<change>` and merge them into protected `main` through pull
@@ -622,6 +624,27 @@ until expiry or revocation, after which an administrator can create a new
 token. On a genuinely empty database, `create_all()` creates the column from
 the current model, but does not add it to an existing table.
 
+All-platform automation defaults enable every existing endpoint that is
+currently paused and make future enrollments eligible by default. Before
+deploying this behavior to an existing PostgreSQL installation:
+
+1. Take and verify a database backup.
+2. Apply `deploy/migrations/20261021_enable_all_platform_automation.sql`
+   through the private database service.
+3. Deploy the API and worker with
+   `CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS=windows,macos,android,ios`
+   (or an intentionally narrower policy).
+4. Verify fresh telemetry, tenant ownership, enabled mappings, and automation
+   worker freshness checks before expecting a switch command.
+
+The migration snapshots each endpoint's prior automation flag in
+`endpoint_automation_20261021_backup`. To roll back, first restore the prior
+application and platform allow-list, then apply
+`deploy/migrations/20261021_enable_all_platform_automation_rollback.sql`.
+It restores all pre-migration flags, pauses newly enrolled endpoints created
+since the migration, and removes the backup table. Test both scripts against a
+backup before production.
+
 Legacy Windows endpoints are identified by the
 `Win32_ComputerSystemProduct.UUID`; hostname remains mutable display and
 diagnostic data. The endpoint `hardware_uuid` column is nullable for existing
@@ -737,12 +760,37 @@ python -m connector.chargepilot_connector --server-url "https://api-chargepilot.
 ### Windows agent
 
 On **Set up a device**, select the workspace, create an enrollment token, and
-run the generated PowerShell command on the Windows device. The installer
-downloads the Windows executable over HTTPS, prompts for the enrollment
-token, protects the per-install credential with Windows user-scoped DPAPI, and
-registers the recurring task. The command uses `iex`; run it only against a
-ChargePilot server you trust. The executable is unsigned, so SmartScreen may
-warn when it is downloaded or started. Public release assets contain no
+run the generated PowerShell bootstrap on the Windows device. It downloads the
+self-contained executable over HTTPS and opens its configuration UI with an
+administrator prompt. Enter the enrollment token in the UI, select the device
+name and class, set the reporting interval, and choose **Save and start
+service**. The token is not passed as a process argument. The agent runs as
+the built-in LocalSystem service account, so it reports without a user logged
+in. Its encrypted configuration is stored at
+`%ProgramData%\ChargePilot\Agent\config.json`; the credential is protected by
+machine-scoped DPAPI and the directory ACL allows only SYSTEM and
+Administrators. Setup migrates the existing Windows user-scoped DPAPI
+configuration when available and removes the legacy scheduled task after the
+service starts. The service does not use Task Scheduler.
+
+For command-line setup and operations, open an elevated PowerShell window in
+the executable directory:
+
+```powershell
+.\ChargePilotAgent.exe install --server-url "https://api-chargepilot.endusercompute.in" --name "Office device" --class laptop --interval-minutes 5
+.\ChargePilotAgent.exe status
+.\ChargePilotAgent.exe start
+.\ChargePilotAgent.exe stop
+.\ChargePilotAgent.exe send-once
+.\ChargePilotAgent.exe uninstall
+```
+
+`install` and `configure` prompt for the enrollment token without showing it;
+never put a token on the command line. `uninstall` removes the service and
+legacy task but keeps local config for reinstall. Use
+`uninstall --purge-config` to also delete the saved enrollment. Uninstalling
+does not delete the executable from Program Files. The executable is unsigned,
+so Windows may show a SmartScreen warning. Public release assets contain no
 credentials.
 Setup APIs and token management remain authenticated. Existing Windows agents
 using the legacy shared-token protocol must use their assigned tenant's token;
@@ -763,8 +811,9 @@ prompt if needed. The app reports only while running and the Mac is awake.
 The source project is also available from the release for users who prefer to
 build it. Revoke a token to prevent new enrollments and revoke individual
 endpoint credentials from the **Endpoints** page to stop already-enrolled
-devices. New endpoints remain telemetry-only until an authorized admin
-enables automation after a fresh sample.
+devices. New endpoints have automation enabled by default; the worker only
+acts on fresh samples from an allow-listed platform when an enabled,
+tenant-matching mapping exists.
 
 Keep the connector on the switch LAN and allow outbound HTTPS plus local Tuya
 traffic (UDP 6666, 6667, 7000 and TCP 6668). Assign switches to the enrolled

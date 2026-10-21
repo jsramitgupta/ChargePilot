@@ -231,7 +231,7 @@ async def exchange_endpoint_enrollment(
         charging=False,
         ac_connected=None,
         enabled=True,
-        automation_enabled=False,
+        automation_enabled=True,
         token_hash=hashlib.sha256(credential.encode("utf-8")).hexdigest(),
     )
     if enrollment.platform is not None:

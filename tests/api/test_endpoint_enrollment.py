@@ -2,6 +2,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.database import SessionLocal
@@ -10,6 +11,64 @@ from app.models.endpoint import Endpoint
 from app.models.endpoint_enrollment import EndpointEnrollment
 from app.services.endpoint_service import authenticate_endpoint_token
 from conftest import register_tenant_admin
+
+
+@pytest.mark.parametrize(
+    ("platform", "device_class"),
+    [
+        ("windows", "laptop"),
+        ("macos", "laptop"),
+        ("android", "phone"),
+        ("ios", "phone"),
+    ],
+)
+def test_new_enrollment_enables_automation_for_every_platform(platform, device_class):
+    client = TestClient(app)
+    register_tenant_admin(
+        client,
+        f"{platform}-automation-default-admin",
+        f"{platform}-automation-default-password",
+        f"{platform} Automation Tenant",
+    )
+    enrollment = client.post("/api/v1/admin/endpoint-enrollments", json={}).json()
+    installation_id = str(uuid4())
+    exchanged = client.post(
+        "/api/v1/endpoint-enrollment/exchange",
+        json={
+            "code": enrollment["enrollment_code"],
+            "platform": platform,
+            "installation_id": installation_id,
+            "hostname": f"{platform} device",
+            "device_class": device_class,
+        },
+    )
+    assert exchanged.status_code == 201, exchanged.text
+    endpoint_id = exchanged.json()["endpoint_id"]
+
+    with SessionLocal() as db:
+        endpoint = db.get(Endpoint, endpoint_id)
+        assert endpoint.automation_enabled is True
+
+    telemetry = client.post(
+        "/api/v1/telemetry",
+        json={
+            "hostname": f"{platform} device",
+            "installation_id": installation_id,
+            "platform": platform,
+            "device_class": device_class,
+            "battery_percentage": 50,
+            "charging": False,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "agent_version": "0.1.0",
+        },
+        headers={"Authorization": f"Bearer {exchanged.json()['credential']}"},
+    )
+    assert telemetry.status_code == 200, telemetry.text
+    listed = client.get("/api/v1/endpoints")
+    assert listed.status_code == 200, listed.text
+    endpoint_row = next(row for row in listed.json() if row["id"] == endpoint_id)
+    assert endpoint_row["automation_enabled"] is True
+    assert endpoint_row["automation_available"] is True
 
 
 def test_enrollment_is_tenant_bound_reusable_across_platforms_and_returns_credentials_once():
@@ -47,6 +106,7 @@ def test_enrollment_is_tenant_bound_reusable_across_platforms_and_returns_creden
     result = exchanged.json()
     assert result["installation_id"] == installation_id
     assert result["platform"] == "macos"
+    assert result["endpoint_id"]
 
     with SessionLocal() as db:
         enrollment = db.query(EndpointEnrollment).one()
@@ -59,7 +119,7 @@ def test_enrollment_is_tenant_bound_reusable_across_platforms_and_returns_creden
         assert enrollment.last_used_at is not None
         assert enrollment.code_hash == hashlib.sha256(code.encode()).hexdigest()
         assert endpoint.tenant_id == tenant_id
-        assert endpoint.automation_enabled is False
+        assert endpoint.automation_enabled is True
         assert endpoint.installation_id == installation_id
         assert endpoint.token_hash == hashlib.sha256(result["credential"].encode()).hexdigest()
         assert authenticate_endpoint_token(f"Bearer {result['credential']}", db) == (False, None)

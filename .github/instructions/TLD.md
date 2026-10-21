@@ -328,10 +328,10 @@ APK build and emulator smoke test; iOS has an unsigned device IPA build and
 simulator smoke test. Both need physical-device validation and signed
 distribution.
 
-New enrolled endpoints default to automation disabled. An authorized admin
-must enable endpoint automation after a fresh report; API and worker enforce
-the configured platform allow-list and sample-age gate. Delayed readings do
-not regress current endpoint state. See `API_SPEC.md` for routes and
+New enrolled endpoints default to automation enabled across all four
+platforms. API and worker enforce the configured platform allow-list and
+sample-age gate, and mappings remain tenant-bound. Delayed readings do not
+regress current endpoint state. See `API_SPEC.md` for routes and
 `platform-agents/SERVER_SIDE_CONFIG.md` for migration and rollout details.
 Android and iOS physical-device QA and signed distribution, plus signed macOS
 login-item distribution, remain follow-up work; mobile background reporting

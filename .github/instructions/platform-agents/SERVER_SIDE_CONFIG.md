@@ -2,8 +2,8 @@
 
 **Status: implemented with platform-specific validation gaps.** The additive
 platform-aware schema, tenant-scoped reusable 24-hour enrollment tokens,
-hash-only per-install credentials, revocation, freshness checks, automation
-opt-in, migration, and Windows/macOS/Android/iOS clients are shipped. GitHub
+hash-only per-install credentials, revocation, freshness checks, automation freshness policy, migration, and Windows/macOS/Android/iOS clients
+are shipped. GitHub
 Releases publish an Android debug APK, an unsigned iOS IPA, and an unsigned,
 unnotarized macOS DMG. Android has an emulator smoke test; iOS has a simulator
 smoke test. Physical-device validation and signed distribution remain pending.
@@ -31,7 +31,7 @@ distribution QA remains. The live `POST /api/v1/telemetry` schema is
   credentials
 - endpoint snapshots and outbox events are committed together; delayed
   samples cannot regress the current snapshot, and automation is checked
-  asynchronously for opt-in/platform/freshness
+  asynchronously for endpoint state, platform eligibility, and freshness
 
 See [API_SPEC.md](../API_SPEC.md) for the authoritative current contract.
 
@@ -43,9 +43,9 @@ See [API_SPEC.md](../API_SPEC.md) for the authoritative current contract.
 - Make a backend-generated endpoint ID and a random per-installation UUID the
   identity basis for new mobile sources; an app-generated ID is not claimed to
   be a hardware ID.
-- Keep mobile endpoints telemetry-only by default. Automation is separately
-  allow-listed (Windows/macOS by default), requires explicit endpoint opt-in,
-  and is subject to the server freshness gate.
+- Enable endpoint automation by default across Windows, macOS, Android, and
+  iOS. Keep the server-side platform allow-list and 600-second freshness gate
+  authoritative; mobile reports and background scheduling remain best-effort.
 - Preserve tenant isolation, durable outbox processing, and the site connector
   boundary. Endpoint agents never control Tuya devices directly.
 
@@ -116,13 +116,14 @@ automate on:
   automation after the configured 600-second processing age.
 - Delayed telemetry does not regress the current snapshot or `last_seen_at`;
   its original timestamp is retained in the outbox payload.
-- New enrolled endpoints have `automation_enabled=false`. Admins can opt in
-  only after a fresh sample, and both API and worker enforce the platform
-  allow-list and freshness policy.
-- Keep backend hysteresis and cooldown authoritative for any opted-in source.
+- new enrolled endpoints have `automation_enabled=true` for all platforms.
+  Existing endpoints are enabled by the reviewed data migration. The API and
+  worker enforce the platform allow-list and sample freshness policy.
+- Keep backend hysteresis, cooldown, tenant matching, and enabled mappings
+  authoritative for every source.
 - Tests cover duplicate/out-of-order Windows events, delayed snapshots,
   future-dated ingress, enrollment replay, identity mismatch, revocation, and
-  opt-in/freshness gates.
+  automation default/freshness gates.
 
 Do not set fixed per-platform "freshness" promises based on an OS scheduler.
 Measure real devices and use a conservative, server-side maximum sample age
@@ -140,9 +141,9 @@ CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS
 CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS
 ```
 
-Telemetry and enrollment default to all four platforms. Automation defaults
-to Windows/macOS only, and each enrolled endpoint still requires explicit
-admin opt-in. Android has only been smoke-tested on an emulator; neither mobile client has
+Telemetry, enrollment, and automation default to all four platforms. Endpoint
+automation defaults on; operators may narrow the server platform allow-list.
+Android has only been smoke-tested on an emulator; neither mobile client has
 physical-device validation. The Android APK is debug-signed and the iOS IPA is
 unsigned, so neither is a signed store release. Use the 600-second sample-age
 gate rather than assuming OS schedulers guarantee a reporting interval.
@@ -157,8 +158,10 @@ gate rather than assuming OS schedulers guarantee a reporting interval.
   without measured need.
 - Expose platform and last-seen/report quality in endpoint list/detail APIs
   before adding frontend filters.
-- Admins can see endpoint platform, enrollment state, and automation
-  eligibility in the React Endpoints page and revoke endpoint credentials.
+- Admins can see endpoint platform and enrollment state in the React Endpoints
+  page and revoke endpoint credentials; a separate automation column is not
+  shown. Automation defaults on and the backend continues to enforce
+  eligibility.
   Raw credentials are never returned after enrollment.
 - Treat invalid schema/authentication as request errors; do not acknowledge
   failed persistence or synthesize a success-shaped fallback.
@@ -168,13 +171,12 @@ gate rather than assuming OS schedulers guarantee a reporting interval.
 1. Back up an existing production database and apply the cross-platform SQL
    migration before deployment.
 2. Deploy the backend and verify legacy Windows telemetry/automation.
-3. Enable macOS enrollment for a test tenant; endpoints default to
-   telemetry-only.
-4. Review report age, rejected samples, outbox age, Kafka lag, and endpoint
-   ownership before admin automation opt-in.
-5. Complete Android and iOS acceptance testing, validate real-device behavior
-   and privacy disclosures, then explicitly add them to the telemetry
-   allow-list.
+3. Verify all-platform automation defaults and the 600-second freshness gate
+   with fresh test telemetry before creating mappings.
+4. Review report age, rejected samples, outbox age, Kafka lag, endpoint
+   ownership, and command results.
+5. Complete Android and iOS acceptance testing and validate real-device
+   behavior and privacy disclosures; mobile reports may be delayed or skipped.
 
 Mobile HTTPS telemetry does not require local-network permission. If a future
 client directly discovers or controls Tuya devices, that is a separate feature

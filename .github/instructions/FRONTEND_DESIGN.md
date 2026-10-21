@@ -54,8 +54,11 @@ tokens are not shown. Windows, macOS, Android, and iOS agents exchange a token
 for a per-install credential and persist it using platform-appropriate
 protected storage. Existing Windows agents using shared tenant tokens remain
 compatible during migration. Windows setup offers the PowerShell install
-command, which enrolls the device, downloads the executable, and configures its
-scheduled task, plus a direct link to the unsigned executable. The setup page
+bootstrap, which downloads the executable and opens its setup UI, plus a direct
+link to the unsigned executable. The UI installs and configures a Windows
+service; it does not use Task Scheduler. The executable also provides CLI
+service controls and prompts for enrollment secrets instead of accepting
+tokens as command-line arguments. The setup page
 links to the latest GitHub Release for the Windows executable, Android debug
 APK, unsigned iOS IPA, and unsigned, unnotarized macOS DMG, and separately
 offers source projects. Explain how to install each build;
@@ -66,10 +69,11 @@ should suggest both a battery-level and charger-connected trigger and must not
 promise exact timing. The page shows token expiry and enrollment count without
 exposing token values unless its creator explicitly reveals one. Revoking a
 token prevents new exchanges; admins separately revoke already-issued endpoint
-credentials. The Endpoints
-page shows platform and enrollment state and allows admins to opt endpoints
-into automation only when the backend reports an allowed platform and fresh
-sample. The Connectors page supports a published
+credentials. The Endpoints page shows platform, enrollment state, and last-seen time to
+the second; it does not include a separate endpoint automation column.
+Endpoint automation is enabled by default for all four platforms, subject to
+server-side platform and freshness checks. The Overview shows last-seen age as
+a live relative time. The Connectors page supports a published
 Docker Compose image with environment-based one-time enrollment and
 Docker-managed persistent storage, and a one-line Python installer that
 prompts locally for the enrollment code. Connector and agent source downloads
@@ -81,8 +85,9 @@ regular turn-off threshold, and can enable a separate charging-completion
 cutoff that uses the selected device's `charging` telemetry flag. Show threshold labels
 in a wrapping legend rather than overlaid on the battery scale so coincident
 thresholds remain legible.
-Endpoint-level automation opt-in is separate from an individual mapping's
-enabled state; the server enforces the platform allow-list and sample freshness.
+Endpoint automation defaults on separately from an individual mapping's
+enabled state; the server enforces platform eligibility, sample freshness,
+tenant ownership, and battery rules.
 
 ## Visual system
 

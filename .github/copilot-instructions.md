@@ -29,10 +29,11 @@ and label proposals as proposals.
   and distribution maturity differs; see `.github/instructions/CURRENT_STATE.md`
   and `.github/instructions/platform-agents/`. Never use the legacy
   tenant-wide Windows token as a per-device mobile credential. Keep automation
-  server-authoritative: only platforms in
-  `CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS` may be opted in, and
-  every endpoint still requires a fresh report and explicit admin opt-in.
-  Mobile reporting and OS background scheduling are best-effort.
+  server-authoritative: automation is enabled by default for all four
+  platforms, subject to
+  `CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`, tenant-safe enabled
+  mappings, and a fresh report. Mobile reporting and OS background scheduling
+  are best-effort.
 
 ## Deployment and secrets
 

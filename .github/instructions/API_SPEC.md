@@ -200,10 +200,11 @@ response is marked `private, no-store`.
 Returns the authenticated user's agent install command and token for the React
 setup page. Requires an assigned tenant, except for the Super Admin. A Super
 Admin may pass `tenant_id` to select a workspace. The response contains only
-the generated one-line PowerShell install command and whether the user is a
+the generated one-line PowerShell bootstrap command and whether the user is a
 Super Admin; it does not expose tenant or global agent credentials. The
-command downloads the installer over HTTPS and uses `iex`; the response is
-marked `private, no-store`.
+bootstrap downloads the self-contained Windows service executable over HTTPS
+and opens its elevated setup UI; the enrollment token is entered in that UI,
+not on the command line. The API response is marked `private, no-store`.
 
 The following agent source downloads do not require a browser session and
 contain no credentials. They issue a `302` redirect to the corresponding asset
@@ -212,16 +213,17 @@ these source files alongside the platform build artifacts:
 
 - `GET /agent/download` redirects to the Windows PowerShell source ZIP.
 - `GET /agent/ChargePilotAgent.exe` redirects to the unsigned Windows
-  executable built from the PowerShell agent.
+  self-contained .NET Windows service executable with UI and CLI modes.
 - `GET /agent/macos/download` redirects to the Swift/macOS source ZIP.
 - `GET /agent/android/download` redirects to the Kotlin/Compose Android source
   project ZIP.
 - `GET /agent/ios/download` redirects to the SwiftUI Xcode project ZIP.
 - `GET /agent/install.ps1` redirects to the scheduled-task installer used by
-  the one-line command. The installer downloads the Windows executable,
-  enrolls the device, and registers the recurring scheduled task.
-- `GET /agent/BatteryAgent.ps1` redirects to the telemetry script fetched by
-  the installer.
+  the one-line command. The installer downloads the Windows executable and
+  opens its setup UI, where the administrator enrolls the device and installs
+  the Windows service. New installs do not use Task Scheduler.
+- `GET /agent/BatteryAgent.ps1` redirects to the legacy PowerShell telemetry
+  script. The new Windows service does not execute this script.
 
 Create an `agents-v*` release before deploying an API version that uses these
 redirects; without a published agent release, the GitHub asset URLs are not
@@ -344,12 +346,9 @@ Behavior:
   mappings, and history are preserved
 - relays the event to the `chargepilot.telemetry.v1` Kafka topic using a
   tenant/endpoint ordering key
-- new enrolled endpoints have automation disabled until an authorized
-  administrator opts in after a fresh sample. Workers independently check
-  endpoint opt-in, platform allow-list, and sample age (600 seconds by
-  default) before evaluating mappings
-- Windows endpoints preserve their existing automation eligibility. New
-  macOS endpoints are telemetry-only until explicitly enabled.
+- new enrolled endpoints default to automation enabled on all four platforms.
+  Workers independently check endpoint enablement, platform allow-list, and
+  sample age (600 seconds by default) before evaluating mappings
 - `switch_state` remains in the wire schema for agent compatibility and does
   not override backend rules
 - creates a durable desired-state connector command for connector-assigned
@@ -368,9 +367,10 @@ platform-independent enrollment and a per-install credential instead.
 Kafka-specific service settings use the `CHARGEPILOT_` prefix.
 
 Agents on all four platforms exchange a tenant-scoped enrollment token for a
-per-install credential. Windows protects the saved credential with Windows
-user-scoped DPAPI; macOS and iOS store it in Keychain, and Android encrypts it
-using Android Keystore. New Windows enrollments use an installation UUID
+per-install credential. The Windows service protects its saved credential
+with machine-scoped DPAPI in a SYSTEM/Administrators-only ProgramData
+directory; macOS and iOS store it in Keychain, and Android encrypts it using
+Android Keystore. New Windows enrollments use an installation UUID
 rather than a hardware UUID. Existing Windows agents using the legacy shared
 token remain compatible during migration. Android has a debug APK build and
 emulator smoke test; physical-device validation and signed distribution
@@ -406,9 +406,9 @@ allow-list.
 - `POST /api/v1/endpoint-enrollment/exchange` exchanges the code for a
   backend-created endpoint ID and per-install credential. The raw credential
   is returned once; only its SHA-256 hash is stored. Agents persist the
-  credential locally (Windows user-scoped DPAPI, macOS/iOS Keychain, or
-  Android Keystore). Each exchange creates a distinct endpoint identity bound
-  to the request's platform and installation UUID.
+  credential locally (Windows machine-scoped DPAPI in ProgramData,
+  macOS/iOS Keychain, or Android Keystore). Each exchange creates a distinct
+  endpoint identity bound to the request's platform and installation UUID.
 - `POST /api/v1/endpoints/{endpoint_id}/credential/revoke` invalidates an
   enrolled endpoint credential and disables its automation. Re-enrollment
   currently requires deleting the old endpoint and creating a new
@@ -416,12 +416,15 @@ allow-list.
 - `PATCH /api/v1/endpoints/{endpoint_id}/automation` accepts
   `{"enabled":true|false}`. Enabling requires a recent sample and a platform
   allowed by `CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`.
-- Defaults are configured in `.env.example`: Windows, macOS, Android, and iOS
-  are enabled for enrollment and telemetry. Automation remains limited to
-  Windows/macOS by default; every enrolled endpoint starts with automation
-  disabled and requires explicit admin opt-in after a fresh sample. Automation
-  max age defaults to 600 seconds, ingress max age to seven days, and future
-  skew to 300 seconds.
+- New enrolled endpoints have automation enabled by default. The platform
+  allow-list also defaults to Windows, macOS, Android, and iOS; an operator can
+  narrow it with `CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`.
+  Workers still require a fresh sample (600 seconds by default), a
+  tenant-matching enabled mapping, and the server-side battery rules before
+  creating a command. The endpoint automation API remains available for
+  authorized administrators to pause or restore endpoint eligibility.
+  Automation max age defaults to 600 seconds, ingress max age to seven days,
+  and future skew to 300 seconds.
 
 ### 3.4 GET /api/v1/endpoints
 

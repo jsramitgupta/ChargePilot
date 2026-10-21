@@ -9,45 +9,54 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 if ($env:OS -ne "Windows_NT") {
-    throw "Build the Windows executable on Windows. Use the GitHub Actions Windows runner from macOS."
+    throw "Set OS=Windows_NT and build this executable on a Windows runner."
 }
 
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-Install-Module -Name ps2exe -RequiredVersion 1.0.18 -Scope CurrentUser -Force -AllowClobber
-Import-Module ps2exe -RequiredVersion 1.0.18 -Force
-
-$sourcePath = [System.IO.Path]::GetFullPath(
-    (Join-Path $PSScriptRoot "..\BatteryAgent.ps1")
-)
-$destinationPath = [System.IO.Path]::GetFullPath($OutputPath)
-$destinationDirectory = Split-Path -Parent $destinationPath
-
-if (-not (Test-Path -LiteralPath $destinationDirectory)) {
-    New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+$dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+if (-not $dotnet) {
+    throw "Install the .NET 10 SDK before building the ChargePilot Windows agent."
 }
 
-Invoke-PS2EXE `
-    -inputFile $sourcePath `
-    -outputFile $destinationPath `
-    -x64 `
-    -title "ChargePilot Agent" `
-    -description "ChargePilot Windows battery telemetry agent" `
-    -company "ChargePilot" `
-    -product "ChargePilot Agent" `
-    -version $AgentVersion
+$projectPath = Join-Path $PSScriptRoot "ChargePilotAgent.csproj"
+$outputFullPath = [System.IO.Path]::GetFullPath($OutputPath)
+$outputDirectory = Split-Path -Parent $outputFullPath
+$publishDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "ChargePilotAgent-$([guid]::NewGuid().ToString('N'))"
 
-$stream = [System.IO.File]::OpenRead($destinationPath)
 try {
-    $firstByte = $stream.ReadByte()
-    $secondByte = $stream.ReadByte()
+    New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+    & $dotnet.Source publish $projectPath `
+        --configuration Release `
+        --runtime win-x64 `
+        --self-contained true `
+        "-p:Version=$AgentVersion" `
+        "-p:EnableWindowsTargeting=true" `
+        --output $publishDirectory
+    if ($LASTEXITCODE -ne 0) {
+        throw "The .NET publish command failed with exit code $LASTEXITCODE."
+    }
+
+    $publishedExecutable = Join-Path $publishDirectory "ChargePilotAgent.exe"
+    if (-not (Test-Path -LiteralPath $publishedExecutable)) {
+        throw "The .NET publish output did not contain ChargePilotAgent.exe."
+    }
+
+    Copy-Item -LiteralPath $publishedExecutable -Destination $outputFullPath -Force
+    $bytes = [System.IO.File]::ReadAllBytes($outputFullPath)
+    if ($bytes.Length -lt 256 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
+        throw "The generated file does not have a valid Windows executable header."
+    }
+
+    $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+    if ($peOffset -lt 64 -or $peOffset + 4 -gt $bytes.Length -or
+        $bytes[$peOffset] -ne 0x50 -or $bytes[$peOffset + 1] -ne 0x45 -or
+        $bytes[$peOffset + 2] -ne 0 -or $bytes[$peOffset + 3] -ne 0) {
+        throw "The generated file does not contain a valid Windows PE header."
+    }
+
+    Write-Output "Built self-contained Windows service and UI: $outputFullPath"
 }
 finally {
-    $stream.Dispose()
+    if (Test-Path -LiteralPath $publishDirectory) {
+        Remove-Item -LiteralPath $publishDirectory -Recurse -Force
+    }
 }
-
-if ($firstByte -ne 0x4D -or $secondByte -ne 0x5A) {
-    throw "The generated file does not have a valid Windows executable header."
-}
-
-Write-Output "Built Windows executable: $destinationPath"

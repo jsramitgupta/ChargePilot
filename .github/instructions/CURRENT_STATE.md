@@ -5,13 +5,14 @@ This file is the short operational summary for the repository as it stands today
 ## Product
 ChargePilot is a cloud-capable, local-first battery automation platform. The
 backend supports enrolled Windows, macOS, Android, and iOS telemetry. Android
-Kotlin/Compose and iOS SwiftUI source projects are implemented. The agent
-artifact workflow builds a Windows executable that wraps the PowerShell
-telemetry agent, an Android debug APK, an unsigned iOS IPA, and an
-unsigned, unnotarized macOS DMG. An `agents-v*` tag publishes those assets in
-a GitHub Release. The Windows executable is unsigned and requires Windows
-PowerShell 5.1; its build runs on Windows because the executable cannot be
-built or run natively on macOS. Windows EXE runtime validation is pending.
+Kotlin/Compose and iOS SwiftUI source projects are implemented. The agent artifact workflow builds a self-contained Windows .NET executable
+that installs a native Windows telemetry service and provides an administrator
+setup UI and CLI, an Android debug APK, an unsigned iOS IPA, and an unsigned,
+unnotarized macOS DMG. An `agents-v*` tag publishes those assets in a GitHub
+Release. The Windows executable is unsigned and targets Windows x64; its
+service is independent of user sign-in. Builds run on a Windows Actions runner
+and can also be cross-published from macOS with the .NET 10 SDK. Windows
+service runtime validation remains pending.
 Android has an emulator smoke test; iOS has a simulator smoke test.
 Physical-device validation and signed distribution remain outstanding. New
 installs use a tenant-scoped, reusable 24-hour
@@ -97,15 +98,18 @@ active tokens across workspaces; tokens expire after 24 hours and can be
 revealed or hidden by their creator until expiry, or revoked earlier.
 Expired/revoked tokens are not listed. The raw value is encrypted for reveal
 using `CHARGEPILOT_ENCRYPTION_KEY` while its SHA-256 hash remains the exchange
-verifier. Windows stores its endpoint credential with
-Windows user-scoped DPAPI; macOS and iOS use Keychain; Android encrypts the
-credential with an Android Keystore key. GitHub Releases publish an Android
+verifier. The Windows service stores its endpoint credential with machine-scoped DPAPI
+in an Administrators/SYSTEM-only ProgramData directory and migrates existing
+user-scoped Windows enrollment when setup runs elevated. macOS and iOS use
+Keychain; Android encrypts the credential with an Android Keystore key. GitHub
+Releases publish an unsigned Windows service executable, an Android
 debug-signed APK, an unsigned iOS IPA,
 and an unsigned, unnotarized macOS DMG; none is a store-signed release.
 Physical-device validation for Android and iOS remains outstanding. Mobile
-reports are best-effort. New endpoints begin with automation disabled; admins
-can opt in only after a fresh sample and when the platform is in the server
-automation allow-list.
+reports are best-effort. New enrolled endpoints default to automation enabled
+on all four platforms. The worker still requires a fresh sample, a
+server-allow-listed platform, and an enabled tenant-safe mapping before it can
+create a command.
 The macOS SwiftUI menu-bar app configures enrollment and reports every five
 minutes while running. Users can pause reporting or opt in to opening the app
 at sign-in; it is not a system daemon and does not report during sleep.
@@ -113,7 +117,8 @@ at sign-in; it is not a system daemon and does not report during sleep.
 ## Current primary workflows
 1. New Windows and macOS agents exchange a tenant-scoped, reusable 24-hour
    enrollment token for a backend endpoint ID and per-install credential.
-   Windows protects the credential with user-scoped DPAPI; macOS uses Keychain.
+   The Windows service protects the credential with machine-scoped DPAPI in a
+   SYSTEM/Administrators-only ProgramData directory; macOS uses Keychain.
    Existing Windows agents continue using the legacy shared-token protocol
    until reinstalled with a new enrollment token.
 2. API validates the legacy Windows token or resolves the per-install
@@ -128,9 +133,10 @@ at sign-in; it is not a system daemon and does not report during sleep.
    tenant-bound to the enrollment token's workspace.
 3. The outbox relay publishes events to Kafka in endpoint-key order.
 4. Automation consumers evaluate active mappings using battery hysteresis and
-   cooldown rules only when the endpoint is opted in, its platform is
+   cooldown rules only when the endpoint is enabled, its platform is
    allow-listed, and the sample is no older than the configured automation
-   freshness limit. New enrolled endpoints default to telemetry-only.
+   freshness limit. New enrolled endpoints default to automation enabled;
+   endpoint eligibility and the platform allow-list remain server-controlled.
    Mappings can disable turn-on independently and can enable a separate
    charging-only cutoff; connector commands remain durable in PostgreSQL.
 5. The assigned site connector controls the switch locally and acknowledges;
@@ -252,8 +258,8 @@ accepted by the shared enrollment and telemetry APIs by default. Read
 [platform-agents/README.md](platform-agents/README.md) and
 [platform-agents/SERVER_SIDE_CONFIG.md](platform-agents/SERVER_SIDE_CONFIG.md)
 for the implemented API contract, rollout controls, and client-specific
-constraints. Mobile reports remain subject to endpoint opt-in and server-side
-freshness gates; do not claim reliable background reporting.
+constraints. Mobile reports remain subject to server-side freshness gates; do
+not claim reliable background reporting.
 
 The current schema keeps the legacy Windows payload compatible while allowing
 optional IP/AC metadata, platform and device-class metadata, and an
@@ -261,8 +267,8 @@ installation UUID. New clients must use the reusable tenant-scoped enrollment
 token and per-install credentials, not the shared Windows token. Enrollment
 and telemetry accept all four platforms by default. Android has been
 smoke-tested on an emulator; Android and iOS have not been physically
-validated, and the iOS IPA is unsigned. Automation remains separately
-allow-listed.
+validated, and the iOS IPA is unsigned. Automation defaults to all four
+platforms and remains subject to the server allow-list and freshness gate.
 
 ## Persistent implementation guidance
 - Always post a concise completion update by default, reporting the work done,

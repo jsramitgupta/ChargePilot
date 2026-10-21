@@ -18,8 +18,8 @@ for the canonical implementation design and deployment boundaries.
 ## 2. Runtime topology
 
 ```text
-Windows scheduled executable (PS2EXE wrapper around PowerShell telemetry agent)
-  -> PowerShell telemetry agent
+Windows service executable (.NET Worker Service)
+  -> Windows battery and network telemetry
   -> POST /api/v1/telemetry
   -> API validates token, updates endpoint, writes transactional outbox event
   -> outbox-relay publishes keyed event to Kafka
@@ -31,16 +31,20 @@ Windows scheduled executable (PS2EXE wrapper around PowerShell telemetry agent)
 ```
 
 Windows and enrolled macOS clients are implemented as HTTPS telemetry
-producers. Windows distributes its existing PowerShell agent both as source
-and as an unsigned 64-bit executable wrapper; its installer configures
-user-protected credentials and the scheduled task. Android Kotlin/Compose and
+producers. The Windows executable hosts a background Windows service plus
+administrator UI and CLI modes. It encrypts the per-install credential with
+machine-scoped DPAPI in a SYSTEM/Administrators-only ProgramData directory,
+and migrates existing user-scoped enrollment and removes the legacy task on
+successful service installation. Existing PowerShell telemetry scripts remain
+available as legacy source; new installs do not use Task Scheduler. Android Kotlin/Compose and
 iOS SwiftUI source projects are also implemented. Android has a debug APK
 build and emulator smoke test; iOS has an unsigned device IPA build and
 simulator smoke test. Physical-device validation remains pending for both
 mobile platforms.
 Every agent sends readings only; it must not replace the site connector or own
-automation decisions. New installations are telemetry-only until an
-administrator opts in after a fresh sample. See
+automation decisions. New installations default to automation enabled; the
+backend enforces platform allow-list, freshness, tenant ownership, mapping
+state, hysteresis, and cooldown before any command. See
 [platform-agents/README.md](platform-agents/README.md).
 
 A second local onboarding path also exists:
@@ -126,8 +130,9 @@ Endpoint rows store platform, optional device class and installation ID,
 nullable AC state, and explicit automation eligibility. All four platforms
 can use the universal enrollment exchange by default.
 Android has a debug APK build and emulator smoke test; iOS has an unsigned
-device IPA build and simulator smoke test. Both platforms need physical-device validation. Telemetry and
-enrollment support do not imply client validation or automation eligibility.
+device IPA build and simulator smoke test. Both platforms need physical-device
+validation. Telemetry and enrollment support do not imply client validation or
+that a particular sample meets the server freshness gate.
 
 ### 3.4 Service layer
 
@@ -163,7 +168,7 @@ Current services include:
 5. One or more outbox relays publish records to Kafka, retaining per-endpoint
    ordering and allowing safe relay concurrency across distinct endpoints.
 6. A consumer group processes the event, checks its idempotency record,
-   endpoint automation opt-in, platform allow-list, and sample freshness before
+   endpoint automation state, platform allow-list, and sample freshness before
    loading mappings and applying battery hysteresis/cooldown.
 7. Connector-assigned switches receive durable desired-state commands;
    unassigned local devices use the existing direct TinyTuya path.
@@ -283,8 +288,9 @@ clients use the platform-aware backend enrollment and telemetry contract.
 Android has an emulator smoke test and iOS a simulator smoke test; physical
 device validation and signed distribution remain outstanding for mobile
 clients. Do not put shared tenant tokens in clients; mobile reporting and
-background scheduling are best-effort. Automation remains separately
-allow-listed and requires explicit endpoint opt-in. Platform-specific status
+background scheduling are best-effort. Automation defaults to all four
+platforms, subject to the server-side allow-list and freshness gate.
+Platform-specific status
 and rollout guidance are indexed in
 [platform-agents/README.md](platform-agents/README.md).
 

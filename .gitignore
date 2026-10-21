@@ -57,3 +57,6 @@ agent/ios/dist/
 agent/macos/.build/
 agent/macos/.swiftpm/
 agent/macos/dist/
+agent/windows/dist/
+**/bin/
+**/obj/

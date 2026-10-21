@@ -219,13 +219,16 @@ uvicorn app.main:app --host 127.0.0.1 --port 8010
 - `CHARGEPILOT_ENCRYPTION_KEY` must match the key used to encrypt stored local
   keys. Restore it with database backups.
 - New Windows agents use reusable 24-hour enrollment tokens and
-  per-install credentials protected with Windows user-scoped DPAPI; existing
-  Windows shared-token agents remain compatible during migration. macOS uses
-  the foreground Swift CLI and per-install Keychain credential. New endpoints
-  start with automation disabled. Android has a debug-signed APK build and
-  emulator smoke test, but physical-device validation and store signing remain
-  outstanding. iOS has an unsigned IPA build and simulator smoke test; physical
-  device validation and signing remain outstanding.
+  per-install credentials protected with machine-scoped DPAPI in a
+  SYSTEM/Administrators-only ProgramData directory; existing Windows
+  shared-token agents remain compatible during migration. macOS uses the
+  foreground Swift CLI and per-install Keychain credential. New endpoints
+  start with automation enabled for all four platforms, subject to the
+  server-side allow-list, fresh-sample check, and enabled tenant-safe mapping.
+  Android has a debug-signed APK build and emulator smoke test, but
+  physical-device validation and store signing remain outstanding. iOS has an
+  unsigned IPA build and simulator smoke test; physical-device validation and
+  signing remain outstanding.
   See `.github/instructions/platform-agents/SERVER_SIDE_CONFIG.md` for current
   configuration and rollout behavior.
 - For an existing PostgreSQL database, apply
@@ -236,8 +239,8 @@ uvicorn app.main:app --host 127.0.0.1 --port 8010
   verified backup before deploying universal multi-device 24-hour enrollment
   to an existing PostgreSQL database.
 - If telemetry is accepted but an endpoint does not change a switch, check
-  endpoint opt-in, platform allow-list, sample age, and worker lag before
-  changing battery thresholds.
+  endpoint automation state, platform allow-list, sample age, mapping
+  ownership/enabled state, and worker lag before changing battery thresholds.
 
 ### PostgreSQL container cannot be resolved
 

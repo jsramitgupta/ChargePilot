@@ -228,8 +228,8 @@ This is the product model that future Claude-driven rebuilds should preserve.
 The backend now supports a backward-compatible platform-aware telemetry
 schema, tenant-scoped reusable 24-hour enrollment tokens, hash-only
 per-install credentials, credential revocation, stale/future timestamp
-handling, and explicit endpoint-level automation opt-in with a server
-freshness gate. Windows PowerShell and macOS Swift agents are validated;
+handling, all-platform automation defaults, and a server freshness gate.
+Windows PowerShell and macOS Swift agents are validated;
 Android Kotlin/Compose and iOS SwiftUI clients use the same enrollment and
 telemetry contract. The GitHub release publishes an Android debug APK, an
 unsigned iOS IPA, and an unsigned, unnotarized macOS DMG alongside source
@@ -242,5 +242,6 @@ guidance. Android has an emulator smoke test, but still requires
 physical-device validation; iOS has a simulator smoke test, but its unsigned
 IPA requires signing and provisioning before installation. macOS reports only
 while awake and running; no mobile client guarantees a real-time reporting
-interval. Mobile automation remains separately allow-listed and requires
-explicit admin opt-in.
+interval. Automation is enabled by default for all platforms but remains
+subject to server-side freshness, tenant, mapping, and platform-policy checks.
+Mobile reporting remains best-effort.

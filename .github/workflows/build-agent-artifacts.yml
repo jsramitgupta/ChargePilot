@@ -105,13 +105,21 @@ jobs:
           retention-days: 90
 
   windows:
-    name: Build Windows executable
+    name: Build Windows service agent
     runs-on: windows-2022
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Build Windows executable
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test Windows agent contract
+        run: dotnet test agent/windows/tests/ChargePilotAgent.Core.Tests/ChargePilotAgent.Core.Tests.csproj --configuration Release
+
+      - name: Build Windows service executable
         shell: powershell
         run: |
           .\agent\windows\BuildAgentExe.ps1 `
@@ -201,24 +209,34 @@ jobs:
                           Path(f"chargepilot-{platform}-agent") / path.relative_to(prefix),
                       )
 
-          windows_files = (
-              ("agent/BatteryAgent.ps1", "BatteryAgent.ps1"),
-              ("agent/CreateAgentScheduledTask.ps1", "CreateAgentScheduledTask.ps1"),
-              ("agent/windows/BuildAgentExe.ps1", "windows/BuildAgentExe.ps1"),
-              ("agent/windows/README.md", "windows/README.md"),
+          windows_files = [
+              path
+              for path in tracked
+              if path.is_relative_to(Path("agent/windows"))
+              and "bin" not in path.parts
+              and "obj" not in path.parts
+          ]
+          windows_files.extend(
+              [
+                  Path("agent/BatteryAgent.ps1"),
+                  Path("agent/CreateAgentScheduledTask.ps1"),
+              ]
           )
           with zipfile.ZipFile(
               root / "artifacts" / "chargepilot-windows-agent-source.zip",
               "w",
               compression=zipfile.ZIP_DEFLATED,
           ) as archive:
-              for source, name in windows_files:
-                  archive.write(root / source, name)
+              for source in windows_files:
+                  archive.write(
+                      root / source,
+                      Path("chargepilot-windows-agent") / source.relative_to("agent"),
+                  )
 
           for source, asset in (
               ("agent/BatteryAgent.ps1", "chargepilot-windows-battery-agent.ps1"),
               (
-                  "agent/CreateAgentScheduledTask.ps1",
+                  "agent/windows/install.ps1",
                   "chargepilot-windows-agent-installer.ps1",
               ),
           ):
@@ -233,4 +251,4 @@ jobs:
           gh release create "$TAG" artifacts/* \
             --title "ChargePilot endpoint agents $TAG" \
             --latest \
-            --notes "Development builds and source archives generated from this tag. The Windows executable is unsigned and wraps the PowerShell agent. The Android APK is debug-signed. The iOS IPA is unsigned and requires signing before installation. The macOS DMG is unsigned and not notarized."
+            --notes "Development builds and source archives generated from this tag. The Windows executable installs a Windows service, provides an elevated configuration UI and CLI, and is unsigned. The Android APK is debug-signed. The iOS IPA is unsigned and requires signing before installation. The macOS DMG is unsigned and not notarized."

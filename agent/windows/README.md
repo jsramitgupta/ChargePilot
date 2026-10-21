@@ -1,30 +1,109 @@
-# ChargePilot Windows executable
+# ChargePilot Windows service agent
 
-The Windows download is a 64-bit executable wrapper around the existing
-PowerShell telemetry agent. It preserves the same enrollment, Windows
-user-protected credential, telemetry, and scheduled-task behavior; it is not a
-native rewrite and does not hide the embedded script. The executable is
-unsigned, so Windows SmartScreen may show a warning.
+The self-contained x64 .NET executable installs a background Windows service.
+It also provides an elevated Windows Forms setup UI and a command-line
+interface. The service reports battery telemetry without requiring a user to
+be signed in; the UI runs separately and never appears in the service session.
+New installations do not use Task Scheduler.
 
-Builds run on a Windows GitHub Actions runner. A Windows executable cannot run
-natively on macOS; from a Mac, use the **Build endpoint agent artifacts**
-workflow to build it remotely. The workflow uploads a 90-day Actions artifact
-for branch builds and includes the executable in GitHub Releases for
-`agents-v*` tags.
+The executable is unsigned and may trigger Windows SmartScreen. It does not
+hide or encrypt its application code. Enrollment tokens are entered in the UI
+or at a masked CLI prompt, never passed as command-line arguments.
 
-To build locally on Windows, use Windows PowerShell 5.1:
+## Install from ChargePilot
+
+On **Set up a device**, create or reveal an active enrollment token and copy
+the Windows install command. On the Windows device, run the command in
+PowerShell and approve the administrator prompt. The bootstrap downloads the
+latest executable over HTTPS and opens its setup UI.
+
+In the setup window:
+
+1. Confirm the ChargePilot API origin and device name.
+2. Select **Laptop** or **Desktop**, then choose the reporting interval.
+3. Enter the enrollment token and choose **Save and start service**.
+
+The agent exchanges the 24-hour enrollment token for a per-install endpoint
+credential. The token is not stored. The credential is machine-protected with
+Windows DPAPI in `%ProgramData%\ChargePilot\Agent\config.json`; the directory
+ACL grants access only to SYSTEM and Administrators. The service runs as
+LocalSystem and starts automatically after reboot.
+
+The installer can migrate an existing `%LOCALAPPDATA%\ChargePilot\agent-config.json`
+created by the previous Windows agent. Run setup as the same Windows account
+that created that configuration so its user-scoped DPAPI value can be
+decrypted. After the new service starts, setup removes the legacy
+`ChargePilotBatteryAgent` scheduled task. The shared-token agent remains
+available in the source archive only for compatibility and diagnostics.
+
+## Configure with the UI
+
+Run `ChargePilotAgent.exe ui` as Administrator. The window can install or
+update configuration, start or stop the service, and remove the service.
+Leave the enrollment-token field blank to keep an existing enrollment when
+changing the device name, class, or reporting interval. Enter a new token to
+enroll again or change the server.
+
+Reporting defaults to every five minutes and can be set from 1 to 60 minutes.
+The backend remains authoritative for freshness, automation eligibility,
+hysteresis, cooldowns, and switch commands.
+
+## Configure and manage from the CLI
+
+Open an elevated PowerShell window in the executable directory:
 
 ```powershell
-.\agent\windows\BuildAgentExe.ps1 -OutputPath .\ChargePilotAgent.exe
+.\ChargePilotAgent.exe install --server-url "https://api-chargepilot.endusercompute.in" --name "Office device" --class laptop --interval-minutes 5
+.\ChargePilotAgent.exe configure --server-url "https://api-chargepilot.endusercompute.in" --name "Office device" --class desktop --interval-minutes 5
+.\ChargePilotAgent.exe status
+.\ChargePilotAgent.exe start
+.\ChargePilotAgent.exe stop
+.\ChargePilotAgent.exe send-once
+.\ChargePilotAgent.exe uninstall
 ```
 
-The build script installs the pinned PS2EXE 1.0.18 module from PowerShell
-Gallery. The resulting agent expects the per-user
-`%LOCALAPPDATA%\ChargePilot\agent-config.json` created by the ChargePilot
-installer. For a new device, use the authenticated **Set up a device** page:
-the setup command enrolls the device, protects its per-install credential with
-Windows user-scoped DPAPI, downloads the executable, and registers the
-recurring scheduled task.
+`install` and `configure` prompt for the enrollment token without displaying
+its characters. Do not pass tokens as CLI options; command-line arguments may
+be exposed in process listings or shell history. The `status` and `send-once`
+commands can be run without elevation. Service installation, configuration,
+start, stop, and uninstall require an elevated administrator terminal.
 
-Do not embed enrollment tokens or endpoint credentials in the executable.
-Only the Windows device should hold its DPAPI-protected credential.
+`uninstall` removes the service and any old scheduled task, but retains the
+configuration and executable for reinstall. Use
+`uninstall --purge-config` to remove the saved enrollment as well. After
+uninstalling, the Program Files application directory can be removed manually.
+
+## Build
+
+Install the .NET 10 SDK. Builds produce a single-file self-contained Windows
+x64 executable, so target devices do not need a separate .NET runtime.
+
+On macOS or Windows:
+
+```sh
+dotnet test agent/windows/tests/ChargePilotAgent.Core.Tests/ChargePilotAgent.Core.Tests.csproj --configuration Release
+dotnet publish agent/windows/ChargePilotAgent.csproj \
+  --configuration Release \
+  --runtime win-x64 \
+  --self-contained true \
+  -p:EnableWindowsTargeting=true \
+  --output ./dist/windows
+```
+
+On Windows, the repository build script also checks the generated PE header:
+
+```powershell
+.\agent\windows\BuildAgentExe.ps1 -OutputPath .\dist\ChargePilotAgent.exe
+```
+
+GitHub Actions runs the Windows build and uploads a 90-day artifact for
+`agent/**` changes. An `agents-v*` tag publishes the executable and source
+archive to a GitHub Release. Windows service installation and telemetry
+runtime behavior must be validated on a Windows device; they cannot be run on
+macOS.
+
+## Legacy PowerShell agent
+
+`agent/BatteryAgent.ps1` and `agent/CreateAgentScheduledTask.ps1` remain in the
+source archive for existing deployments. They are not used by the new service
+installer and should not be used for new installations.
