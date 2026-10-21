@@ -19,9 +19,21 @@ swift build \
     --scratch-path "$X86_64_BUILD" \
     --triple x86_64-apple-macosx13.0 \
     -c release
+ARM64_BIN=$(swift build \
+    --package-path "$PROJECT_DIR" \
+    --scratch-path "$ARM64_BUILD" \
+    --triple arm64-apple-macosx13.0 \
+    -c release \
+    --show-bin-path)
+X86_64_BIN=$(swift build \
+    --package-path "$PROJECT_DIR" \
+    --scratch-path "$X86_64_BUILD" \
+    --triple x86_64-apple-macosx13.0 \
+    -c release \
+    --show-bin-path)
 lipo -create \
-    "$ARM64_BUILD/out/Products/Release/ChargePilotAgent" \
-    "$X86_64_BUILD/out/Products/Release/ChargePilotAgent" \
+    "$ARM64_BIN/ChargePilotAgent" \
+    "$X86_64_BIN/ChargePilotAgent" \
     -output "$STAGING_DIR/ChargePilotAgent"
 chmod 755 "$STAGING_DIR/ChargePilotAgent"
 cp "$PROJECT_DIR/DMG-README.md" "$STAGING_DIR/README.md"
