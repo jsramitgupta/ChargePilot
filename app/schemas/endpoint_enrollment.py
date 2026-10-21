@@ -26,6 +26,7 @@ class EndpointEnrollmentCreated(BaseModel):
 
 class EndpointEnrollmentInfo(BaseModel):
     id: UUID
+    tenant_name: str
     created_at: datetime
     expires_at: datetime
     revoked_at: datetime | None
@@ -37,6 +38,17 @@ class EndpointEnrollmentInfo(BaseModel):
     def normalize_datetime_timezone(cls, value: datetime | None) -> datetime | None:
         if value is None:
             return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+class EndpointEnrollmentToken(BaseModel):
+    id: UUID
+    enrollment_code: str
+    expires_at: datetime
+
+    @field_validator("expires_at", mode="before")
+    @classmethod
+    def normalize_expiration_timezone(cls, value: datetime) -> datetime:
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 

@@ -29,3 +29,16 @@ def decrypt_local_key(stored_key: str) -> str:
         return _fernet().decrypt(stored_key.encode("ascii")).decode("utf-8")
     except (InvalidToken, UnicodeDecodeError) as exc:
         raise RuntimeError("Could not decrypt the device local key; check the configured encryption key.") from exc
+
+
+def encrypt_endpoint_enrollment_code(code: str) -> str:
+    if not code:
+        raise ValueError("An endpoint enrollment code is required.")
+    return _fernet().encrypt(code.encode("utf-8")).decode("ascii")
+
+
+def decrypt_endpoint_enrollment_code(encrypted_code: str) -> str:
+    try:
+        return _fernet().decrypt(encrypted_code.encode("ascii")).decode("utf-8")
+    except (InvalidToken, UnicodeDecodeError) as exc:
+        raise RuntimeError("Could not decrypt the endpoint enrollment code; check the configured encryption key.") from exc

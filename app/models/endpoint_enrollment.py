@@ -19,6 +19,7 @@ class EndpointEnrollment(Base):
     )
     platform: Mapped[str | None] = mapped_column(String(16), nullable=True)
     code_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    encrypted_code: Mapped[str | None] = mapped_column(String(512), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

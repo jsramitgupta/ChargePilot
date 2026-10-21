@@ -342,6 +342,7 @@ def test_enrollment_listing_is_tenant_scoped_and_does_not_reveal_token():
     assert listed.json() == [
         {
             "id": enrollment["id"],
+            "tenant_name": "Enrollment List Tenant",
             "created_at": listed.json()[0]["created_at"],
             "expires_at": enrollment["expires_at"],
             "revoked_at": None,
@@ -362,6 +363,130 @@ def test_enrollment_listing_is_tenant_scoped_and_does_not_reveal_token():
     assert other_client.get("/api/v1/admin/endpoint-enrollments").json() == []
     assert other_client.delete(
         f"/api/v1/admin/endpoint-enrollments/{enrollment['id']}"
+    ).status_code == 404
+
+
+def test_admin_can_reveal_only_their_active_enrollment_token():
+    client = TestClient(app)
+    register_tenant_admin(
+        client,
+        "enrollment-reveal-owner",
+        "enrollment-reveal-password",
+        "Enrollment Reveal Tenant",
+    )
+    created = client.post("/api/v1/admin/endpoint-enrollments", json={})
+    assert created.status_code == 201, created.text
+    enrollment = created.json()
+
+    revealed = client.get(f"/api/v1/admin/endpoint-enrollments/{enrollment['id']}/token")
+    assert revealed.status_code == 200, revealed.text
+    assert revealed.headers["cache-control"] == "private, no-store"
+    assert revealed.json() == {
+        "id": enrollment["id"],
+        "enrollment_code": enrollment["enrollment_code"],
+        "expires_at": enrollment["expires_at"],
+    }
+
+    with SessionLocal() as db:
+        stored = db.get(EndpointEnrollment, enrollment["id"])
+        assert stored.encrypted_code is not None
+        assert stored.encrypted_code != enrollment["enrollment_code"]
+        assert stored.code_hash == hashlib.sha256(enrollment["enrollment_code"].encode()).hexdigest()
+
+    other_client = TestClient(app)
+    register_tenant_admin(
+        other_client,
+        "enrollment-reveal-other",
+        "enrollment-reveal-other-password",
+        "Other Enrollment Reveal Tenant",
+    )
+    assert other_client.get(
+        f"/api/v1/admin/endpoint-enrollments/{enrollment['id']}/token"
+    ).status_code == 404
+
+
+def test_admin_is_limited_to_five_active_tokens_and_revocation_frees_a_slot():
+    client = TestClient(app)
+    register_tenant_admin(
+        client,
+        "enrollment-limit-owner",
+        "enrollment-limit-password",
+        "Enrollment Limit Tenant",
+    )
+    enrollments = []
+    for _ in range(5):
+        created = client.post("/api/v1/admin/endpoint-enrollments", json={})
+        assert created.status_code == 201, created.text
+        enrollments.append(created.json())
+
+    limited = client.post("/api/v1/admin/endpoint-enrollments", json={})
+    assert limited.status_code == 409
+    assert "5 active enrollment tokens" in limited.json()["detail"]
+    assert len(client.get("/api/v1/admin/endpoint-enrollments").json()) == 5
+
+    revoked = client.delete(
+        f"/api/v1/admin/endpoint-enrollments/{enrollments[0]['id']}"
+    )
+    assert revoked.status_code == 204
+    replacement = client.post("/api/v1/admin/endpoint-enrollments", json={})
+    assert replacement.status_code == 201, replacement.text
+    listed_ids = {
+        enrollment["id"]
+        for enrollment in client.get("/api/v1/admin/endpoint-enrollments").json()
+    }
+    assert len(listed_ids) == 5
+    assert enrollments[0]["id"] not in listed_ids
+
+
+def test_expired_enrollment_token_releases_active_token_quota():
+    client = TestClient(app)
+    register_tenant_admin(
+        client,
+        "enrollment-expired-quota-owner",
+        "enrollment-expired-quota-password",
+        "Enrollment Expired Quota Tenant",
+    )
+    enrollments = [
+        client.post("/api/v1/admin/endpoint-enrollments", json={}).json()
+        for _ in range(5)
+    ]
+
+    with SessionLocal() as db:
+        stored = db.get(EndpointEnrollment, enrollments[0]["id"])
+        stored.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        db.commit()
+
+    replacement = client.post("/api/v1/admin/endpoint-enrollments", json={})
+    assert replacement.status_code == 201, replacement.text
+    assert len(client.get("/api/v1/admin/endpoint-enrollments").json()) == 5
+
+
+def test_expired_and_revoked_tokens_are_hidden_and_cannot_be_revealed():
+    client = TestClient(app)
+    register_tenant_admin(
+        client,
+        "enrollment-expiry-visibility",
+        "enrollment-expiry-visibility-password",
+        "Enrollment Expiry Visibility Tenant",
+    )
+    expired = client.post("/api/v1/admin/endpoint-enrollments", json={}).json()
+    with SessionLocal() as db:
+        stored = db.get(EndpointEnrollment, expired["id"])
+        stored.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        db.commit()
+
+    assert client.get("/api/v1/admin/endpoint-enrollments").json() == []
+    assert client.get(
+        f"/api/v1/admin/endpoint-enrollments/{expired['id']}/token"
+    ).status_code == 404
+
+    active = client.post("/api/v1/admin/endpoint-enrollments", json={}).json()
+    assert client.delete(
+        f"/api/v1/admin/endpoint-enrollments/{active['id']}"
+    ).status_code == 204
+    assert client.get("/api/v1/admin/endpoint-enrollments").json() == []
+    assert client.get(
+        f"/api/v1/admin/endpoint-enrollments/{active['id']}/token"
     ).status_code == 404
 
 

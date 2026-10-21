@@ -86,10 +86,13 @@ Users can attach it to battery-level and charger-connected personal
 automations; iOS may defer or skip those actions, so this does not guarantee
 an exact threshold response. The Shortcuts action stores its endpoint
 credential in device-only Keychain available after first unlock.
-The Set up a device page creates a platform-independent enrollment token,
-shows its raw value once, and lists expiry, revocation, and usage metadata.
-Tokens can enroll multiple endpoints for 24 hours and admins can revoke them
-to prevent further exchanges. Windows stores its endpoint credential with
+The Set up a device page creates platform-independent enrollment tokens and
+lists only the signed-in admin's active tokens. Each admin can hold up to five
+active tokens across workspaces; tokens expire after 24 hours and can be
+revealed or hidden by their creator until expiry, or revoked earlier.
+Expired/revoked tokens are not listed. The raw value is encrypted for reveal
+using `CHARGEPILOT_ENCRYPTION_KEY` while its SHA-256 hash remains the exchange
+verifier. Windows stores its endpoint credential with
 Windows user-scoped DPAPI; macOS and iOS use Keychain; Android encrypts the
 credential with an Android Keystore key. GitHub Releases publish an Android
 debug-signed APK, an unsigned iOS IPA,

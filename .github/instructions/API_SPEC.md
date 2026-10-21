@@ -382,15 +382,23 @@ allow-list.
 - `POST /api/v1/admin/endpoint-enrollments` creates a tenant-scoped,
   high-entropy, platform-independent token valid for 24 hours. One token can
   enroll multiple devices until expiry or revocation. Tenant admins/managers
-  are scoped to their tenant; Super Admins must select a tenant. The raw token
-  is returned once with `Cache-Control: private, no-store`.
-- `GET /api/v1/admin/endpoint-enrollments` lists the latest 50 token records
-  for the authorized tenant scope, including expiry, revocation, and usage
-  metadata. Raw tokens and hashes are never returned.
+  are scoped to their tenant; Super Admins must select a tenant. Each creator
+  may have at most five active tokens across workspaces; expired and revoked
+  tokens do not count. Creation returns the raw token with
+  `Cache-Control: private, no-store`.
+- `GET /api/v1/admin/endpoint-enrollments` lists only the requesting admin's
+  active, unexpired tokens in their authorized tenant scope, including
+  workspace name, expiry, and usage metadata. Raw tokens and hashes are never
+  returned by this list operation.
+- `GET /api/v1/admin/endpoint-enrollments/{enrollment_id}/token` reveals an
+  active token to its creator until expiry, with `Cache-Control: private,
+  no-store`. It returns 404 for a token the admin cannot access or one that is
+  expired/revoked. A pre-existing token without an encrypted reveal value
+  returns 409; revoke it and create a replacement.
 - `DELETE /api/v1/admin/endpoint-enrollments/{enrollment_id}` revokes an
   enrollment token, including after it has enrolled devices. Revocation stops
-  future exchanges only; revoke individual endpoint credentials to stop
-  already-enrolled devices.
+  future exchanges and releases one active-token slot; revoke individual
+  endpoint credentials to stop already-enrolled devices.
 - `POST /api/v1/endpoint-enrollment/exchange` exchanges the code for a
   backend-created endpoint ID and per-install credential. The raw credential
   is returned once; only its SHA-256 hash is stored. Agents persist the

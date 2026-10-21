@@ -55,8 +55,10 @@ See [API_SPEC.md](../API_SPEC.md) for the authoritative current contract.
 
 Do not embed the existing tenant-wide token in a distributed agent. It can be
 extracted and can authorize telemetry for the whole tenant. The enrollment
-token is a high-entropy bearer secret, displayed only once, and must be
-protected as a temporary secret during the 24-hour window.
+token is a high-entropy bearer secret and remains revealable by its creator
+until it expires after 24 hours. Each admin may have at most five active
+tokens across workspaces. The API stores the verifier as a hash and encrypts a
+separate reveal value with `CHARGEPILOT_ENCRYPTION_KEY`.
 
 The API provides a tenant-admin initiated, reusable 24-hour flow:
 
@@ -64,6 +66,8 @@ The API provides a tenant-admin initiated, reusable 24-hour flow:
    tenant. The token has no platform restriction and can enroll multiple
    devices until expiry or revocation. Never trust a client-supplied
    `tenant_id`.
+   The creator may hide or reveal it while active; expired and revoked tokens
+   are not listed.
 2. The app exchanges that token over HTTPS for a backend-created endpoint ID
    and a high-entropy, per-install credential.
 3. Store only a credential hash server-side; return the raw credential once
@@ -179,8 +183,9 @@ connector.
 
 ## Delivery status
 
-- [x] Enrollment code and per-install credentials are tenant-bound, revocable,
-      hashed at rest, and returned only once.
+- [x] Enrollment code verifier and per-install credentials are tenant-bound
+      and revocable; reveal material is encrypted at rest, while raw
+      per-install credentials are returned only once.
 - [x] Installation identity does not depend on serial/IMEI or a client-selected
       tenant.
 - [x] Existing Windows telemetry and agent setup remain compatible.

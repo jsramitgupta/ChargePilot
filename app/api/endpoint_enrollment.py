@@ -1,7 +1,7 @@
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
@@ -20,10 +20,13 @@ from app.schemas.endpoint_enrollment import (
     EndpointEnrollmentCredentials,
     EndpointEnrollmentExchange,
     EndpointEnrollmentInfo,
+    EndpointEnrollmentToken,
 )
+from app.services.local_key_service import decrypt_endpoint_enrollment_code, encrypt_endpoint_enrollment_code
 
 router = APIRouter(tags=["endpoint enrollment"])
 ENROLLMENT_TTL = timedelta(hours=24)
+MAX_ACTIVE_ENROLLMENTS_PER_ADMIN = 5
 
 
 def _require_admin(user: User) -> None:
@@ -70,13 +73,33 @@ async def create_endpoint_enrollment(
             detail="Select a valid tenant for this endpoint enrollment.",
         )
 
+    locked_user = db.query(User).filter(User.id == user.id).with_for_update().first()
+    if locked_user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+    now = datetime.now(UTC)
+    active_count = (
+        db.query(EndpointEnrollment)
+        .filter(
+            EndpointEnrollment.created_by_user_id == user.id,
+            EndpointEnrollment.revoked_at.is_(None),
+            EndpointEnrollment.expires_at > now,
+        )
+        .count()
+    )
+    if active_count >= MAX_ACTIVE_ENROLLMENTS_PER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You already have 5 active enrollment tokens. Revoke one or wait for a token to expire before creating another.",
+        )
+
     raw_code = secrets.token_urlsafe(32)
-    expires_at = datetime.now(UTC) + ENROLLMENT_TTL
+    expires_at = now + ENROLLMENT_TTL
     enrollment = EndpointEnrollment(
         tenant_id=tenant_id,
         created_by_user_id=user.id,
         platform=None,
         code_hash=hashlib.sha256(raw_code.encode("utf-8")).hexdigest(),
+        encrypted_code=encrypt_endpoint_enrollment_code(raw_code),
         expires_at=expires_at,
     )
     db.add(enrollment)
@@ -93,22 +116,70 @@ async def create_endpoint_enrollment(
 @router.get("/admin/endpoint-enrollments", response_model=list[EndpointEnrollmentInfo])
 async def list_endpoint_enrollments(
     response: Response,
-    tenant_id: UUID | None = None,
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
 ):
     _require_admin(user)
-    query = tenant_scoped_query(db.query(EndpointEnrollment), EndpointEnrollment, user)
-    if tenant_id is not None:
-        if not is_super_admin_user(user) and str(tenant_id) != user.tenant_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant access denied.")
-        query = query.filter(EndpointEnrollment.tenant_id == str(tenant_id))
-    enrollments = query.order_by(EndpointEnrollment.created_at.desc()).limit(50).all()
+    now = datetime.now(UTC)
+    enrollments = (
+        tenant_scoped_query(
+            db.query(EndpointEnrollment, Tenant.name),
+            EndpointEnrollment,
+            user,
+        )
+        .join(Tenant, Tenant.id == EndpointEnrollment.tenant_id)
+        .filter(
+            EndpointEnrollment.created_by_user_id == user.id,
+            EndpointEnrollment.revoked_at.is_(None),
+            EndpointEnrollment.expires_at > now,
+        )
+        .order_by(EndpointEnrollment.created_at.desc())
+        .limit(MAX_ACTIVE_ENROLLMENTS_PER_ADMIN)
+        .all()
+    )
     response.headers["Cache-Control"] = "private, no-store"
     return [
-        EndpointEnrollmentInfo.model_validate(enrollment, from_attributes=True)
-        for enrollment in enrollments
+        EndpointEnrollmentInfo.model_validate(
+            {**enrollment.__dict__, "tenant_name": tenant_name},
+        )
+        for enrollment, tenant_name in enrollments
     ]
+
+
+@router.get(
+    "/admin/endpoint-enrollments/{enrollment_id}/token",
+    response_model=EndpointEnrollmentToken,
+)
+async def reveal_endpoint_enrollment_token(
+    enrollment_id: str,
+    response: Response,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    _require_admin(user)
+    enrollment = (
+        tenant_scoped_query(db.query(EndpointEnrollment), EndpointEnrollment, user)
+        .filter(
+            EndpointEnrollment.id == enrollment_id,
+            EndpointEnrollment.created_by_user_id == user.id,
+            EndpointEnrollment.revoked_at.is_(None),
+            EndpointEnrollment.expires_at > datetime.now(UTC),
+        )
+        .first()
+    )
+    if enrollment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Active enrollment token not found.")
+    if enrollment.encrypted_code is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This token predates secure token reveal. Revoke it and create a new token.",
+        )
+    response.headers["Cache-Control"] = "private, no-store"
+    return EndpointEnrollmentToken(
+        id=enrollment.id,
+        enrollment_code=decrypt_endpoint_enrollment_code(enrollment.encrypted_code),
+        expires_at=enrollment.expires_at,
+    )
 
 
 @router.post(

@@ -204,11 +204,17 @@ type AgentSetup = {
 
 type EndpointEnrollment = {
   id: string
+  tenant_name: string
   created_at: string
   expires_at: string
-  revoked_at?: string | null
   enrollment_count: number
   last_used_at?: string | null
+}
+
+type RevealedEndpointEnrollment = {
+  id: string
+  enrollment_code: string
+  expires_at: string
 }
 
 type SmartLifeDevice = {
@@ -2929,33 +2935,51 @@ function AgentSetupPage() {
     queryFn: () => apiFetch<AgentSetup>(`/api/v1/agent/setup${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''}`),
   })
   const [copyStatus, setCopyStatus] = useState('')
-  const [enrollmentCode, setEnrollmentCode] = useState('')
-  const [createdEnrollmentId, setCreatedEnrollmentId] = useState('')
+  const [revealedEnrollment, setRevealedEnrollment] = useState<RevealedEndpointEnrollment | null>(null)
+  const [clockNow, setClockNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 10_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  useEffect(() => {
+    if (!revealedEnrollment) return
+    const enrollmentId = revealedEnrollment.id
+    const delay = Math.max(0, Date.parse(revealedEnrollment.expires_at) - Date.now())
+    const timer = window.setTimeout(() => {
+      setRevealedEnrollment((current) => current?.id === enrollmentId ? null : current)
+    }, delay)
+    return () => window.clearTimeout(timer)
+  }, [revealedEnrollment])
   const tokenQuery = useQuery({
-    queryKey: ['endpoint-enrollments', tenantId],
-    queryFn: () => apiFetch<EndpointEnrollment[]>(
-      `/api/v1/admin/endpoint-enrollments${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''}`,
-    ),
-    enabled: Boolean(canManageEnrollments) && (!isSuperAdmin || Boolean(tenantId)),
+    queryKey: ['endpoint-enrollments'],
+    queryFn: () => apiFetch<EndpointEnrollment[]>('/api/v1/admin/endpoint-enrollments'),
+    enabled: Boolean(canManageEnrollments),
+    refetchInterval: 30_000,
   })
   const createEnrollmentMutation = useMutation({
     mutationFn: () => apiFetch<{ id: string; enrollment_code: string; expires_at: string }>('/api/v1/admin/endpoint-enrollments', {
       method: 'POST',
       body: JSON.stringify(tenantId ? { tenant_id: tenantId } : {}),
     }),
-    onSuccess: ({ id, enrollment_code }) => {
-      setCreatedEnrollmentId(id)
-      setEnrollmentCode(enrollment_code)
+    onSuccess: ({ id, enrollment_code, expires_at }) => {
+      setRevealedEnrollment({ id, enrollment_code, expires_at })
       setCopyStatus('')
       void queryClient.invalidateQueries({ queryKey: ['endpoint-enrollments'] })
+    },
+  })
+  const revealEnrollmentMutation = useMutation({
+    mutationFn: (enrollmentId: string) =>
+      apiFetch<RevealedEndpointEnrollment>(`/api/v1/admin/endpoint-enrollments/${enrollmentId}/token`),
+    onSuccess: (enrollment) => {
+      setRevealedEnrollment(enrollment)
+      setCopyStatus('')
     },
   })
   const revokeEnrollmentMutation = useMutation({
     mutationFn: (enrollmentId: string) =>
       apiFetch<void>(`/api/v1/admin/endpoint-enrollments/${enrollmentId}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      setCreatedEnrollmentId('')
-      setEnrollmentCode('')
+    onSuccess: (_, enrollmentId) => {
+      setRevealedEnrollment((current) => current?.id === enrollmentId ? null : current)
       void queryClient.invalidateQueries({ queryKey: ['endpoint-enrollments'] })
     },
   })
@@ -2963,6 +2987,9 @@ function AgentSetupPage() {
   if (setupQuery.isLoading) return <LoadingCard />
   if (setupQuery.error) return <ErrorCard message={setupQuery.error.message} />
   const serverUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, '')
+  const activeEnrollments = (tokenQuery.data ?? []).filter((token) => Date.parse(token.expires_at) > clockNow)
+  const tokenLimitReached = activeEnrollments.length >= 5
+  const revealedEnrollmentIsListed = activeEnrollments.some((token) => token.id === revealedEnrollment?.id)
   const copyText = async (text: string, copiedMessage: string) => {
     try {
       await navigator.clipboard.writeText(text)
@@ -2979,8 +3006,7 @@ function AgentSetupPage() {
       {tenantsQuery.error && <div className="mt-3"><ErrorCard message={tenantsQuery.error.message} /></div>}
       <label className="label mt-4" htmlFor="enrollment-tenant">Workspace
         <select id="enrollment-tenant" className="field mt-1" value={tenantId} onChange={(event) => {
-          setEnrollmentCode('')
-          setCreatedEnrollmentId('')
+          setRevealedEnrollment(null)
           setSearchParams(event.target.value ? { tenant_id: event.target.value } : {})
         }}>
           <option value="">Select a workspace</option>
@@ -2989,59 +3015,82 @@ function AgentSetupPage() {
       </label>
     </section>}
     {createEnrollmentMutation.error && <ErrorCard message={createEnrollmentMutation.error.message} />}
+    {revealEnrollmentMutation.error && <ErrorCard message={revealEnrollmentMutation.error.message} />}
     {revokeEnrollmentMutation.error && <ErrorCard message={revokeEnrollmentMutation.error.message} />}
+    {revealedEnrollment && !revealedEnrollmentIsListed && Date.parse(revealedEnrollment.expires_at) > clockNow && <div className="panel max-w-3xl border-l-4 border-[var(--copper)] p-4 sm:p-5">
+      <p className="text-sm font-semibold text-[var(--ink)]">Enrollment token · expires {formatTimestamp(revealedEnrollment.expires_at)}</p>
+      <code className="mt-3 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-sm text-[var(--ink)]">{revealedEnrollment.enrollment_code}</code>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" className="btn-secondary" onClick={() => void copyText(revealedEnrollment.enrollment_code, 'Enrollment token copied.')}>Copy token</button>
+        <button type="button" className="btn-secondary" onClick={() => setRevealedEnrollment(null)}>Hide token</button>
+        <button type="button" className="danger-btn small-btn" disabled={revokeEnrollmentMutation.isPending} onClick={() => revokeEnrollmentMutation.mutate(revealedEnrollment.id)}>Revoke</button>
+      </div>
+      <p className="mt-2 min-h-5 text-xs text-[var(--muted)]" role="status">{copyStatus}</p>
+    </div>}
     {canManageEnrollments && <section className="panel max-w-3xl p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Enrollment token</h2>
-          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">This high-entropy token works for any enabled platform and can enroll multiple devices for 24 hours. The token is shown only once.</p>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">Create a token for any enabled platform. Reveal or hide it during its 24-hour lifetime, or revoke it at any time.</p>
+          <p className="mt-2 text-sm font-semibold text-[var(--ink)]" aria-live="polite">
+            Active tokens: {tokenQuery.isLoading ? 'Loading…' : `${activeEnrollments.length} of 5`}
+          </p>
         </div>
         <button
           type="button"
           className="btn-primary"
-          disabled={createEnrollmentMutation.isPending || (isSuperAdmin && !tenantId)}
-          onClick={() => {
-            setEnrollmentCode('')
-            setCreatedEnrollmentId('')
-            createEnrollmentMutation.mutate()
-          }}
+          disabled={createEnrollmentMutation.isPending || tokenQuery.isLoading || tokenQuery.isError || tokenLimitReached || (isSuperAdmin && !tenantId)}
+          onClick={() => createEnrollmentMutation.mutate()}
         >
           {createEnrollmentMutation.isPending ? 'Creating token…' : 'Create enrollment token'}
         </button>
       </div>
       {isSuperAdmin && !tenantId && <p className="mt-3 text-sm text-amber-800">Select a workspace before creating a token.</p>}
-      {enrollmentCode && <div className="mt-5 border-l-4 border-[var(--copper)] bg-[var(--surface-muted)] p-4 sm:p-5">
-        <p className="text-sm font-semibold text-[var(--ink)]">Copy this token now. It cannot be retrieved again.</p>
-        <code className="mt-3 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3 font-mono text-sm text-[var(--ink)]">{enrollmentCode}</code>
-        <p className="mt-2 text-sm text-[var(--muted)]">Expires {formatTimestamp((createEnrollmentMutation.data?.expires_at) ?? '')}. Revoke it to stop future enrollments; devices already enrolled keep working until their endpoint credentials are revoked.</p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <button type="button" className="btn-secondary" onClick={() => void copyText(enrollmentCode, 'Enrollment token copied.')}>Copy enrollment token</button>
-          <button
-            type="button"
-            className="btn-secondary border-red-200 text-red-700"
-            disabled={revokeEnrollmentMutation.isPending}
-            onClick={() => createdEnrollmentId && revokeEnrollmentMutation.mutate(createdEnrollmentId)}
-          >
-            Revoke token
-          </button>
-        </div>
-        <p className="mt-2 min-h-5 text-xs text-[var(--muted)]" role="status">{copyStatus}</p>
-      </div>}
+      {tokenLimitReached && <p className="mt-3 text-sm text-[var(--muted)]">Revoke a token or wait for one to expire before creating another.</p>}
       {tokenQuery.error && <div className="mt-4"><ErrorCard message={tokenQuery.error.message} /></div>}
       {tokenQuery.isLoading && <p className="mt-4 text-sm text-[var(--muted)]">Loading enrollment tokens…</p>}
       {!tokenQuery.isLoading && tokenQuery.data && <div className="mt-6 border-t border-[var(--line)] pt-5">
-        <h3 className="font-semibold text-[var(--ink)]">Recent tokens</h3>
-        {tokenQuery.data.length ? <ul className="mt-3 divide-y divide-[var(--line)]">
-          {tokenQuery.data.map((token) => {
-            return <li key={token.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-              <div>
-                <p className="text-sm font-medium text-[var(--ink)]">{token.revoked_at ? 'Revoked' : `Expires ${formatTimestamp(token.expires_at)}`}</p>
-                <p className="mt-1 text-xs text-[var(--muted)]">Created {formatTimestamp(token.created_at)} · {token.enrollment_count} device{token.enrollment_count === 1 ? '' : 's'} enrolled</p>
+        <h3 className="font-semibold text-[var(--ink)]">Your active tokens</h3>
+        {activeEnrollments.length ? <ul className="mt-3 divide-y divide-[var(--line)]">
+          {activeEnrollments.map((token) => {
+            const revealed = revealedEnrollment?.id === token.id
+            const revealPending = revealEnrollmentMutation.isPending && revealEnrollmentMutation.variables === token.id
+            return <li key={token.id} className="py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-[var(--ink)]">Expires {formatTimestamp(token.expires_at)}</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">Created {formatTimestamp(token.created_at)} · {token.enrollment_count} device{token.enrollment_count === 1 ? '' : 's'} enrolled · {token.tenant_name}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={revealEnrollmentMutation.isPending || Date.parse(token.expires_at) <= clockNow}
+                    aria-expanded={revealed}
+                    onClick={() => {
+                      if (revealed) {
+                        setRevealedEnrollment(null)
+                        setCopyStatus('')
+                      } else {
+                        setRevealedEnrollment(null)
+                        revealEnrollmentMutation.mutate(token.id)
+                      }
+                    }}
+                  >
+                    {revealed ? 'Hide token' : revealPending ? 'Loading…' : 'Show token'}
+                  </button>
+                  <button type="button" className="danger-btn small-btn" disabled={revokeEnrollmentMutation.isPending} onClick={() => revokeEnrollmentMutation.mutate(token.id)}>Revoke</button>
+                </div>
               </div>
-              {!token.revoked_at && <button type="button" className="danger-btn small-btn" disabled={revokeEnrollmentMutation.isPending} onClick={() => revokeEnrollmentMutation.mutate(token.id)}>Revoke</button>}
+              {revealed && revealedEnrollment && Date.parse(revealedEnrollment.expires_at) > clockNow && <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-3 sm:p-4">
+                <p className="text-xs font-medium text-[var(--muted)]">This token is available until it expires.</p>
+                <code className="mt-2 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3 font-mono text-sm text-[var(--ink)]">{revealedEnrollment.enrollment_code}</code>
+                <button type="button" className="btn-secondary mt-3" onClick={() => void copyText(revealedEnrollment.enrollment_code, 'Enrollment token copied.')}>Copy token</button>
+                <p className="mt-2 min-h-5 text-xs text-[var(--muted)]" role="status">{copyStatus}</p>
+              </div>}
             </li>
           })}
-        </ul> : <p className="mt-2 text-sm text-[var(--muted)]">No enrollment tokens yet.</p>}
+        </ul> : <p className="mt-2 text-sm text-[var(--muted)]">No active tokens. Expired and revoked tokens are hidden.</p>}
       </div>}
     </section>}
     <section className="max-w-3xl space-y-4">

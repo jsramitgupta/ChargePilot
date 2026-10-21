@@ -599,6 +599,26 @@ private database service before deploying the application. Its rollback
 invalidates all universal tokens and converts them to expired Windows-scoped
 records; already enrolled endpoint credentials remain intact.
 
+Enrollment-token reveal adds the nullable `endpoint_enrollments.encrypted_code`
+column. New tokens retain their verifier as a SHA-256 hash and a separately
+encrypted reveal value protected by the existing `CHARGEPILOT_ENCRYPTION_KEY`.
+The key must remain stable and available to every API process. For an existing
+PostgreSQL deployment:
+
+1. Take and verify a database backup.
+2. Apply `deploy/migrations/20261021_endpoint_enrollment_reveal.sql` through
+   the private database service before deploying the updated API.
+3. Deploy the API and verify token creation, reveal, and revocation.
+
+The rollback file drops only the encrypted reveal column; token hashes,
+exchange behavior, and enrollment rows remain. Roll back the API before
+applying `deploy/migrations/20261021_endpoint_enrollment_reveal_rollback.sql`.
+After rollback, reveal is unavailable. Existing tokens created before this
+migration have no encrypted value and cannot be revealed; they remain usable
+until expiry or revocation, after which an administrator can create a new
+token. On a genuinely empty database, `create_all()` creates the column from
+the current model, but does not add it to an existing table.
+
 Legacy Windows endpoints are identified by the
 `Win32_ComputerSystemProduct.UUID`; hostname remains mutable display and
 diagnostic data. The endpoint `hardware_uuid` column is nullable for existing
@@ -726,7 +746,9 @@ the global token is only for unassigned endpoints.
 
 On **Set up a device**, choose the correct tenant and create a reusable
 24-hour enrollment token. The same token can enroll multiple devices across
-enabled platforms until it expires or is revoked. The raw value is shown once.
+enabled platforms until it expires or is revoked. Each admin may have up to
+five active tokens across workspaces; the creator can reveal or hide each
+active token until it expires. Expired and revoked tokens are hidden.
 Download the macOS DMG from the GitHub Release, move the app to Applications,
 and enter the API origin, device label, and enrollment token in the menu-bar
 app. The per-install credential is stored in the user's Keychain. The
