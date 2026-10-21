@@ -11,9 +11,11 @@ releases are not available.
 
 ## Current server contract
 
-The device-validated clients are the Windows PowerShell agent and the macOS
-Swift foreground CLI. Android and iOS source projects are available but are
-not yet device-validated. The live `POST /api/v1/telemetry` schema is
+The device-validated telemetry clients are the Windows PowerShell agent and
+the existing macOS CLI. The macOS SwiftUI menu-bar app now provides enrollment,
+background reporting, and optional launch-at-login behavior; its packaged UI
+still needs macOS-target QA. Android and iOS source projects are available but
+are not yet device-validated. The live `POST /api/v1/telemetry` schema is
 `app/schemas/telemetry.py`:
 
 - required: `hostname`, `battery_percentage` (0–100), `charging`, `timestamp`,
@@ -189,4 +191,4 @@ connector.
 - [x] Android debug APK build and emulator smoke test.
 - [x] iOS unsigned device IPA build and simulator smoke test.
 - [ ] Android/iOS physical-device QA and signed distribution.
-- [ ] Signed macOS menu-bar/login-item distribution and macOS-target build QA.
+- [ ] macOS menu-bar/login-item app QA and signed/notarized distribution.

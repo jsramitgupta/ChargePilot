@@ -1,8 +1,8 @@
 # macOS Agent
 
-The first macOS client is implemented in `agent/macos` as a Swift foreground
-CLI. It uses the platform-aware backend contract, reusable tenant-scoped
-24-hour enrollment tokens, and a per-install Keychain credential.
+The macOS client in `agent/macos` is a SwiftUI menu-bar app with CLI
+diagnostics. It uses the platform-aware backend contract, reusable
+tenant-scoped 24-hour enrollment tokens, and a per-install Keychain credential.
 
 ## Scope
 
@@ -10,8 +10,10 @@ CLI. It uses the platform-aware backend contract, reusable tenant-scoped
 - identify the endpoint using a random per-installation UUID; do not collect a
   serial number
 - upload through the current ChargePilot telemetry contract
-- run foreground while the Mac is awake; automatic login launch and signed
-  distribution remain follow-up items
+- report every five minutes while the menu-bar app is running and the Mac is
+  awake
+- optionally launch in the user's session at sign-in through macOS
+  `SMAppService.mainApp`
 
 ## Primary documents
 
@@ -27,19 +29,19 @@ CLI. It uses the platform-aware backend contract, reusable tenant-scoped
 
 ## Implementation approach
 
-The current native Swift CLI is documented in [agent/macos/README.md](../../../../agent/macos/README.md).
-It persists the installation ID locally and the credential in Keychain. Its
-development DMG includes a local battery check and does not enroll the Mac.
-Never embed or use the tenant-wide Windows token. Remaining menu-bar/login-item
-and signed/notarized distribution work should use the same API contract
-documented in [../SERVER_SIDE_CONFIG.md](../SERVER_SIDE_CONFIG.md).
+The menu-bar app and CLI are documented in
+[agent/macos/README.md](../../../../agent/macos/README.md). The app persists
+the installation ID locally and the credential in Keychain, reports
+immediately and every five minutes while running, and lets users enable a
+login item. Never embed or use the tenant-wide Windows token. The development
+DMG remains unsigned and not notarized.
 
 ## Known constraints
 
 - macOS telemetry is available from public power-source APIs, but sleep and power-off states create natural gaps
-- the app should not claim to be a real-time automation agent
-- the CLI reports failures to its foreground terminal; a future menu-bar app
-  should surface status visibly
+- the app must not claim to be a real-time automation agent
+- report success and failure visibly in the menu-bar UI without exposing
+  credentials
 
 ## Platform references
 

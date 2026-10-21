@@ -146,8 +146,8 @@ Cross-platform telemetry adds platform fields and per-install enrollment
 without replacing the Windows contract. Connector configuration and
 enrollment are separate interfaces.
 
-Windows PowerShell and the enrolled macOS Swift CLI are implemented telemetry
-agents. Android Kotlin/Compose and iOS SwiftUI source clients are available.
+Windows PowerShell and the enrolled macOS SwiftUI menu-bar app with CLI
+diagnostics are implemented telemetry agents. Android Kotlin/Compose and iOS SwiftUI source clients are available.
 Android has a debug APK build and emulator smoke test; physical-device
 validation remains pending. iOS has an unsigned device IPA build and simulator
 smoke test; physical-device validation remains pending. All agents submit telemetry to the control plane; the site

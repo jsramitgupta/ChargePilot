@@ -2,10 +2,11 @@
 
 ## 1. Product goal
 
-The first deliverable is a native Swift foreground CLI that reports battery
-state while the Mac is awake and the process is running. The platform-aware
-backend enrollment and schema are implemented. Signed menu-bar/login-item
-distribution is future work.
+The macOS client is a native SwiftUI menu-bar app that configures enrollment
+and reports battery state while the user is signed in, the Mac is awake, and
+the process is running. The platform-aware backend enrollment and schema are
+implemented. The development app supports an optional per-user login item;
+signed and notarized distribution remains future work.
 
 ## 2. User value
 
@@ -21,7 +22,8 @@ distribution is future work.
   and explicit user-provided label; omit IP address and hardware serial
 - authenticate using a per-install credential from the shipped enrollment flow
 - store the credential in Keychain and installation metadata locally
-- provide foreground success/failure status in the CLI
+- provide menu-bar setup, reporting controls, and visible success/failure status
+- allow the user to opt into launch at sign-in
 - expose graceful failure states when the network is unavailable or the backend rejects the report
 
 ## 4. Non-functional requirements
@@ -34,6 +36,10 @@ distribution is future work.
 ## 5. Success criteria
 
 - the agent enrolls and uploads through the platform-aware API
+- users can configure and pause reporting without editing files or using a
+  terminal
+- the app starts reporting immediately after enrollment and repeats every five
+  minutes while running
 - Windows telemetry and automation remain unchanged
 - the backend can distinguish this agent without collecting a hardware serial
 - stale, delayed, or invalid samples cannot trigger switch control

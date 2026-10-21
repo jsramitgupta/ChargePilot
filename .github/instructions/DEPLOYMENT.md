@@ -25,7 +25,7 @@ cloud app directly into the device LAN.
 - outbound HTTPS access from each site connector to ChargePilot
 - Windows laptop capable of running the currently supported
   `agent/BatteryAgent.ps1` agent
-- macOS 13+ with Swift 5.9+ for the foreground `agent/macos` telemetry CLI
+- macOS 13+ with Swift 5.9+ for the `agent/macos` menu-bar app and CLI
 - Node.js 24 LTS for frontend local development
 
 ## 3. Environment variables

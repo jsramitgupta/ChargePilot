@@ -10,13 +10,13 @@
 
 ## 2. Current implementation
 
-`agent/macos` is a foreground Swift CLI. It contains command parsing,
-one-time enrollment exchange, local configuration storage, Keychain
-credential storage, Apple power-source collection, and HTTPS upload. It
-supports a local `check` command that reads battery state without enrollment or
-network access. After enrollment, it reports immediately and then every five
-minutes while running. It does not install a login item and has no graphical
-status UI.
+`agent/macos` contains a SwiftUI menu-bar app and a command-line diagnostic
+interface. The app provides server, label, and enrollment-code setup, local
+configuration storage, Keychain credential storage, Apple power-source
+collection, HTTPS upload, and visible report status. It can register itself
+as a per-user login item with `SMAppService.mainApp`. After enrollment, it
+reports immediately and then every five minutes while the app is running. The
+CLI `check` command reads battery state without enrollment or network access.
 
 ## 3. Power-source integration
 
@@ -30,10 +30,11 @@ serial numbers or assume the API always supplies health metrics.
 - attach the enrolled per-install credential
 - send the platform payload to the deployed `/api/v1/telemetry` endpoint
 - handle HTTP success, schema/auth rejection, and network retry states
-- report the last upload result to the foreground terminal
+- show the last upload result in the menu-bar UI or foreground terminal
 
 ## 5. Operational notes
 
-- a signed, notarized menu-bar/login-item app remains recommended future work
+- the current development menu-bar app and login-item flow are unsigned and
+  unnotarized; signed distribution remains future work
 - running while sleeping is not guaranteed; do not claim a reliable wake-up or background sampling contract
 - the CLI should degrade gracefully when offline or when enrollment is revoked

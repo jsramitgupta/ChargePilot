@@ -1,8 +1,8 @@
 # Platform Agent Streams
 
 This directory tracks ChargePilot's cross-platform telemetry work. The
-platform-aware backend contract, Windows PowerShell enrollment, a foreground
-Swift macOS CLI, and Kotlin/Compose Android and SwiftUI iOS source
+platform-aware backend contract, Windows PowerShell enrollment, a SwiftUI
+macOS menu-bar app with CLI diagnostics, and Kotlin/Compose Android and SwiftUI iOS source
 projects are implemented. Existing Windows agents remain compatible with the
 shared-token flow. Android has a debug APK build and emulator smoke test; iOS
 has an unsigned device IPA build and simulator smoke test. Physical-device
@@ -38,12 +38,13 @@ Key rules to preserve:
   `hardware_uuid`/shared-token flow during migration.
 - An installation UUID is not hardware identity. Do not collect serials,
   IMEI, Wi-Fi identifiers, or location.
-- mobile agents must treat background reporting as best-effort and not as guaranteed real-time automation
+- mobile agents must treat background reporting as best-effort and not as
+  guaranteed real-time automation
 
 ## Platform streams
 
-- [macos](./macos/README.md) — implemented Swift foreground CLI; signed
-  login-item/menu-bar distribution remains future work
+- [macos](./macos/README.md) — SwiftUI menu-bar app with optional per-user
+  login item; signed/notarized distribution remains future work
 - [android](./android/README.md) — Kotlin/Compose source project; WorkManager
   reporting is best-effort and device validation remains
 - [ios](./ios/README.md) — SwiftUI source project; foreground and Shortcuts

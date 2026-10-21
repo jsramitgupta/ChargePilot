@@ -2,11 +2,12 @@
 
 ## 1. Core architecture
 
-The shipped client is a foreground Swift CLI that collects power data while
-awake and while the process is running. It does not command switches or
-manipulate Tuya devices. It uses the live tenant-scoped enrollment and
-platform-aware telemetry contract. The installation ID is stored locally and
-the per-install credential is stored in Keychain.
+The shipped client is a SwiftUI menu-bar app with CLI diagnostics. It collects
+power data while awake and while the app process is running; a user may opt in
+to launch at sign-in through `SMAppService.mainApp`. It does not command
+switches or manipulate Tuya devices. It uses the live tenant-scoped enrollment
+and platform-aware telemetry contract. The installation ID is stored locally
+and the per-install credential is stored in Keychain.
 
 ## 2. Components
 
@@ -16,8 +17,8 @@ the per-install credential is stored in Keychain.
 - Network uploader: sends the agreed versioned payload using the enrolled
   per-install credential
 - Scheduler: determines when to read and transmit based on the user session and OS state
-- Foreground status: reports last upload success/failure in the terminal;
-  graphical status UI remains future work
+- Menu-bar UI: configures enrollment and reporting, and displays last
+  upload success/failure
 
 ## 3. Key design decisions
 
@@ -29,7 +30,7 @@ the per-install credential is stored in Keychain.
 
 ## 4. Data flow
 
-1. app starts or wakes
+1. app starts or wakes in the signed-in user session
 2. retrieve installation identity and credential from secure storage
 3. read battery state and available optional power-source metadata
 4. build the agreed platform-aware payload; omit unavailable network data
@@ -41,5 +42,7 @@ the per-install credential is stored in Keychain.
 
 - telemetry uses the platform-aware contract and never uses the tenant-wide
   Windows token
-- the app is structured so a separate AI or engineer can swap scheduler details without changing server logic
-- background and sleep behavior are documented as expected limitations
+- the app is structured so scheduler details can change without changing
+  server logic
+- login-item, sleep, and background behavior are documented as best-effort
+  limitations

@@ -88,6 +88,9 @@ credential with an Android Keystore key. Mobile reports are best-effort, and
 no signed mobile app is distributed. New endpoints begin with automation
 disabled; admins can opt in only after a fresh sample and when the platform is
 in the server automation allow-list.
+The macOS SwiftUI menu-bar app configures enrollment and reports every five
+minutes while running. Users can pause reporting or opt in to opening the app
+at sign-in; it is not a system daemon and does not report during sleep.
 
 ## Current primary workflows
 1. New Windows and macOS agents exchange a tenant-scoped, reusable 24-hour

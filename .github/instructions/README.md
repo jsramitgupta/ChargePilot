@@ -30,8 +30,8 @@ Physical-device validation and signed distribution remain pending. The current p
 includes:
 
 - Windows laptop telemetry ingestion via a PowerShell agent
-- enrolled macOS battery telemetry via a Swift CLI, with per-install
-  credentials and explicit user labels
+- enrolled macOS battery telemetry via a SwiftUI menu-bar app and CLI, with
+  per-install credentials, explicit user labels, and an optional login item
 - Android Kotlin/Compose and iOS SwiftUI telemetry source projects with
   secure per-install credential storage; signed releases are not available
 - platform-aware telemetry, endpoint enrollment, credential revocation, and

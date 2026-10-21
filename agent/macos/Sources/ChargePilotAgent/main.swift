@@ -7,7 +7,7 @@ private let agentVersion = "0.1.0"
 private let reportingInterval = Duration.seconds(300)
 private let keychainService = "in.chargepilot.telemetry"
 
-private struct LocalConfiguration: Codable {
+struct LocalConfiguration: Codable {
     let serverURL: String
     let installationID: UUID
     let label: String
@@ -65,21 +65,20 @@ private struct TelemetryRequest: Encodable {
     }
 }
 
-private struct BatteryReading {
+struct BatteryReading {
     let percentage: Int
     let charging: Bool
     let acConnected: Bool?
 }
 
 @main
-private struct ChargePilotAgent {
+struct ChargePilotAgent {
     static func main() async {
         do {
             let arguments = Array(CommandLine.arguments.dropFirst())
-            guard let command = arguments.first else {
-                throw AgentError.usage
-            }
-            switch command {
+            switch arguments.first {
+            case nil, "app":
+                ChargePilotAgentMenuBar.launch()
             case "help", "--help", "-h":
                 print(AgentError.usage.localizedDescription)
             case "enroll":
@@ -95,6 +94,69 @@ private struct ChargePilotAgent {
             fputs("ChargePilot agent: \(error.localizedDescription)\n", stderr)
             exit(EXIT_FAILURE)
         }
+    }
+
+    static func currentConfiguration() throws -> LocalConfiguration? {
+        guard FileManager.default.fileExists(atPath: configurationURL.path) else {
+            return nil
+        }
+        do {
+            return try JSONDecoder().decode(
+                LocalConfiguration.self,
+                from: Data(contentsOf: configurationURL)
+            )
+        } catch {
+            throw AgentError.invalidConfiguration
+        }
+    }
+
+    static func enrollFromUI(serverOrigin: String, label: String, code: String) async throws -> LocalConfiguration {
+        let serverURL = try validatedServerURL(serverOrigin)
+        let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanLabel.isEmpty, !cleanCode.isEmpty else {
+            throw AgentError.invalidEnrollmentCode
+        }
+        let configuration = LocalConfiguration(
+            serverURL: serverURL.absoluteString,
+            installationID: UUID(),
+            label: cleanLabel
+        )
+        let response: EnrollmentResponse = try await post(
+            to: serverURL.appendingPathComponent("api/v1/endpoint-enrollment/exchange"),
+            body: EnrollmentRequest(
+                code: cleanCode,
+                installationID: configuration.installationID,
+                hostname: cleanLabel
+            )
+        )
+        guard response.installationID == configuration.installationID else {
+            throw AgentError.invalidServerResponse
+        }
+        try storeCredential(response.credential, installationID: configuration.installationID)
+        try saveConfiguration(configuration)
+        return configuration
+    }
+
+    static func sendTelemetry(configuration: LocalConfiguration) async throws -> BatteryReading {
+        let reading = try readBattery()
+        let credential = try loadCredential(installationID: configuration.installationID)
+        let serverURL = try validatedServerURL(configuration.serverURL)
+        let body = TelemetryRequest(
+            hostname: configuration.label,
+            installationID: configuration.installationID,
+            batteryPercentage: reading.percentage,
+            charging: reading.charging,
+            acConnected: reading.acConnected,
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            agentVersion: agentVersion
+        )
+        try await postAccepted(
+            to: serverURL.appendingPathComponent("api/v1/telemetry"),
+            body: body,
+            credential: credential
+        )
+        return reading
     }
 
     private static func enroll(arguments: [String]) async throws {
@@ -148,23 +210,9 @@ private struct ChargePilotAgent {
 
     private static func run() async throws {
         let configuration = try loadConfiguration()
-        let credential = try loadCredential(installationID: configuration.installationID)
-        let serverURL = try validatedServerURL(configuration.serverURL)
-        let endpoint = serverURL.appendingPathComponent("api/v1/telemetry")
-
         while true {
             do {
-                let reading = try readBattery()
-                let body = TelemetryRequest(
-                    hostname: configuration.label,
-                    installationID: configuration.installationID,
-                    batteryPercentage: reading.percentage,
-                    charging: reading.charging,
-                    acConnected: reading.acConnected,
-                    timestamp: ISO8601DateFormatter().string(from: Date()),
-                    agentVersion: agentVersion
-                )
-                try await postAccepted(to: endpoint, body: body, credential: credential)
+                let reading = try await sendTelemetry(configuration: configuration)
                 print("Reported battery at \(reading.percentage)% (\(Date())).")
             } catch {
                 fputs("Telemetry was not accepted: \(error.localizedDescription)\n", stderr)
@@ -299,14 +347,10 @@ private struct ChargePilotAgent {
     }
 
     private static func loadConfiguration() throws -> LocalConfiguration {
-        do {
-            return try JSONDecoder().decode(
-                LocalConfiguration.self,
-                from: Data(contentsOf: configurationURL)
-            )
-        } catch {
+        guard let configuration = try currentConfiguration() else {
             throw AgentError.notEnrolled
         }
+        return configuration
     }
 
     private static func storeCredential(_ credential: String, installationID: UUID) throws {
@@ -372,6 +416,7 @@ private enum AgentError: LocalizedError {
     case batteryUnavailable
     case httpRejected(Int)
     case notEnrolled
+    case invalidConfiguration
     case keychainUnavailable
     case terminalUnavailable
 
@@ -396,6 +441,8 @@ private enum AgentError: LocalizedError {
             return "The server rejected the request with HTTP \(statusCode)."
         case .notEnrolled:
             return "This Mac is not enrolled. Run the enroll command first."
+        case .invalidConfiguration:
+            return "The saved agent configuration could not be read. Re-enroll this Mac."
         case .keychainUnavailable:
             return "The per-install credential could not be read from or saved to Keychain."
         case .terminalUnavailable:
