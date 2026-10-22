@@ -8,6 +8,6 @@ resources:
   - istio.yaml
 images:
   - name: endusercompute/chargepilot-api
-    newTag: sha-0247be039ff729f63c3015963937d6766f60ab51
+    newTag: sha-2ba3a08d7efb8e48819d97a8aa5657b95d4d2e16
   - name: endusercompute/chargepilot-frontend
-    newTag: sha-0247be039ff729f63c3015963937d6766f60ab51
+    newTag: sha-2ba3a08d7efb8e48819d97a8aa5657b95d4d2e16
