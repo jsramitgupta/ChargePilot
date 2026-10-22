@@ -28,6 +28,7 @@ internal static class Program
                 "start" => RunServiceControl(ServiceManager.Start),
                 "stop" => RunServiceControl(ServiceManager.Stop),
                 "uninstall" => RunUninstall(commandArguments),
+                "deregister" => RunDeregisterAsync().GetAwaiter().GetResult(),
                 "send-once" => RunSendOnceAsync().GetAwaiter().GetResult(),
                 "help" or "--help" or "-h" => ShowHelp(),
                 _ => throw new ArgumentException($"Unknown command '{command}'. Run ChargePilotAgent.exe help for available commands."),
@@ -175,6 +176,44 @@ internal static class Program
         return 0;
     }
 
+    private static async Task<int> RunDeregisterAsync()
+    {
+        AttachConsoleIfAvailable();
+        if (!ServiceManager.IsAdministrator())
+        {
+            throw new UnauthorizedAccessException("Deregistering the Windows service requires an elevated administrator terminal.");
+        }
+
+        var store = new ConfigurationStore();
+        var options = store.Load()
+            ?? throw new InvalidOperationException("The Windows agent has no saved enrollment.");
+        var serviceWasRunning = ServiceManager.GetStatus() == "Running";
+        if (serviceWasRunning)
+        {
+            ServiceManager.Stop();
+        }
+
+        var credentialRevoked = false;
+        try
+        {
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            await new ChargePilotApiClient(httpClient).DeregisterAsync(options.ServerUri, options.Credential);
+            credentialRevoked = true;
+            store.Delete();
+        }
+        catch
+        {
+            if (serviceWasRunning && !credentialRevoked)
+            {
+                ServiceManager.Start();
+            }
+            throw;
+        }
+
+        Console.WriteLine("Device deregistered. Enter a new enrollment token in the setup UI to connect it again.");
+        return 0;
+    }
+
     private static async Task<int> RunSendOnceAsync()
     {
         AttachConsoleIfAvailable();
@@ -217,6 +256,7 @@ internal static class Program
               ChargePilotAgent.exe status
               ChargePilotAgent.exe start
               ChargePilotAgent.exe stop
+              ChargePilotAgent.exe deregister
               ChargePilotAgent.exe send-once
               ChargePilotAgent.exe uninstall [--purge-config]
 

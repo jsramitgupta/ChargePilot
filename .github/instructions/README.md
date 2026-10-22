@@ -26,8 +26,9 @@ The implemented product is a cloud-capable, local-first battery automation
 platform. Windows PowerShell and macOS agents are device-validated; Android
 and iOS source projects are implemented. The artifact workflow builds a
 self-contained .NET Windows service executable with setup UI/CLI, Android
-debug APK, unsigned iOS IPA, and unsigned, unnotarized macOS DMG; an
-`agents-v*` tag publishes the built assets to a GitHub Release. The Windows
+APK, iOS IPA, and macOS DMG. An `agents-v*` tag publishes the builds to a
+GitHub Release; each platform is signed when its complete signing-secret group
+is configured, and is identified as unsigned otherwise. The Windows
 service executable build and runtime validation are pending.
 Android has an emulator smoke test; iOS has a simulator smoke test. Physical-device
 validation and signed distribution remain pending. The current product
@@ -127,9 +128,10 @@ If this project has to be rebuilt from scratch, the safe order is:
 7. add SmartLife QR onboarding and local-key matching flow
 8. add the React UI and SSE for operational visibility; follow FRONTEND_DESIGN.md for route, typography, and theme decisions
 9. Android and iOS reporters use the shipped platform-aware backend contract.
-   Android has a published debug APK and emulator smoke test; iOS has a
-   published unsigned IPA and simulator smoke test. Physical-device validation
-   and signed distribution remain follow-up work.
+   Android has a development APK and emulator smoke test; iOS has a device IPA
+   and simulator smoke test. Physical-device validation and signed distribution
+   remain follow-up work. Tagged releases can publish unsigned or per-platform
+   signed artifacts depending on configured secrets.
 
 This order preserves the local-first architecture and distinguishes source
 availability from validated, distributable mobile apps.

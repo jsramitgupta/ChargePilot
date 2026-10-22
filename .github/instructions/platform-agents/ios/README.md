@@ -1,10 +1,13 @@
 # iOS Agent Stream
 
 The native SwiftUI iOS telemetry companion is implemented in `agent/ios`. It
-uses the platform-aware backend schema and reusable enrollment flow. GitHub
-Releases publish an unsigned device IPA and source project. The IPA has a
-simulator smoke test, but physical-device validation and signing for
-installation remain outstanding.
+uses the platform-aware backend schema and reusable enrollment flow. The
+release workflow publishes an IPA and source project whether or not Apple
+signing secrets are configured. A complete iOS signing group and
+`APPLE_TEAM_ID` produce an ad-hoc signed IPA; an absent group produces an
+unsigned IPA, and a partial group fails the release job. The IPA has a
+simulator smoke test, but physical-device validation and signed release
+publication remain outstanding.
 
 ## Scope
 
@@ -17,6 +20,7 @@ installation remain outstanding.
   collect hardware identifiers
 - expose a Shortcuts App Intent for user-configured battery/charger
   automations, while keeping reporting best-effort and server-authoritative
+- allow users to deregister and re-enroll from the app without reinstalling
 
 ## Primary documents
 
@@ -73,4 +77,5 @@ The implementation agent should verify:
 3. the app exposes local last-success status and makes background limits clear
 4. lifecycle changes and delayed uploads cannot create a false control signal
 5. local-network permission is not requested for ordinary HTTPS telemetry
-6. distribution and App Review requirements are included in release planning
+6. ad-hoc signing and provisioning-profile device coverage are verified before
+   publishing; App Store distribution is not claimed

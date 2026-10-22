@@ -41,6 +41,8 @@ private struct EnrollmentResponse: Decodable {
     }
 }
 
+private struct EmptyRequest: Encodable {}
+
 private struct TelemetryRequest: Encodable {
     let hostname: String
     let installationID: UUID
@@ -157,6 +159,23 @@ struct ChargePilotAgent {
             credential: credential
         )
         return reading
+    }
+
+    static func deregisterFromServer(configuration: LocalConfiguration) async throws {
+        let credential = try loadCredential(installationID: configuration.installationID)
+        let serverURL = try validatedServerURL(configuration.serverURL)
+        try await postAccepted(
+            to: serverURL.appendingPathComponent("api/v1/endpoint-enrollment/deregister"),
+            body: EmptyRequest(),
+            credential: credential
+        )
+    }
+
+    static func clearLocalEnrollment(configuration: LocalConfiguration) throws {
+        if FileManager.default.fileExists(atPath: configurationURL.path) {
+            try FileManager.default.removeItem(at: configurationURL)
+        }
+        try deleteCredential(installationID: configuration.installationID)
     }
 
     private static func enroll(arguments: [String]) async throws {
@@ -385,6 +404,18 @@ struct ChargePilotAgent {
             throw AgentError.keychainUnavailable
         }
         return credential
+    }
+
+    private static func deleteCredential(installationID: UUID) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: installationID.uuidString,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw AgentError.keychainUnavailable
+        }
     }
 
     private static func readHiddenLine() throws -> String {

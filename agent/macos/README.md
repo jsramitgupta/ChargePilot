@@ -44,9 +44,17 @@ macOS login item. Both are user-controlled. The app is a menu-bar process, not
 a system daemon. Sleep and logout interrupt reporting, and macOS scheduling
 does not provide a real-time guarantee.
 
-The development DMG is universal for Apple Silicon and Intel but is unsigned
-and not notarized. A first open may require the user to approve macOS's
-security prompt.
+The development DMG is universal for Apple Silicon and Intel and may be
+unsigned. Tagged release DMGs are Developer ID-signed and notarized when the
+complete macOS signing and notarization secret group is configured. Without
+that group, the DMG is published unsigned and unnotarized; a partially
+configured group fails the release job. Check the release notes and
+`agent-release-manifest.json` for its status.
+
+While enrolled, select **Deregister this Mac** from the menu-bar app and
+confirm. This revokes the per-install credential and returns the app to its
+enrollment form so the Mac can reconnect with a new token without
+reinstallation.
 
 ## Command-line checks
 
@@ -61,10 +69,10 @@ This reads battery state without enrolling or contacting the server. The
 `ChargePilotAgent --help` for their syntax.
 
 The **Build endpoint agent artifacts** GitHub Actions workflow also builds the
-DMG. Agent-source pushes and pull requests upload APK, unsigned IPA, and DMG
-artifacts for 90 days. Push an `agents-v*` tag to publish them on a GitHub
-Release. The Android APK is debug-signed, the iOS IPA is unsigned, and the DMG
-is unsigned and not notarized.
+DMG. Agent-source pushes and pull requests upload development artifacts for
+90 days. An `agents-v*` tag publishes each platform build whether or not its
+signing secrets are configured. See the platform-agent release-signing
+instructions for the required GitHub secrets.
 
 Use the API origin only; the agent appends `/api/v1` routes itself. Do not put
 credentials in shell history, source control, or environment files. Never

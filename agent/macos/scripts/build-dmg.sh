@@ -40,6 +40,20 @@ lipo -create \
     -output "$APP_DIR/Contents/MacOS/ChargePilotAgent"
 cp "$PROJECT_DIR/Info.plist" "$APP_DIR/Contents/Info.plist"
 chmod 755 "$APP_DIR/Contents/MacOS/ChargePilotAgent"
+if [ -n "${MACOS_DEVELOPER_ID_APPLICATION:-}" ]; then
+    codesign \
+        --force \
+        --deep \
+        --options runtime \
+        --timestamp \
+        --sign "$MACOS_DEVELOPER_ID_APPLICATION" \
+        "$APP_DIR"
+    codesign --verify --deep --strict "$APP_DIR"
+    signature_file=$(mktemp)
+    trap 'rm -f "$signature_file"' EXIT
+    codesign --display --verbose=4 "$APP_DIR" 2> "$signature_file"
+    grep -F "Authority=$MACOS_DEVELOPER_ID_APPLICATION" "$signature_file"
+fi
 cp "$PROJECT_DIR/DMG-README.md" "$STAGING_DIR/README.md"
 hdiutil create \
     -volname ChargePilotAgent \

@@ -93,14 +93,14 @@ def test_device_setup_links_to_published_builds_and_explains_installation():
     app = APP_COMPONENT.read_text(encoding="utf-8")
 
     assert "https://github.com/jsramitgupta/ChargePilot/releases/latest" in app
-    assert "ChargePilotAgent-0.1.0.dmg" in app
-    assert "app-debug.apk" in app
-    assert "ChargePilotAgent-0.1.0-unsigned.ipa" in app
+    assert "View latest macOS release assets" in app
+    assert "View latest Android release assets" in app
+    assert "View latest iOS release assets" in app
     assert "chargepilot-android-agent-source.zip" in app
     assert "chargepilot-ios-agent-source.zip" in app
-    assert "Download macOS DMG from GitHub" in app
-    assert "Download Android APK from GitHub" in app
-    assert "Download unsigned iOS IPA from GitHub" in app
+    assert "agent-release-manifest.json" in app
+    assert "otherwise they are unsigned" in app
+    assert "deregister" in app
     assert "allow your browser or file manager to install this app" in app
     assert "select your signing team" in app
     assert "Shortcuts" in app

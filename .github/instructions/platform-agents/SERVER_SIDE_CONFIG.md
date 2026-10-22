@@ -3,10 +3,14 @@
 **Status: implemented with platform-specific validation gaps.** The additive
 platform-aware schema, tenant-scoped reusable 24-hour enrollment tokens,
 hash-only per-install credentials, revocation, freshness checks, automation freshness policy, migration, and Windows/macOS/Android/iOS clients
-are shipped. GitHub
-Releases publish an Android debug APK, an unsigned iOS IPA, and an unsigned,
-unnotarized macOS DMG. Android has an emulator smoke test; iOS has a simulator
-smoke test. Physical-device validation and signed distribution remain pending.
+are shipped. Self-service deregistration and re-enrollment are available in
+the Windows, macOS, Android, and iOS clients. `agents-v*` releases publish
+Windows, Android, iOS, and macOS binaries whether signing credentials are
+configured or not. Each platform is signed and verified when its complete
+signing-secret group is configured; otherwise the release notes and manifest
+identify the asset as unsigned. Partially configured secret groups fail that
+platform job. Android has an emulator smoke test; iOS has a simulator smoke
+test. Physical-device validation and signed store distribution remain pending.
 
 ## Current server contract
 
@@ -144,9 +148,13 @@ CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS
 Telemetry, enrollment, and automation default to all four platforms. Endpoint
 automation defaults on; operators may narrow the server platform allow-list.
 Android has only been smoke-tested on an emulator; neither mobile client has
-physical-device validation. The Android APK is debug-signed and the iOS IPA is
-unsigned, so neither is a signed store release. Use the 600-second sample-age
-gate rather than assuming OS schedulers guarantee a reporting interval.
+physical-device validation. Tagged release APKs are signed when the complete
+Android secret group is configured; otherwise the published APK is unsigned.
+The iOS release IPA uses ad-hoc signing when its complete signing group and
+`APPLE_TEAM_ID` are configured, and is installable only on devices in its
+provisioning profile; it is not an App Store distribution. Without those
+secrets, the IPA is unsigned. Use the 600-second sample-age gate rather than
+assuming OS schedulers guarantee a reporting interval.
 
 ### 5. API, event, and operator surfaces
 
@@ -193,9 +201,60 @@ connector.
 - [x] Existing Windows telemetry and agent setup remain compatible.
 - [x] PostgreSQL migration and rollback scripts are included.
 - [x] Delayed, stale, duplicate, and future-dated paths have focused tests.
-- [x] New enrolled endpoints cannot trigger automation by default.
+- [x] New enrolled endpoints default to automation enabled on all four
+      platforms, subject to server-side freshness, platform, tenant, and
+      enabled-mapping checks.
+- [x] Agents support self-service deregistration and re-enrollment without
+      reinstalling.
 - [x] Android and iOS source projects and setup-page source downloads.
 - [x] Android debug APK build and emulator smoke test.
 - [x] iOS unsigned device IPA build and simulator smoke test.
-- [ ] Android/iOS physical-device QA and signed distribution.
-- [ ] macOS menu-bar/login-item app QA and signed/notarized distribution.
+- [x] Release workflow supports signed and unsigned tagged assets on Windows,
+      Android, iOS, and macOS; configured signatures are verified and
+      per-platform signing status is published with the release.
+- [x] Client deregistration, local credential cleanup, and fresh-identity
+      enrollment controls on Windows, macOS, Android, and iOS.
+- [ ] Configure platform signing secrets and publish/verify signed builds for
+      those platforms.
+- [ ] Android/iOS physical-device QA and iOS App Store distribution review.
+- [ ] macOS menu-bar/login-item acceptance QA.
+
+## Agent release signing secrets
+
+The `Build endpoint agent artifacts` workflow publishes unsigned platform
+builds when a signing-secret group is entirely absent. If any secret in a
+platform group is supplied, that group must be complete and its signature
+verification must pass or the release is stopped. Store the following as
+repository **Actions secrets** to enable signatures; never commit these values
+or put them in source archives:
+
+| Secret | Content |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | Base64-encoded release JKS/PKCS12 keystore; keep this key for subsequent upgrades. |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore password. |
+| `ANDROID_KEY_ALIAS` | Release key alias. |
+| `ANDROID_KEY_PASSWORD` | Release key password. |
+| `WINDOWS_SIGNING_PFX_BASE64` | Base64-encoded Authenticode signing PFX. |
+| `WINDOWS_SIGNING_PFX_PASSWORD` | PFX password. |
+| `MACOS_DEVELOPER_ID_P12_BASE64` | Base64-encoded Developer ID Application certificate and private key. |
+| `MACOS_DEVELOPER_ID_P12_PASSWORD` | P12 password. |
+| `MACOS_DEVELOPER_ID_APPLICATION` | Exact Developer ID Application identity shown by `security find-identity`. |
+| `IOS_DISTRIBUTION_CERTIFICATE_BASE64` | Base64-encoded Apple Distribution P12. |
+| `IOS_DISTRIBUTION_CERTIFICATE_PASSWORD` | Distribution P12 password. |
+| `IOS_ADHOC_PROVISIONING_PROFILE_BASE64` | Ad-hoc provisioning profile for `in.chargepilot.agent` with intended device UDIDs. |
+| `APPLE_TEAM_ID` | Apple Developer Team ID. |
+| `APPLE_ID` | Apple account used for notarization. |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for that Apple account. |
+
+`APPLE_TEAM_ID` is shared by the iOS and macOS signing groups. Supplying it
+alone does not enable signing; each platform's complete set of platform
+secrets is required. A partial platform group fails that platform's release
+job.
+
+Use a durable Android release key and back it up securely: replacing it
+prevents existing installations from receiving in-place updates. The iOS
+artifact is ad-hoc provisioned only for included device UDIDs, not an App
+Store build. Credentials are not available in the current repository
+configuration; do not claim an artifact is signed unless
+`agent-release-manifest.json` says so. Branch/PR artifacts are development
+builds and are not covered by the tagged-release signing checks.

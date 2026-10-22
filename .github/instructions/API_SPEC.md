@@ -212,8 +212,10 @@ on the latest stable `agents-v*` GitHub Release. The agent workflow publishes
 these source files alongside the platform build artifacts:
 
 - `GET /agent/download` redirects to the Windows PowerShell source ZIP.
-- `GET /agent/ChargePilotAgent.exe` redirects to the unsigned Windows
-  self-contained .NET Windows service executable with UI and CLI modes.
+- `GET /agent/ChargePilotAgent.exe` redirects to the self-contained .NET
+  Windows service executable with UI and CLI modes. Tagged release notes and
+  `agent-release-manifest.json` state whether the current binary is
+  Authenticode-signed.
 - `GET /agent/macos/download` redirects to the Swift/macOS source ZIP.
 - `GET /agent/android/download` redirects to the Kotlin/Compose Android source
   project ZIP.
@@ -230,12 +232,14 @@ redirects; without a published agent release, the GitHub asset URLs are not
 available. No application environment variable is required.
 
 The authenticated **Set up a device** page links to the latest GitHub Release
-for published platform builds: Android `app-debug.apk`, macOS
-`ChargePilotAgent-0.1.0.dmg`, and iOS `ChargePilotAgent-0.1.0-unsigned.ipa`.
-It also links to the Windows `ChargePilotAgent.exe`.
-The Android APK is debug-signed; the macOS DMG is unsigned and not notarized;
-the iOS IPA requires signing and provisioning before installation. The page
-also links to each platform's source archive and gives installation steps.
+for agent builds and platform source archives. Tagged releases publish
+Windows `ChargePilotAgent.exe`, Android `app-release.apk`, macOS
+`ChargePilotAgent-0.1.0.dmg`, and iOS `ChargePilotAgent-0.1.0.ipa` whether or
+not signing secrets are configured. Each release includes
+`agent-release-manifest.json` and notes identifying each platform as signed
+or unsigned. The iOS signed option is ad-hoc provisioned for included devices,
+not an App Store release. Partially configured signing-secret groups or
+signature verification failures stop the release workflow.
 
 - `GET /connectors/download` returns the Python/Docker source ZIP.
 - `GET /connectors/install.sh` returns the Python bootstrap script; it prompts
@@ -373,13 +377,15 @@ directory; macOS and iOS store it in Keychain, and Android encrypts it using
 Android Keystore. New Windows enrollments use an installation UUID
 rather than a hardware UUID. Existing Windows agents using the legacy shared
 token remain compatible during migration. Android has a debug APK build and
-emulator smoke test; physical-device validation and signed distribution
-remain pending. iOS has an unsigned device IPA build and simulator smoke test;
-physical-device validation and signed distribution remain pending. The iOS
-source exposes a Shortcuts action for fresh
-battery/charging reports, but iOS may defer or skip its invocation.
-Automation remains separately gated to the configured Windows/macOS
-allow-list.
+emulator smoke test; physical-device validation and a signed release remain
+pending. iOS has an unsigned device IPA build and simulator smoke test;
+physical-device validation and signed release publication remain pending.
+Tagged releases can include unsigned or signed builds per platform; the release
+manifest reports the status.
+The iOS source exposes a Shortcuts action for fresh battery/charging reports,
+but iOS may defer or skip its invocation. Automation defaults to all four
+platforms and remains subject to the server-configured allow-list and freshness
+policy.
 
 #### Endpoint enrollment and automation operations
 
@@ -411,8 +417,15 @@ allow-list.
   endpoint identity bound to the request's platform and installation UUID.
 - `POST /api/v1/endpoints/{endpoint_id}/credential/revoke` invalidates an
   enrolled endpoint credential and disables its automation. Re-enrollment
-  currently requires deleting the old endpoint and creating a new
-  installation identity.
+  can be initiated by the agent itself through
+  `POST /api/v1/endpoint-enrollment/deregister`, authenticated with its
+  per-install credential. This revokes that credential, disables automation,
+  and retains endpoint history; the client can then exchange a new enrollment
+  token using a fresh installation identity without being reinstalled.
+- `POST /api/v1/endpoint-enrollment/deregister` accepts an empty request (no
+  body is required) and returns `204 No Content`. It accepts only a valid
+  per-install credential, never the
+  tenant-wide legacy Windows token. Invalid credentials receive `401`.
 - `PATCH /api/v1/endpoints/{endpoint_id}/automation` accepts
   `{"enabled":true|false}`. Enabling requires a recent sample and a platform
   allowed by `CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`.

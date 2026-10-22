@@ -2,12 +2,16 @@
 
 This directory tracks ChargePilot's cross-platform telemetry work. The
 platform-aware backend contract, a .NET Windows service with an elevated
-configuration UI and CLI, a SwiftUI
-macOS menu-bar app with CLI diagnostics, and Kotlin/Compose Android and SwiftUI
-iOS clients are implemented. Existing Windows agents remain compatible with
-the shared-token flow. GitHub Releases publish an Android debug APK, an
-unsigned iOS IPA, and an unsigned, unnotarized macOS DMG with platform source
-archives. Android has an emulator smoke test; iOS has a simulator smoke test.
+configuration UI and CLI, a SwiftUI macOS menu-bar app with CLI diagnostics,
+and Kotlin/Compose Android and SwiftUI iOS clients are implemented. Existing
+Windows agents remain compatible with the shared-token flow. Each enrolled
+client supports self-service deregistration and re-enrollment without
+reinstallation. Development artifacts remain unsigned or debug-signed as
+appropriate. `agents-v*` releases publish all platform builds and source
+archives with or without signing secrets. Each platform is signed and verified
+when its complete signing-secret group is present; otherwise the release
+identifies it as unsigned. A partially configured group fails that platform
+job. Android has an emulator smoke test; iOS has a simulator smoke test.
 Physical-device validation and signed store distribution remain pending.
 The self-contained Windows executable is built on a Windows GitHub Actions
 runner (or cross-published from macOS with .NET 10). The PowerShell bootstrap
@@ -53,11 +57,17 @@ Key rules to preserve:
 ## Platform streams
 
 - [macos](./macos/README.md) — SwiftUI menu-bar app with optional per-user
-  login item; development DMG is unsigned and unnotarized
+  login item; self-service deregistration; release DMG may be unsigned or
+  signed and notarized
 - [android](./android/README.md) — Kotlin/Compose source project; WorkManager
-  reporting is best-effort and device validation remains
+  reporting is best-effort; self-service deregistration; release APK may be
+  unsigned or signed with the configured release key
 - [ios](./ios/README.md) — SwiftUI source project; foreground and Shortcuts
-  reporting, with no guaranteed unattended automation
+  reporting and self-service deregistration; release IPA may be unsigned or
+  ad-hoc signed for provisioned devices; no guaranteed unattended automation
+- [windows](../../agent/windows/README.md) — .NET Windows service, elevated
+  setup UI/CLI, self-service deregistration, and optionally Authenticode-signed
+  releases
 
 ## Shared server-side recommendations
 
@@ -67,10 +77,11 @@ reference is [API_SPEC.md](../API_SPEC.md).
 
 ## Execution policy for downstream AI work
 
-The endpoint-agent workflow builds and publishes agent artifacts on
-`agents-v*` tags. Continue Android/iOS acceptance testing, physical-device
-validation, and signed distribution. Coordinate against the shared API
-contract; published development builds are not signed store releases. New
+The endpoint-agent workflow builds development artifacts for source changes
+and publishes releases on `agents-v*` tags with or without signing
+credentials. Continue Android/iOS acceptance testing and physical-device
+validation. A signed iOS release is ad-hoc provisioned for included devices
+and is not an App Store release. Coordinate against the shared API contract. New
 endpoint automation is enabled by default across all four platforms, with
 freshness, platform allow-list, tenant, and mapping checks enforced by the
 server. Do not ship local Tuya control in an endpoint agent.

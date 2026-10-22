@@ -6,9 +6,14 @@ interface. The service reports battery telemetry without requiring a user to
 be signed in; the UI runs separately and never appears in the service session.
 New installations do not use Task Scheduler.
 
-The executable is unsigned and may trigger Windows SmartScreen. It does not
-hide or encrypt its application code. Enrollment tokens are entered in the UI
-or at a masked CLI prompt, never passed as command-line arguments.
+Tagged GitHub Releases publish the Windows executable whether or not
+Authenticode signing is configured. Configure both Windows signing secrets to
+sign it; otherwise it is unsigned and may trigger Windows SmartScreen. A
+partially configured secret group or failed signature verification stops the
+release. Check the release notes and `agent-release-manifest.json` for its
+signing status. The executable does not hide or encrypt its application code.
+Enrollment tokens are entered in the UI or at a masked CLI prompt, never
+passed as command-line arguments.
 
 ## Install from ChargePilot
 
@@ -39,10 +44,13 @@ available in the source archive only for compatibility and diagnostics.
 ## Configure with the UI
 
 Run `ChargePilotAgent.exe ui` as Administrator. The window can install or
-update configuration, start or stop the service, and remove the service.
+update configuration, deregister this device, start or stop the service, and
+remove the service.
 Leave the enrollment-token field blank to keep an existing enrollment when
 changing the device name, class, or reporting interval. Enter a new token to
-enroll again or change the server.
+enroll again or change the server. Deregistration revokes this installation's
+credential on the server, stops reporting, and returns the window to an
+unenrolled state; the Windows app does not need to be reinstalled.
 
 Reporting defaults to every five minutes and can be set from 1 to 60 minutes.
 The backend remains authoritative for freshness, automation eligibility,
@@ -58,15 +66,16 @@ Open an elevated PowerShell window in the executable directory:
 .\ChargePilotAgent.exe status
 .\ChargePilotAgent.exe start
 .\ChargePilotAgent.exe stop
+.\ChargePilotAgent.exe deregister
 .\ChargePilotAgent.exe send-once
 .\ChargePilotAgent.exe uninstall
 ```
 
 `install` and `configure` prompt for the enrollment token without displaying
 its characters. Do not pass tokens as CLI options; command-line arguments may
-be exposed in process listings or shell history. The `status` and `send-once`
-commands can be run without elevation. Service installation, configuration,
-start, stop, and uninstall require an elevated administrator terminal.
+be exposed in process listings or shell history. The `status` and `send-once` commands can be run without elevation. Service
+installation, configuration, deregistration, start, stop, and uninstall
+require an elevated administrator terminal.
 
 `uninstall` removes the service and any old scheduled task, but retains the
 configuration and executable for reinstall. Use
@@ -96,11 +105,12 @@ On Windows, the repository build script also checks the generated PE header:
 .\agent\windows\BuildAgentExe.ps1 -OutputPath .\dist\ChargePilotAgent.exe
 ```
 
-GitHub Actions runs the Windows build and uploads a 90-day artifact for
-`agent/**` changes. An `agents-v*` tag publishes the executable and source
-archive to a GitHub Release. Windows service installation and telemetry
-runtime behavior must be validated on a Windows device; they cannot be run on
-macOS.
+GitHub Actions runs the Windows build and uploads a 90-day development
+artifact for `agent/**` changes. An `agents-v*` tag publishes the executable
+only after Authenticode signing and verification succeed. See the
+platform-agent release-signing instructions for the required GitHub secrets.
+Windows service installation and telemetry runtime behavior must be validated
+on a Windows device; they cannot be run on macOS.
 
 ## Legacy PowerShell agent
 

@@ -5,16 +5,20 @@ This file is the short operational summary for the repository as it stands today
 ## Product
 ChargePilot is a cloud-capable, local-first battery automation platform. The
 backend supports enrolled Windows, macOS, Android, and iOS telemetry. Android
-Kotlin/Compose and iOS SwiftUI source projects are implemented. The agent artifact workflow builds a self-contained Windows .NET executable
-that installs a native Windows telemetry service and provides an administrator
-setup UI and CLI, an Android debug APK, an unsigned iOS IPA, and an unsigned,
-unnotarized macOS DMG. An `agents-v*` tag publishes those assets in a GitHub
-Release. The Windows executable is unsigned and targets Windows x64; its
-service is independent of user sign-in. Builds run on a Windows Actions runner
-and can also be cross-published from macOS with the .NET 10 SDK. Windows
-service runtime validation remains pending.
+Kotlin/Compose and iOS SwiftUI source projects are implemented. The agent
+artifact workflow builds a self-contained Windows .NET executable that
+installs a native Windows telemetry service and provides an administrator
+setup UI and CLI, plus Android, iOS, and macOS apps. Agent source changes produce development artifacts. An `agents-v*` GitHub
+Release publishes platform builds whether or not signing secrets are set;
+configured signing is applied and verified per platform, otherwise the
+release contains clearly documented unsigned assets. Partially configured
+signing credentials fail that platform's release job. The iOS IPA is ad-hoc
+signed for devices in its provisioning profile when credentials are set, not
+a public App Store release. Windows targets x64 and its service is
+independent of user sign-in. Windows service runtime validation remains
+pending.
 Android has an emulator smoke test; iOS has a simulator smoke test.
-Physical-device validation and signed distribution remain outstanding. New
+Physical-device validation and signed store distribution remain outstanding. New
 installs use a tenant-scoped, reusable 24-hour
 enrollment token to obtain a revocable per-install credential; existing
 Windows agents remain compatible with tenant-wide tokens during migration.
@@ -116,11 +120,14 @@ verifier. The Windows service stores its endpoint credential with machine-scoped
 in an Administrators/SYSTEM-only ProgramData directory and migrates existing
 user-scoped Windows enrollment when setup runs elevated. macOS and iOS use
 Keychain; Android encrypts the credential with an Android Keystore key. GitHub
-Releases publish an unsigned Windows service executable, an Android
-debug-signed APK, an unsigned iOS IPA,
-and an unsigned, unnotarized macOS DMG; none is a store-signed release.
+Release tags publish Windows, Android, iOS, and macOS binaries. Each platform
+is signed when its complete GitHub signing-secret group is configured;
+otherwise the release notes and manifest identify that platform's artifact as
+unsigned. Development artifacts are not release assets.
 Physical-device validation for Android and iOS remains outstanding. Mobile
-reports are best-effort. New enrolled endpoints default to automation enabled
+reports are best-effort. Each enrolled agent can deregister itself and return
+to its enrollment UI without reinstalling; Windows offers this in its setup
+window and CLI. New enrolled endpoints default to automation enabled
 on all four platforms. The worker still requires a fresh sample, a
 server-allow-listed platform, and an enabled tenant-safe mapping before it can
 create a command.
@@ -270,7 +277,7 @@ documented in [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md)
 Android and iOS source projects are implemented and available from device
 setup. Android has a debug APK build and emulator smoke test; iOS has an
 unsigned device IPA build and simulator smoke test. Physical-device validation
-and signed distribution remain follow-up work. Their platform values are
+and actual signed release publication remain follow-up work. Their platform values are
 accepted by the shared enrollment and telemetry APIs by default. Read
 [platform-agents/README.md](platform-agents/README.md) and
 [platform-agents/SERVER_SIDE_CONFIG.md](platform-agents/SERVER_SIDE_CONFIG.md)
@@ -284,8 +291,10 @@ installation UUID. New clients must use the reusable tenant-scoped enrollment
 token and per-install credentials, not the shared Windows token. Enrollment
 and telemetry accept all four platforms by default. Android has been
 smoke-tested on an emulator; Android and iOS have not been physically
-validated, and the iOS IPA is unsigned. Automation defaults to all four
-platforms and remains subject to the server allow-list and freshness gate.
+validated, and the current iOS development artifact is unsigned. Tagged
+releases publish each platform whether or not signing is configured; per-platform
+signing status is recorded in the release manifest. Automation defaults to all
+four platforms and remains subject to the server allow-list and freshness gate.
 
 ## Persistent implementation guidance
 - Always post a concise completion update by default, reporting the work done,

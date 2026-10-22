@@ -3295,45 +3295,45 @@ function AgentSetupPage() {
           <li>In the setup window, enter the token and choose a device name, type, and reporting interval. Select <strong>Save and start service</strong>.</li>
         </ol>
         <a className="btn-secondary mt-2 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/ChargePilotAgent.exe`}>Download Windows executable</a>
-        <p className="mt-3 text-xs text-amber-800">The executable is unsigned and runs on Windows only. It installs a Windows service that reports while no user is signed in; it does not use Task Scheduler. Use the setup window or CLI to configure it.</p>
+        <p className="mt-3 text-xs text-amber-800">Windows release signing is optional until the Authenticode secrets are configured. Check the latest release notes and signing manifest before installation. The service reports without a signed-in user; use the setup window or CLI to configure, deregister, and re-enroll without reinstalling.</p>
         <a className="btn-secondary mt-2 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-windows-agent-source.zip`}>Download Windows scripts from GitHub</a>
         <details className="mt-4 rounded-lg border border-[var(--line)] p-3">
           <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">Command-line controls</summary>
           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Open an elevated PowerShell window in the folder containing the executable. Install or update configuration with a hidden enrollment-token prompt:</p>
           <code className="mt-2 block break-all rounded-lg bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">.\ChargePilotAgent.exe install --server-url '{serverUrl}' --name 'My Windows device' --class laptop --interval-minutes 5</code>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Use <code>status</code>, <code>start</code>, <code>stop</code>, <code>send-once</code>, or <code>uninstall</code> to manage the service. Never put an enrollment token in command-line arguments.</p>
+          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Use <code>status</code>, <code>start</code>, <code>stop</code>, <code>deregister</code>, <code>send-once</code>, or <code>uninstall</code> to manage the service. Never put an enrollment token in command-line arguments.</p>
         </details>
         <p className="mt-3 text-xs text-amber-800">The setup command downloads the installer over HTTPS and opens the setup window. Run it only if you trust this ChargePilot server.</p>
       </div>
       <div className="panel p-5 sm:p-6">
         <h2 className="text-lg font-bold text-slate-900">macOS</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">Install the menu-bar app from the DMG. It stores its per-device credential in macOS Keychain and reports every five minutes while the app is running and the Mac is awake.</p>
-        <a className="btn-secondary mt-3 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/ChargePilotAgent-0.1.0.dmg`}>Download macOS DMG from GitHub</a>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Install the menu-bar app from the DMG. It stores its per-device credential in macOS Keychain and reports every five minutes while the app is running and the Mac is awake. Deregister and reconnect from the app without reinstalling.</p>
+        <a className="btn-secondary mt-3 inline-flex" href={AGENT_RELEASE_URL}>View latest macOS release assets</a>
         <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
           <li>Open the downloaded DMG and drag ChargePilotAgent to Applications.</li>
           <li>Open the app, enter this API origin, a device label, and the enrollment token, then select <strong>Connect this Mac</strong>.</li>
         </ol>
-        <p className="mt-2 text-sm text-amber-800">This DMG is unsigned and not notarized. macOS may require you to approve opening it in Privacy &amp; Security.</p>
+        <p className="mt-2 text-sm text-amber-800">Tagged macOS builds are signed and notarized when those secrets are configured; otherwise they are unsigned. Check the release notes before opening the app.</p>
         <a className="mt-3 inline-flex text-sm font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-macos-agent-source.zip`}>Download macOS source project</a>
         <p className="mt-3 text-sm font-medium text-[var(--ink)]">API origin to enter in the app</p>
         <code className="mt-1 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{serverUrl}</code>
       </div>
       <div className="panel p-5 sm:p-6">
         <h2 className="text-lg font-bold text-slate-900">Android</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">Install the debug APK on an Android 8 or later device. The app protects its per-device credential with Android Keystore and sends fresh readings on an inexact schedule.</p>
-        <a className="btn-secondary mt-3 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/app-debug.apk`}>Download Android APK from GitHub</a>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Install the release APK on an Android 8 or later device. The app protects its per-device credential with Android Keystore and sends fresh readings on an inexact schedule. Deregister and reconnect in the app without reinstalling.</p>
+        <a className="btn-secondary mt-3 inline-flex" href={AGENT_RELEASE_URL}>View latest Android release assets</a>
         <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
           <li>Download the APK on the Android device and open it. If prompted, allow your browser or file manager to install this app.</li>
           <li>Open ChargePilot, enter the API origin, a device label, and the enrollment token.</li>
         </ol>
         <p className="mt-3 text-sm font-medium text-[var(--ink)]">API origin to enter in the app</p>
         <code className="mt-1 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{serverUrl}</code>
-        <p className="mt-2 text-sm text-[var(--muted)]">This is a debug-signed APK, not a Play Store release. Android may delay background reports; use <strong>Send reading now</strong> to test a report. <a className="font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-android-agent-source.zip`}>Download Android source</a>.</p>
+        <p className="mt-2 text-sm text-[var(--muted)]">Tagged Android APKs are signed when the release key is configured; otherwise they are unsigned and Android may refuse installation. This is not a Play Store release. Android may delay background reports; use <strong>Send reading now</strong> to test a report. <a className="font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-android-agent-source.zip`}>Download Android source</a>.</p>
       </div>
       <div className="panel p-5 sm:p-6">
         <h2 className="text-lg font-bold text-slate-900">iPhone and iPad</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">The published IPA is unsigned. To install on your device, build the Xcode project with your Apple signing team, or sign the IPA yourself with a matching provisioning profile.</p>
-        <a className="btn-secondary mt-3 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/ChargePilotAgent-0.1.0-unsigned.ipa`}>Download unsigned iOS IPA from GitHub</a>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Tagged releases include an IPA. It is ad-hoc signed for provisioned devices only when Apple signing secrets are configured; otherwise it is unsigned and requires signing before installation. It is not an App Store release.</p>
+        <a className="btn-secondary mt-3 inline-flex" href={AGENT_RELEASE_URL}>View latest iOS release assets</a>
         <a className="mt-3 inline-flex text-sm font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-ios-agent-source.zip`}>Download iOS Xcode project</a>
         <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
           <li>On a Mac with Xcode, open <code>ChargePilotAgent.xcodeproj</code>, select your signing team, then build and install the app on your iPhone or iPad.</li>
@@ -3345,7 +3345,7 @@ function AgentSetupPage() {
         <p className="mt-2 text-sm text-[var(--muted)]">iOS may delay or skip background automations. They do not guarantee a report or switch action at an exact battery level.</p>
       </div>
       <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-4 text-sm leading-6 text-[var(--muted)]">
-        These builds are development distributions, not app-store releases. Automation starts enabled for every platform, but the server still requires a fresh report, an allowed platform, and an enabled device-to-switch mapping. Android and iOS background reports may be delayed or skipped. <a className="font-semibold text-[var(--leaf)] underline" href={AGENT_RELEASE_URL}>View all agent builds and release notes on GitHub</a>.
+        Agent releases publish signed or unsigned builds depending on which complete platform signing secrets are configured. Check the release notes and <code>agent-release-manifest.json</code> before installation. iOS signing, when enabled, is ad-hoc for provisioned devices, not App Store distribution. Automation starts enabled for every platform, but the server still requires a fresh report, an allowed platform, and an enabled device-to-switch mapping. Android and iOS background reports may be delayed or skipped. <a className="font-semibold text-[var(--leaf)] underline" href={AGENT_RELEASE_URL}>View all agent builds and signing details on GitHub</a>.
       </div>
       {!canManageEnrollments && <p className="text-sm text-[var(--muted)]">An administrator must create an enrollment token for this workspace.</p>}
       <p className="text-sm text-[var(--muted)]">After the first report, review devices on the <NavLink to="/endpoints" className="font-semibold text-[var(--leaf)] underline">Endpoints</NavLink> page.</p>

@@ -3,8 +3,10 @@
 This SwiftUI iPhone/iPad app enrolls with a tenant-scoped, reusable 24-hour
 token and reports battery telemetry while open, when it returns to the
 foreground, or when invoked by a Shortcuts automation. It is source code for
-Xcode. GitHub Releases publish the unsigned IPA and source project; the IPA
-requires signing and provisioning for installation.
+Xcode. Tagged GitHub Releases publish an IPA plus the source project. When
+Apple signing secrets are configured, it is ad-hoc signed for devices in the
+configured provisioning profile; without them, it is unsigned and requires
+signing before device installation. This is not an App Store release.
 
 Latest IPA and source downloads: [ChargePilot GitHub Releases](https://github.com/jsramitgupta/ChargePilot/releases/latest).
 
@@ -26,10 +28,12 @@ Latest IPA and source downloads: [ChargePilot GitHub Releases](https://github.co
 5. The app stores a random installation ID locally and the persistent
    per-install credential in the device-only Keychain.
 
-For an unsigned device-build IPA, use Xcode's **Product > Archive** with
-automatic signing disabled, or download the IPA from the latest GitHub Release.
-It cannot be installed on a device until signed with an Apple signing identity
-and a matching provisioning profile.
+For a local device build, configure a signing team in Xcode. A signed release
+IPA is ad-hoc provisioned and can only be installed on devices included in
+its profile. Configure all iOS signing secrets and `APPLE_TEAM_ID` to enable
+release signing. An absent group publishes an unsigned IPA; a partial group
+or failed signature verification fails the release. Check the release notes
+and `agent-release-manifest.json` for the signing status.
 
 The app exposes **Report battery to ChargePilot** as an App Shortcut. After
 enrollment, set up these personal automations in the Shortcuts app:
@@ -71,13 +75,17 @@ that iOS will run the action while locked. After updating an existing test
 installation, open ChargePilot once while the device is unlocked so it can
 upgrade the saved credential's Keychain accessibility.
 
-ChargePilot retains automation authority. New endpoints start with automation
-disabled, and mobile platforms remain outside the default automation
-allow-list. This app does not issue switch commands or control charging.
+ChargePilot retains automation authority. New endpoints default to automation
+enabled across all four platforms, subject to a fresh report, server platform
+policy, and an enabled tenant-safe mapping. This app does not issue switch
+commands or control charging.
 
-## Revoke
+## Deregister and re-enroll
 
-An administrator can revoke the endpoint credential from the ChargePilot
-Endpoints page. Removing the app does not revoke the server-side endpoint.
-If Keychain storage fails after enrollment, revoke the newly created endpoint
-before attempting a fresh enrollment.
+Select **Deregister device** in the app and confirm. ChargePilot revokes the
+per-install credential and the app returns to its enrollment form. Enter a
+new enrollment token to reconnect without reinstalling. An administrator can
+also revoke the endpoint credential from the ChargePilot Endpoints page.
+Removing the app does not revoke the server-side endpoint. If Keychain
+storage fails after enrollment, revoke the newly created endpoint before
+attempting a fresh enrollment.

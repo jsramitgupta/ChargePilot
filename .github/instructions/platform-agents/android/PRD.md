@@ -5,8 +5,9 @@
 Create a native Android battery telemetry app for ChargePilot using the
 platform-aware API and per-install enrollment flow. Kotlin/Compose source is
 implemented in `agent/android`; a debug APK has been built and smoke-tested on
-an emulator. Physical-device validation and a signed release are still
-required before distribution. Background reporting is best-effort.
+an emulator. Tagged builds publish unsigned unless all Android signing secrets
+are configured; physical-device validation and a signed release are still
+required before trusted distribution. Background reporting is best-effort.
 
 ## 2. User value
 

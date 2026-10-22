@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -80,13 +81,17 @@ private fun AgentScreen(store: AgentStore) {
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     var revision by remember { mutableIntStateOf(0) }
-    val configuration = remember(revision) { store.configuration() }
+    var forceUnenrolled by remember { mutableStateOf(false) }
+    val configuration = remember(revision, forceUnenrolled) {
+        if (forceUnenrolled) null else store.configuration()
+    }
     var serverOrigin by remember { mutableStateOf(configuration?.serverOrigin ?: "https://api-chargepilot.endusercompute.in") }
     var label by remember { mutableStateOf(configuration?.label ?: "") }
     var enrollmentToken by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf("") }
     var statusIsError by remember { mutableStateOf(false) }
+    var showDeregisterConfirmation by remember { mutableStateOf(false) }
     var lastSuccess by remember(revision) { mutableStateOf(store.lastSuccess()) }
     var lastError by remember(revision) { mutableStateOf(store.lastError()) }
     var reading by remember { mutableStateOf<BatteryReading?>(null) }
@@ -164,6 +169,7 @@ private fun AgentScreen(store: AgentStore) {
                                         credential,
                                     )
                                 }
+                                forceUnenrolled = false
                                 revision += 1
                                 TelemetryWorker.schedulePeriodic(context)
                                 TelemetryWorker.sendNow(context)
@@ -188,6 +194,7 @@ private fun AgentScreen(store: AgentStore) {
                 busy = busy,
                 statusMessage = statusMessage,
                 statusIsError = statusIsError,
+                onDeregister = { showDeregisterConfirmation = true },
                 onSync = {
                     busy = true
                     statusMessage = "Reading the battery and contacting ChargePilot…"
@@ -238,6 +245,57 @@ private fun AgentScreen(store: AgentStore) {
             fontSize = 13.sp,
             lineHeight = 19.sp,
         )
+        if (showDeregisterConfirmation && configuration != null) {
+            AlertDialog(
+                onDismissRequest = { showDeregisterConfirmation = false },
+                title = { Text("Deregister this device?") },
+                text = {
+                    Text("ChargePilot will revoke this installation and stop its reports. You can enroll it again here with a new workspace token.")
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = !busy,
+                        onClick = {
+                            showDeregisterConfirmation = false
+                            busy = true
+                            statusMessage = "Deregistering this device…"
+                            statusIsError = false
+                            scope.launch {
+                                var serverDeregistered = false
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        AgentApi.deregister(
+                                            configuration.serverOrigin,
+                                            store.credential(),
+                                        )
+                                    }
+                                    serverDeregistered = true
+                                    forceUnenrolled = true
+                                    revision += 1
+                                    TelemetryWorker.cancel(context)
+                                    withContext(Dispatchers.IO) {
+                                        store.clearEnrollment()
+                                    }
+                                    statusMessage = "Device deregistered. Enter a new enrollment token to connect again."
+                                } catch (error: Exception) {
+                                    statusMessage = if (serverDeregistered) {
+                                        "Device deregistered on the server, but local cleanup failed: ${error.message ?: "check this device and try again."}"
+                                    } else {
+                                        error.message ?: "Deregistration failed. The current enrollment was kept."
+                                    }
+                                    statusIsError = true
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        },
+                    ) { Text("Deregister", color = ErrorRed) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeregisterConfirmation = false }) { Text("Cancel") }
+                },
+            )
+        }
     }
 }
 
@@ -310,6 +368,7 @@ private fun EnrolledStatus(
     busy: Boolean,
     statusMessage: String,
     statusIsError: Boolean,
+    onDeregister: () -> Unit,
     onSync: () -> Unit,
     onRefresh: () -> Unit,
 ) {
@@ -395,6 +454,9 @@ private fun EnrolledStatus(
         ) {
             if (busy) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp)
             else Text("Send reading now", fontWeight = FontWeight.SemiBold)
+        }
+        TextButton(onClick = onDeregister, enabled = !busy) {
+            Text("Deregister this device", color = ErrorRed)
         }
         Text(
             "Background reports are best-effort. Android may delay them during Doze or battery optimization.",

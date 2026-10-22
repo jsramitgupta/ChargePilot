@@ -3,7 +3,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,11 +22,32 @@ from app.schemas.endpoint_enrollment import (
     EndpointEnrollmentInfo,
     EndpointEnrollmentToken,
 )
+from app.services.endpoint_service import authenticate_installed_endpoint
 from app.services.local_key_service import decrypt_endpoint_enrollment_code, encrypt_endpoint_enrollment_code
 
 router = APIRouter(tags=["endpoint enrollment"])
 ENROLLMENT_TTL = timedelta(hours=24)
 MAX_ACTIVE_ENROLLMENTS_PER_ADMIN = 5
+
+
+@router.post("/endpoint-enrollment/deregister", status_code=status.HTTP_204_NO_CONTENT)
+async def deregister_installed_endpoint(
+    response: Response,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    db: Session = Depends(get_db),
+):
+    endpoint = authenticate_installed_endpoint(authorization, db)
+    if endpoint is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="A valid per-install endpoint credential is required.",
+        )
+    endpoint.token_hash = None
+    endpoint.automation_enabled = False
+    db.commit()
+    response.headers["Cache-Control"] = "private, no-store"
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 def _require_admin(user: User) -> None:

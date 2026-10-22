@@ -285,13 +285,16 @@ The GitHub Actions pipeline keeps routine validation separate from publishing:
   manifest-only commits do not start another CI run.
 
 Agent source is not copied into the API image. `build-agent-artifacts.yml`
-builds a self-contained Windows service executable, APK, unsigned IPA, and DMG
+builds a self-contained Windows service executable, APK, IPA, and DMG
 artifacts for changes under `agent/`. The Windows x64 executable is built on a
 Windows runner; its .NET 10 project can also be cross-published from macOS with
 the .NET 10 SDK. An `agents-v*` tag publishes those binaries and platform
-source archives as a GitHub Release. The Windows executable installs a
-background Windows service and provides a separate administrator UI and CLI;
-it is unsigned and does not conceal its source. The public
+source archives as a GitHub Release. Platform artifacts are signed and
+verified when each complete secret group is configured, and are otherwise
+published unsigned; release notes and `agent-release-manifest.json` identify
+the status. Partial secret groups or failed signature checks fail publication.
+The Windows executable installs a background Windows service and provides a
+separate administrator UI and CLI; it does not conceal its source. The public
 `/agent/.../download` API routes redirect to the latest stable release assets.
 No additional GitHub secret or application environment variable is required
 for release creation.

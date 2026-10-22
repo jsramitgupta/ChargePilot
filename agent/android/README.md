@@ -1,9 +1,10 @@
 # ChargePilot Android telemetry agent
 
 This native Android app enrolls with a tenant-scoped, reusable 24-hour
-enrollment token and sends battery telemetry to ChargePilot. GitHub Releases
-publish a debug-signed APK for sideloading and the source project; this is not
-a Google Play release.
+enrollment token and sends battery telemetry to ChargePilot. Development
+builds use the debug key. Tagged GitHub Releases use the configured Android
+release keystore when available; otherwise the APK is unsigned and Android
+will not install it as a trusted release. This is not a Google Play release.
 
 Latest APK and source downloads: [ChargePilot GitHub Releases](https://github.com/jsramitgupta/ChargePilot/releases/latest).
 
@@ -33,8 +34,12 @@ Latest APK and source downloads: [ChargePilot GitHub Releases](https://github.co
 6. Use **Send reading now** for an immediate sample. WorkManager also schedules
    fresh reports at an inexact interval of at least 15 minutes.
 
-The **Build endpoint agent artifacts** GitHub Actions workflow builds the debug
-APK and publishes it on `agents-v*` releases.
+The **Build endpoint agent artifacts** GitHub Actions workflow builds a
+debug APK for development and publishes an APK on `agents-v*` releases.
+Configure all four Android signing secrets to sign the release APK. If none
+are configured, the release is unsigned; a partially configured group fails
+the release job. Check the release notes and `agent-release-manifest.json`
+for the published signing status.
 
 The first report is submitted after enrollment. If saving the issued
 credential fails, revoke that endpoint from the ChargePilot Endpoints page
@@ -54,9 +59,11 @@ control switches. New endpoints default to automation enabled, but the
 backend requires a fresh report, an allow-listed platform, and a
 tenant-matching enabled mapping before creating switch commands.
 
-## Revoke
+## Deregister and re-enroll
 
-An administrator can revoke the endpoint credential from the ChargePilot
-Endpoints page. Credential revocation prevents further reports. Removing the
-app removes its local key and configuration but does not revoke the server
-endpoint.
+Select **Deregister device** in the app and confirm. ChargePilot revokes the
+per-install credential, stops scheduled reports, and returns the app to its
+enrollment form. Enter a new enrollment token to reconnect without
+reinstalling. An administrator can also revoke the credential from the
+ChargePilot Endpoints page. Removing the app alone does not revoke the
+server-side endpoint.

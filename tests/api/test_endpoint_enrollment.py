@@ -250,6 +250,68 @@ def test_enrolled_telemetry_accepts_optional_ip_and_revocation_stops_reports():
     assert rejected.status_code == 401
 
 
+def test_installed_agent_can_deregister_its_own_credential():
+    client = TestClient(app)
+    register_tenant_admin(
+        client,
+        "self-deregister-admin",
+        "self-deregister-password",
+        "Self Deregister Tenant",
+    )
+    enrollment = client.post("/api/v1/admin/endpoint-enrollments", json={}).json()
+    installation_id = str(uuid4())
+    exchange = client.post(
+        "/api/v1/endpoint-enrollment/exchange",
+        json={
+            "code": enrollment["enrollment_code"],
+            "platform": "android",
+            "installation_id": installation_id,
+            "hostname": "Self deregister device",
+            "device_class": "phone",
+        },
+    )
+    assert exchange.status_code == 201, exchange.text
+    credential = exchange.json()["credential"]
+
+    response = client.post(
+        "/api/v1/endpoint-enrollment/deregister",
+        headers={"Authorization": f"Bearer {credential}"},
+    )
+    assert response.status_code == 204
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.content == b""
+
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).one()
+        assert endpoint.token_hash is None
+        assert endpoint.automation_enabled is False
+
+    telemetry = client.post(
+        "/api/v1/telemetry",
+        json={
+            "hostname": "Self deregister device",
+            "installation_id": installation_id,
+            "platform": "android",
+            "device_class": "phone",
+            "battery_percentage": 47,
+            "charging": False,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "agent_version": "0.1.0",
+        },
+        headers={"Authorization": f"Bearer {credential}"},
+    )
+    assert telemetry.status_code == 401
+
+
+def test_deregister_rejects_non_installation_credentials():
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/endpoint-enrollment/deregister",
+        headers={"Authorization": "Bearer not-an-installation-credential"},
+    )
+    assert response.status_code == 401
+
+
 def test_enrollment_credentials_cannot_spoof_platform_or_installation():
     client = TestClient(app)
     register_tenant_admin(

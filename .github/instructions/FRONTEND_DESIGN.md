@@ -55,14 +55,20 @@ for a per-install credential and persist it using platform-appropriate
 protected storage. Existing Windows agents using shared tenant tokens remain
 compatible during migration. Windows setup offers the PowerShell install
 bootstrap, which downloads the executable and opens its setup UI, plus a direct
-link to the unsigned executable. The UI installs and configures a Windows
-service; it does not use Task Scheduler. The executable also provides CLI
-service controls and prompts for enrollment secrets instead of accepting
-tokens as command-line arguments. The setup page
-links to the latest GitHub Release for the Windows executable, Android debug
-APK, unsigned iOS IPA, and unsigned, unnotarized macOS DMG, and separately
-offers source projects. Explain how to install each build;
-the iOS IPA requires signing and provisioning before installation. Clearly
+link to the Windows executable. The UI installs/configures a Windows service,
+and lets users deregister and re-enroll without reinstalling; it does not use
+Task Scheduler. The executable also provides CLI service controls, including
+deregistration, and prompts for enrollment secrets instead of accepting
+tokens as command-line arguments. The macOS, Android, and iOS agent UIs also
+provide self-service deregistration and re-enrollment. The setup page links to
+the latest GitHub Release for Windows, Android, iOS, and macOS builds, and
+separately offers source projects. A release may contain signed and unsigned
+builds across platforms depending on configured credentials; its release
+notes and `agent-release-manifest.json` state the signing status for each.
+Partially configured signing groups or failed signature verification stop the
+release workflow. Signed iOS profiles limit which devices can install the
+ad-hoc IPA. Explain how to install each build.
+Clearly
 explain Android's inexact WorkManager
 timing and iOS Shortcuts automation best-effort limits. The iOS setup guidance
 should suggest both a battery-level and charger-connected trigger and must not

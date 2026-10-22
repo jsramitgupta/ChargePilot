@@ -325,8 +325,9 @@ Agents exchange a reusable, 24-hour, tenant-scoped token for a backend
 endpoint ID and hash-only per-install credential. All four platforms are
 enabled for enrollment and telemetry by default. Android has a debug-signed
 APK build and emulator smoke test; iOS has an unsigned device IPA build and
-simulator smoke test. Both need physical-device validation and signed
-distribution.
+simulator smoke test. Tagged releases publish signed or unsigned platform
+builds according to configured secrets. Both need physical-device validation
+and signed distribution.
 
 New enrolled endpoints default to automation enabled across all four
 platforms. API and worker enforce the configured platform allow-list and

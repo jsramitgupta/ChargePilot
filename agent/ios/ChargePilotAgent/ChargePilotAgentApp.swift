@@ -72,6 +72,7 @@ final class AgentModel: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var statusMessage: String?
     @Published private(set) var isWorking = false
+    @Published var showDeregisterConfirmation = false
 
     private let defaults = UserDefaults.standard
     private let credentialStore = KeychainCredentialStore()
@@ -177,6 +178,38 @@ final class AgentModel: ObservableObject {
         isWorking = false
     }
 
+    func deregister() async {
+        guard !isWorking, let installationID, endpointID != nil else { return }
+        isWorking = true
+        statusMessage = "Deregistering this device…"
+        lastError = nil
+        do {
+            let origin = try validatedOrigin(serverOrigin)
+            let credential = try credentialStore.load(account: installationID.uuidString)
+            try await AgentAPI.deregister(origin: origin, credential: credential)
+            self.installationID = nil
+            endpointID = nil
+            defaults.removeObject(forKey: "endpointID")
+            defaults.removeObject(forKey: "installationID")
+            defaults.removeObject(forKey: "lastSuccessfulReport")
+            defaults.removeObject(forKey: "lastError")
+            lastSuccessfulReport = nil
+            do {
+                try credentialStore.delete(account: installationID.uuidString)
+                statusMessage = "Device deregistered. Enter a new enrollment token to connect again."
+            } catch {
+                statusMessage = "Device deregistered, but local credential cleanup failed: \(error.localizedDescription)"
+                lastError = statusMessage
+                defaults.set(lastError, forKey: "lastError")
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+            lastError = error.localizedDescription
+            defaults.set(lastError, forKey: "lastError")
+        }
+        isWorking = false
+    }
+
     func refreshBatteryReading() {
         batteryReading = try? BatteryStateReader.read()
     }
@@ -226,6 +259,18 @@ private struct AgentHomeView: View {
         }
         .background(Color(red: 0.95, green: 0.97, blue: 0.94).ignoresSafeArea())
         .tint(leaf)
+        .confirmationDialog(
+            "Deregister this device?",
+            isPresented: $model.showDeregisterConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Deregister", role: .destructive) {
+                Task { await model.deregister() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This revokes the installation and stops its reports. You can enroll again here with a new workspace token.")
+        }
     }
 
     private var enrollmentForm: some View {
@@ -237,6 +282,10 @@ private struct AgentHomeView: View {
                 .font(.system(size: 15))
                 .foregroundStyle(muted)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if let status = model.statusMessage {
+                notice(status, isError: model.lastError != nil)
+            }
 
             TextField("ChargePilot API origin", text: $model.serverOrigin)
                 .textContentType(.URL)
@@ -330,6 +379,11 @@ private struct AgentHomeView: View {
                 Task { await model.sendReading() }
             }
 
+            Button("Deregister this device", role: .destructive) {
+                model.showDeregisterConfirmation = true
+            }
+            .disabled(model.isWorking)
+
             Text("Shortcuts can request a fresh report on battery-level or charger events. iOS may delay or skip background actions, so switch control is not guaranteed at an exact percentage.")
                 .font(.system(size: 13))
                 .foregroundStyle(muted)
@@ -409,6 +463,8 @@ private struct EnrollmentResponse: Decodable {
         case credential
     }
 }
+
+private struct EmptyRequest: Encodable {}
 
 private struct TelemetryRequest: Encodable {
     let hostname: String
@@ -510,6 +566,16 @@ private enum AgentAPI {
             origin: origin,
             path: ["api", "v1", "telemetry"],
             body: body
+        )
+        request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+        try await send(request)
+    }
+
+    static func deregister(origin: URL, credential: String) async throws {
+        var request = try makeRequest(
+            origin: origin,
+            path: ["api", "v1", "endpoint-enrollment", "deregister"],
+            body: EmptyRequest()
         )
         request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
         try await send(request)
@@ -640,6 +706,18 @@ private struct KeychainCredentialStore {
             throw AgentError.keychainUnavailable
         }
         return credential
+    }
+
+    func delete(account: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw AgentError.keychainUnavailable
+        }
     }
 }
 

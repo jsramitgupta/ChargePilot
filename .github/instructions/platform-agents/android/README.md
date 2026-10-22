@@ -2,9 +2,12 @@
 
 The native Kotlin/Compose Android telemetry client is implemented in
 `agent/android`. It uses the platform-aware backend schema and reusable
-enrollment flow. GitHub Releases publish a debug-signed APK and the source
-project; the APK is not a Google Play release. It has an emulator smoke test,
-but physical-device validation remains outstanding.
+enrollment flow. The release workflow publishes an APK and source project whether or not
+Android signing secrets are configured. When all four secrets are present,
+the APK is signed; if none are present, it is unsigned. A partial group fails
+the release job. The APK is not a Google Play release. It has an emulator
+smoke test, but physical-device validation and signed release publication
+remain outstanding.
 
 ## Scope
 
@@ -16,6 +19,7 @@ but physical-device validation remains outstanding.
   enrollment is enabled by default, subject to server configuration
 - show local last-success status; backend reporting dashboards require
   separate server/UI implementation
+- allow users to deregister and re-enroll in the app without reinstalling
 
 ## Primary documents
 

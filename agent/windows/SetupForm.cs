@@ -20,6 +20,7 @@ internal sealed class SetupForm : Form
     private readonly Button _saveButton = new() { Text = "Save and start service", AutoSize = true, BackColor = Leaf, ForeColor = Color.White, FlatStyle = FlatStyle.Flat };
     private readonly Button _startButton = new() { Text = "Start", AutoSize = true };
     private readonly Button _stopButton = new() { Text = "Stop", AutoSize = true };
+    private readonly Button _deregisterButton = new() { Text = "Deregister device", AutoSize = true };
     private readonly Button _uninstallButton = new() { Text = "Uninstall service", AutoSize = true };
     private readonly string _agentVersion;
     private AgentOptions? _existingOptions;
@@ -144,8 +145,9 @@ internal sealed class SetupForm : Form
         _saveButton.Click += async (_, _) => await SaveAndStartAsync();
         _startButton.Click += (_, _) => RunServiceAction(ServiceManager.Start);
         _stopButton.Click += (_, _) => RunServiceAction(ServiceManager.Stop);
+        _deregisterButton.Click += async (_, _) => await DeregisterAsync();
         _uninstallButton.Click += (_, _) => UninstallService();
-        actions.Controls.AddRange([_saveButton, _startButton, _stopButton, _uninstallButton]);
+        actions.Controls.AddRange([_saveButton, _startButton, _stopButton, _deregisterButton, _uninstallButton]);
         footer.Controls.Add(actions);
         _message.Margin = new Padding(0, 10, 0, 0);
         footer.Controls.Add(_message);
@@ -165,6 +167,7 @@ internal sealed class SetupForm : Form
         _saveButton.Enabled = isAdmin;
         _startButton.Enabled = isAdmin;
         _stopButton.Enabled = isAdmin;
+        _deregisterButton.Enabled = isAdmin && _existingOptions is not null;
         _uninstallButton.Enabled = isAdmin && _serviceStatus.Text != "Not installed";
         if (!isAdmin)
         {
@@ -301,6 +304,69 @@ internal sealed class SetupForm : Form
         }
     }
 
+    private async Task DeregisterAsync()
+    {
+        if (_existingOptions is null)
+        {
+            return;
+        }
+        var result = MessageBox.Show(
+            "Revoke this device's ChargePilot credential and stop its reports? You can enroll it again here with a new workspace token.",
+            "Deregister ChargePilot Agent",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+        if (result != DialogResult.Yes)
+        {
+            return;
+        }
+
+        var options = _existingOptions;
+        var serviceWasRunning = ServiceManager.GetStatus() == "Running";
+        var credentialRevoked = false;
+        SetBusy(true);
+        try
+        {
+            if (serviceWasRunning)
+            {
+                ServiceManager.Stop();
+            }
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            await new ChargePilotApiClient(httpClient).DeregisterAsync(options.ServerUri, options.Credential);
+            credentialRevoked = true;
+            _configurationStore.Delete();
+            _existingOptions = null;
+            _enrollmentToken.Clear();
+            RefreshServiceStatus();
+            ShowMessage("Device deregistered. Enter a new enrollment token to connect it again.", isError: false);
+        }
+        catch (Exception exception)
+        {
+            if (serviceWasRunning && !credentialRevoked)
+            {
+                try
+                {
+                    ServiceManager.Start();
+                }
+                catch (Exception restartException)
+                {
+                    ShowMessage(
+                        $"{exception.Message} The service could not be restarted: {restartException.Message}",
+                        isError: true);
+                    return;
+                }
+            }
+            ShowMessage(
+                credentialRevoked
+                    ? $"The server revoked this device, but local cleanup failed: {exception.Message}"
+                    : exception.Message,
+                isError: true);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     private void UninstallService()
     {
         var result = MessageBox.Show(
@@ -327,6 +393,7 @@ internal sealed class SetupForm : Form
         _saveButton.Enabled = !busy && ServiceManager.IsAdministrator();
         _startButton.Enabled = !busy && ServiceManager.IsAdministrator();
         _stopButton.Enabled = !busy && ServiceManager.IsAdministrator();
+        _deregisterButton.Enabled = !busy && ServiceManager.IsAdministrator() && _existingOptions is not null;
         _uninstallButton.Enabled = !busy && ServiceManager.IsAdministrator() && _serviceStatus.Text != "Not installed";
         UseWaitCursor = busy;
     }

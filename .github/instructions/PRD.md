@@ -231,15 +231,16 @@ per-install credentials, credential revocation, stale/future timestamp
 handling, all-platform automation defaults, and a server freshness gate.
 Windows PowerShell and macOS Swift agents are validated;
 Android Kotlin/Compose and iOS SwiftUI clients use the same enrollment and
-telemetry contract. The GitHub release publishes an Android debug APK, an
-unsigned iOS IPA, and an unsigned, unnotarized macOS DMG alongside source
-archives. Existing Windows shared-token agents remain compatible during
-migration.
+telemetry contract. Tagged GitHub releases publish Windows, Android, iOS, and
+macOS builds alongside source archives. Each platform is signed when its
+complete signing-secret group is configured and otherwise published unsigned;
+the release manifest records each platform's signing status. Existing Windows
+shared-token agents remain compatible during migration.
 
 The authenticated **Set up a device** page links to the latest GitHub Release
 assets and platform source projects, and gives platform-specific install
 guidance. Android has an emulator smoke test, but still requires
-physical-device validation; iOS has a simulator smoke test, but its unsigned
+physical-device validation; iOS has a simulator smoke test, but an unsigned
 IPA requires signing and provisioning before installation. macOS reports only
 while awake and running; no mobile client guarantees a real-time reporting
 interval. Automation is enabled by default for all platforms but remains

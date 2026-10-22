@@ -48,6 +48,20 @@ class AgentStore(context: Context) {
         ) { "Secure local storage is unavailable." }
     }
 
+    fun clearEnrollment() {
+        check(
+            preferences.edit()
+                .remove(KEY_INSTALLATION)
+                .remove(KEY_ENDPOINT)
+                .remove(KEY_CREDENTIAL)
+                .remove(KEY_IV)
+                .remove(KEY_LAST_SUCCESS)
+                .remove(KEY_LAST_ERROR)
+                .commit(),
+        ) { "Could not remove the saved enrollment." }
+        KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }.deleteEntry(KEY_ALIAS)
+    }
+
     fun credential(): String {
         val ciphertext = preferences.getString(KEY_CREDENTIAL, null)
             ?: error("This device is not enrolled.")

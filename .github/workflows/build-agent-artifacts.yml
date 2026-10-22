@@ -24,8 +24,10 @@ concurrency:
 
 jobs:
   android:
-    name: Build Android debug APK
+    name: Build Android agent
     runs-on: ubuntu-24.04
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -36,13 +38,84 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Check Android signing configuration
+        id: signing
+        if: startsWith(github.ref, 'refs/tags/agents-v')
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          signing_values=(
+            "$ANDROID_KEYSTORE_BASE64"
+            "$ANDROID_KEYSTORE_PASSWORD"
+            "$ANDROID_KEY_ALIAS"
+            "$ANDROID_KEY_PASSWORD"
+          )
+          configured=0
+          for value in "${signing_values[@]}"; do
+            if [[ -n "$value" ]]; then
+              configured=$((configured + 1))
+            fi
+          done
+          if [[ "$configured" -eq 0 ]]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$configured" -eq "${#signing_values[@]}" ]]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Android signing secrets are only partially configured. Add all four Android secrets or remove them to publish an unsigned APK."
+            exit 1
+          fi
+
       - name: Build debug APK
+        if: ${{ !startsWith(github.ref, 'refs/tags/agents-v') }}
         working-directory: agent/android
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
 
+      - name: Prepare Android release signing key
+        if: ${{ startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed == 'true' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/chargepilot-release.jks"
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/chargepilot-release.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed Android release APK
+        if: startsWith(github.ref, 'refs/tags/agents-v')
+        working-directory: agent/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          mkdir -p "$RUNNER_TEMP/android-release"
+          if [[ "${{ steps.signing.outputs.signed }}" == "true" ]]; then
+            apk="app/build/outputs/apk/release/app-release.apk"
+            apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+            test -n "$apksigner"
+            "$apksigner" verify --verbose --print-certs "$apk"
+            cp "$apk" "$RUNNER_TEMP/android-release/app-release.apk"
+            rm -f "$ANDROID_KEYSTORE_FILE"
+          else
+            apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+            test -f "$apk"
+            cp "$apk" "$RUNNER_TEMP/android-release/app-release.apk"
+          fi
+
       - name: Upload debug APK
+        if: ${{ !startsWith(github.ref, 'refs/tags/agents-v') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chargepilot-android-debug-apk
@@ -50,14 +123,55 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      - name: Upload Android release APK
+        if: startsWith(github.ref, 'refs/tags/agents-v')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chargepilot-android-release-apk
+          path: ${{ runner.temp }}/android-release/app-release.apk
+          if-no-files-found: error
+          retention-days: 90
+
   ios:
-    name: Build unsigned iOS IPA
+    name: Build iOS device agent
     runs-on: macos-15
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Check iOS signing configuration
+        id: signing
+        if: startsWith(github.ref, 'refs/tags/agents-v')
+        env:
+          IOS_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          IOS_ADHOC_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_ADHOC_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          signing_values=(
+            "$IOS_DISTRIBUTION_CERTIFICATE_BASE64"
+            "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD"
+            "$IOS_ADHOC_PROVISIONING_PROFILE_BASE64"
+          )
+          configured=0
+          for value in "${signing_values[@]}"; do
+            if [[ -n "$value" ]]; then
+              configured=$((configured + 1))
+            fi
+          done
+          if [[ "$configured" -eq 0 ]]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$configured" -eq "${#signing_values[@]}" && -n "$APPLE_TEAM_ID" ]]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "iOS signing secrets are only partially configured. Add all three iOS signing secrets and APPLE_TEAM_ID or remove them to publish an unsigned IPA."
+            exit 1
+          fi
+
       - name: Build iOS device app
+        if: ${{ !startsWith(github.ref, 'refs/tags/agents-v') || steps.signing.outputs.signed != 'true' }}
         run: |
           xcodebuild \
             -project agent/ios/ChargePilotAgent.xcodeproj \
@@ -70,6 +184,7 @@ jobs:
             build
 
       - name: Package unsigned IPA
+        if: ${{ !startsWith(github.ref, 'refs/tags/agents-v') || steps.signing.outputs.signed != 'true' }}
         run: |
           app_path="$RUNNER_TEMP/chargepilot-ios/Build/Products/Release-iphoneos/ChargePilotAgent.app"
           package_dir="$RUNNER_TEMP/chargepilot-ipa"
@@ -79,6 +194,7 @@ jobs:
           (cd "$package_dir" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/ChargePilotAgent-0.1.0-unsigned.ipa" Payload)
 
       - name: Upload unsigned IPA
+        if: ${{ !startsWith(github.ref, 'refs/tags/agents-v') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chargepilot-ios-unsigned-ipa
@@ -86,17 +202,201 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      - name: Install iOS distribution signing identity and profile
+        if: ${{ startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed == 'true' }}
+        env:
+          IOS_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          IOS_ADHOC_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_ADHOC_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$IOS_DISTRIBUTION_CERTIFICATE_BASE64"
+          test -n "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD"
+          test -n "$IOS_ADHOC_PROVISIONING_PROFILE_BASE64"
+          test -n "$APPLE_TEAM_ID"
+          keychain="$RUNNER_TEMP/chargepilot-ios.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$IOS_DISTRIBUTION_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/ios-distribution.p12"
+          security import "$RUNNER_TEMP/ios-distribution.p12" -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          rm -f "$RUNNER_TEMP/ios-distribution.p12"
+          security list-keychains -d user -s "$keychain"
+          profile="$RUNNER_TEMP/chargepilot-ios.mobileprovision"
+          printf '%s' "$IOS_ADHOC_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$profile"
+          security cms -D -i "$profile" > "$RUNNER_TEMP/chargepilot-ios-profile.plist"
+          profile_uuid=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$RUNNER_TEMP/chargepilot-ios-profile.plist")
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$profile" "$HOME/Library/MobileDevice/Provisioning Profiles/$profile_uuid.mobileprovision"
+          echo "IOS_PROFILE_UUID=$profile_uuid" >> "$GITHUB_ENV"
+          echo "IOS_KEYCHAIN_PATH=$keychain" >> "$GITHUB_ENV"
+
+      - name: Archive and export signed iOS IPA
+        if: ${{ startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed == 'true' }}
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/chargepilot-ios.xcarchive"
+          export_dir="$RUNNER_TEMP/chargepilot-ios-export"
+          xcodebuild \
+            -project agent/ios/ChargePilotAgent.xcodeproj \
+            -scheme ChargePilotAgent \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$archive" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_UUID" \
+            archive
+          cat > "$RUNNER_TEMP/ios-export-options.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>method</key><string>ad-hoc</string>
+          <key>signingStyle</key><string>manual</string>
+          <key>teamID</key><string>$APPLE_TEAM_ID</string>
+          <key>provisioningProfiles</key><dict>
+          <key>in.chargepilot.agent</key><string>$IOS_PROFILE_UUID</string>
+          </dict>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$archive" \
+            -exportPath "$export_dir" \
+            -exportOptionsPlist "$RUNNER_TEMP/ios-export-options.plist"
+          cp "$export_dir/ChargePilotAgent.ipa" "$RUNNER_TEMP/ChargePilotAgent-0.1.0.ipa"
+          app="$export_dir/Payload/ChargePilotAgent.app"
+          test -d "$app"
+          codesign --verify --deep --strict "$app"
+          codesign -dvvv "$app" 2> "$RUNNER_TEMP/chargepilot-ios-signature.txt"
+          grep -F "Authority=Apple Distribution:" "$RUNNER_TEMP/chargepilot-ios-signature.txt"
+          grep -F "TeamIdentifier=$APPLE_TEAM_ID" "$RUNNER_TEMP/chargepilot-ios-signature.txt"
+          security cms -D -i "$app/embedded.mobileprovision" > "$RUNNER_TEMP/exported-profile.plist"
+          profile_team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$RUNNER_TEMP/exported-profile.plist")
+          app_identifier=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$RUNNER_TEMP/exported-profile.plist")
+          test "$profile_team" = "$APPLE_TEAM_ID"
+          test "$app_identifier" = "$APPLE_TEAM_ID.in.chargepilot.agent"
+
+      - name: Upload unsigned iOS IPA
+        if: ${{ startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed != 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chargepilot-ios-release-ipa
+          path: ChargePilotAgent-0.1.0-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload signed iOS IPA
+        if: ${{ startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chargepilot-ios-release-ipa
+          path: ${{ runner.temp }}/ChargePilotAgent-0.1.0.ipa
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Remove iOS signing keychain
+        if: ${{ always() && startsWith(github.ref, 'refs/tags/agents-v') }}
+        env:
+          IOS_KEYCHAIN_PATH: ${{ env.IOS_KEYCHAIN_PATH }}
+        run: |
+          if [ -n "$IOS_KEYCHAIN_PATH" ] && security list-keychains -d user | grep -Fq "$IOS_KEYCHAIN_PATH"; then
+            security delete-keychain "$IOS_KEYCHAIN_PATH"
+          fi
+
   macos:
-    name: Build macOS development DMG
+    name: Build macOS agent
     runs-on: macos-15
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Check macOS signing and notarization configuration
+        id: signing
+        if: startsWith(github.ref, 'refs/tags/agents-v')
+        env:
+          MACOS_DEVELOPER_ID_P12_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
+          MACOS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          MACOS_DEVELOPER_ID_APPLICATION: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          signing_values=(
+            "$MACOS_DEVELOPER_ID_P12_BASE64"
+            "$MACOS_DEVELOPER_ID_P12_PASSWORD"
+            "$MACOS_DEVELOPER_ID_APPLICATION"
+            "$APPLE_ID"
+            "$APPLE_APP_SPECIFIC_PASSWORD"
+          )
+          configured=0
+          for value in "${signing_values[@]}"; do
+            if [[ -n "$value" ]]; then
+              configured=$((configured + 1))
+            fi
+          done
+          if [[ "$configured" -eq 0 ]]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$configured" -eq "${#signing_values[@]}" && -n "$APPLE_TEAM_ID" ]]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "macOS signing/notarization secrets are only partially configured. Add all five macOS signing secrets and APPLE_TEAM_ID or remove them to publish an unsigned, unnotarized DMG."
+            exit 1
+          fi
+
+      - name: Install macOS Developer ID certificate
+        if: ${{ startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed == 'true' }}
+        env:
+          MACOS_DEVELOPER_ID_P12_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
+          MACOS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          MACOS_DEVELOPER_ID_APPLICATION: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}
+        run: |
+          set -euo pipefail
+          test -n "$MACOS_DEVELOPER_ID_P12_BASE64"
+          test -n "$MACOS_DEVELOPER_ID_P12_PASSWORD"
+          test -n "$MACOS_DEVELOPER_ID_APPLICATION"
+          keychain="$RUNNER_TEMP/chargepilot-macos.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$MACOS_DEVELOPER_ID_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/macos-developer-id.p12"
+          security import "$RUNNER_TEMP/macos-developer-id.p12" -P "$MACOS_DEVELOPER_ID_P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          rm -f "$RUNNER_TEMP/macos-developer-id.p12"
+          security list-keychains -d user -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          echo "MACOS_KEYCHAIN_PATH=$keychain" >> "$GITHUB_ENV"
+
       - name: Build DMG
+        env:
+          MACOS_DEVELOPER_ID_APPLICATION: ${{ steps.signing.outputs.signed == 'true' && secrets.MACOS_DEVELOPER_ID_APPLICATION || '' }}
         run: ./agent/macos/scripts/build-dmg.sh
 
+      - name: Notarize and staple macOS DMG
+        if: ${{ startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed == 'true' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$APPLE_ID"
+          test -n "$APPLE_APP_SPECIFIC_PASSWORD"
+          test -n "$APPLE_TEAM_ID"
+          dmg="agent/macos/dist/ChargePilotAgent-0.1.0.dmg"
+          xcrun notarytool submit "$dmg" --wait --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID"
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose "$dmg"
+
       - name: Upload DMG
+        if: ${{ !startsWith(github.ref, 'refs/tags/agents-v') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chargepilot-macos-development-dmg
@@ -104,12 +404,59 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      - name: Upload signed and notarized DMG
+        if: ${{ startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chargepilot-macos-release-dmg
+          path: agent/macos/dist/ChargePilotAgent-0.1.0.dmg
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload unsigned, unnotarized DMG
+        if: ${{ startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed != 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chargepilot-macos-release-dmg
+          path: agent/macos/dist/ChargePilotAgent-0.1.0.dmg
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Remove macOS signing keychain
+        if: ${{ always() && startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed == 'true' }}
+        env:
+          MACOS_KEYCHAIN_PATH: ${{ env.MACOS_KEYCHAIN_PATH }}
+        run: |
+          if [ -n "$MACOS_KEYCHAIN_PATH" ] && security list-keychains -d user | grep -Fq "$MACOS_KEYCHAIN_PATH"; then
+            security delete-keychain "$MACOS_KEYCHAIN_PATH"
+          fi
+
   windows:
     name: Build Windows service agent
     runs-on: windows-2022
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check Windows signing configuration
+        id: signing
+        if: startsWith(github.ref, 'refs/tags/agents-v')
+        shell: powershell
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          $values = @($env:WINDOWS_SIGNING_PFX_BASE64, $env:WINDOWS_SIGNING_PFX_PASSWORD)
+          $configured = @($values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
+          if ($configured -eq 0) {
+            "signed=false" >> $env:GITHUB_OUTPUT
+          } elseif ($configured -eq $values.Count) {
+            "signed=true" >> $env:GITHUB_OUTPUT
+          } else {
+            throw "Windows signing secrets are only partially configured. Add both Windows secrets or remove them to publish an unsigned executable."
+          }
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
@@ -125,10 +472,42 @@ jobs:
           .\agent\windows\BuildAgentExe.ps1 `
             -OutputPath "$env:RUNNER_TEMP\ChargePilotAgent.exe"
 
+      - name: Authenticode-sign Windows executable
+        if: ${{ startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed == 'true' }}
+        shell: powershell
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_PFX_BASE64) -or
+              [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_PFX_PASSWORD)) {
+            throw "Windows code-signing certificate secrets are required for agent releases."
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "chargepilot-signing.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX_BASE64))
+          $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -Recurse |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if ($null -eq $signTool) { throw "Windows SDK signtool.exe was not found." }
+          & $signTool.FullName sign /fd SHA256 /tr https://timestamp.digicert.com /td SHA256 /f $certificatePath /p $env:WINDOWS_SIGNING_PFX_PASSWORD "$env:RUNNER_TEMP\ChargePilotAgent.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed." }
+          & $signTool.FullName verify /pa /all "$env:RUNNER_TEMP\ChargePilotAgent.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Authenticode signature verification failed." }
+          Remove-Item -LiteralPath $certificatePath -Force
+
       - name: Upload Windows executable
+        if: ${{ !startsWith(github.ref, 'refs/tags/agents-v') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chargepilot-windows-exe
+          path: ${{ runner.temp }}/ChargePilotAgent.exe
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload Windows release executable
+        if: startsWith(github.ref, 'refs/tags/agents-v')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chargepilot-windows-release-exe
           path: ${{ runner.temp }}/ChargePilotAgent.exe
           if-no-files-found: error
           retention-days: 90
@@ -150,29 +529,80 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
-      - name: Download Android APK
+      - name: Download Android release APK
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: chargepilot-android-debug-apk
+          name: chargepilot-android-release-apk
           path: artifacts
 
-      - name: Download iOS IPA
+      - name: Download iOS release IPA
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: chargepilot-ios-unsigned-ipa
+          name: chargepilot-ios-release-ipa
           path: artifacts
 
-      - name: Download macOS DMG
+      - name: Download macOS release DMG
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: chargepilot-macos-development-dmg
+          name: chargepilot-macos-release-dmg
           path: artifacts
 
-      - name: Download Windows executable
+      - name: Download Windows release executable
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: chargepilot-windows-exe
+          name: chargepilot-windows-release-exe
           path: artifacts
+
+      - name: Normalize release asset names and describe signing status
+        env:
+          WINDOWS_SIGNED: ${{ needs.windows.outputs.signed }}
+          ANDROID_SIGNED: ${{ needs.android.outputs.signed }}
+          IOS_SIGNED: ${{ needs.ios.outputs.signed }}
+          MACOS_SIGNED: ${{ needs.macos.outputs.signed }}
+          TAG: ${{ github.ref_name }}
+          RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes.md
+        run: |
+          set -euo pipefail
+          if [[ -f artifacts/ChargePilotAgent-0.1.0-unsigned.ipa ]]; then
+            mv artifacts/ChargePilotAgent-0.1.0-unsigned.ipa artifacts/ChargePilotAgent-0.1.0.ipa
+          fi
+          test -f artifacts/ChargePilotAgent-0.1.0.ipa
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          signed = {
+              "windows": os.environ["WINDOWS_SIGNED"] == "true",
+              "android": os.environ["ANDROID_SIGNED"] == "true",
+              "ios": os.environ["IOS_SIGNED"] == "true",
+              "macos": os.environ["MACOS_SIGNED"] == "true",
+          }
+          details = {
+              "windows": "Authenticode signature" if signed["windows"] else "unsigned; Windows may show SmartScreen warnings",
+              "android": "release-keystore signed APK" if signed["android"] else "unsigned APK; Android will not install it as a trusted release",
+              "ios": "ad-hoc signed for devices in the included provisioning profile" if signed["ios"] else "unsigned IPA; requires signing before device installation",
+              "macos": "Developer ID signed and notarized" if signed["macos"] else "unsigned and not notarized; Gatekeeper may block opening",
+          }
+          Path("artifacts/agent-release-manifest.json").write_text(
+              json.dumps(
+                  {
+                      "tag": os.environ["TAG"],
+                      "signing": signed,
+                      "distribution": details,
+                  },
+                  indent=2,
+              ) + "\n",
+              encoding="utf-8",
+          )
+          Path(os.environ["RELEASE_NOTES_PATH"]).write_text(
+              "# ChargePilot endpoint agents\n\n"
+              "Signing state is reported per platform in `agent-release-manifest.json`.\n\n"
+              + "\n".join(f"- **{platform.title()}:** {details[platform]}" for platform in signed)
+              + "\n\nAndroid and iOS physical-device validation remains the installer's responsibility.\n",
+              encoding="utf-8",
+          )
+          PY
 
       - name: Package public agent source downloads
         run: |
@@ -243,7 +673,7 @@ jobs:
               (root / "artifacts" / asset).write_bytes((root / source).read_bytes())
           PY
 
-      - name: Publish development builds
+      - name: Publish platform builds
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -251,4 +681,4 @@ jobs:
           gh release create "$TAG" artifacts/* \
             --title "ChargePilot endpoint agents $TAG" \
             --latest \
-            --notes "Development builds and source archives generated from this tag. The Windows executable installs a Windows service, provides an elevated configuration UI and CLI, and is unsigned. The Android APK is debug-signed. The iOS IPA is unsigned and requires signing before installation. The macOS DMG is unsigned and not notarized."
+            --notes-file "$RUNNER_TEMP/release-notes.md"

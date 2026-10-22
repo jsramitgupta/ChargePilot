@@ -33,8 +33,10 @@ The menu-bar app and CLI are documented in
 [agent/macos/README.md](../../../../agent/macos/README.md). The app persists
 the installation ID locally and the credential in Keychain, reports
 immediately and every five minutes while running, and lets users enable a
-login item. Never embed or use the tenant-wide Windows token. The development
-DMG remains unsigned and not notarized.
+login item. Never embed or use the tenant-wide Windows token. A tagged DMG is
+Developer ID-signed, signature-verified, and notarized when its complete
+signing-secret group is configured. Without that group, the unsigned,
+unnotarized DMG is still published; a partial group fails the release job.
 
 ## Known constraints
 
@@ -42,6 +44,8 @@ DMG remains unsigned and not notarized.
 - the app must not claim to be a real-time automation agent
 - report success and failure visibly in the menu-bar UI without exposing
   credentials
+- allow the user to deregister and re-enroll from the menu-bar UI without
+  reinstalling the app
 
 ## Platform references
 

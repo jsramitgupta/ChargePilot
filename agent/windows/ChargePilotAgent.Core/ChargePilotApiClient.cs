@@ -5,6 +5,29 @@ namespace ChargePilotAgent.Core;
 
 public sealed class ChargePilotApiClient(HttpClient httpClient)
 {
+    public async Task DeregisterAsync(
+        Uri serverUri,
+        string credential,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureSecureOrigin(serverUri);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            new Uri(serverUri, "/api/v1/endpoint-enrollment/deregister"))
+        {
+            Content = JsonContent.Create(new { }),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"Deregistration failed with HTTP {(int)response.StatusCode}. Check the server and endpoint credential.",
+                null,
+                response.StatusCode);
+        }
+    }
+
     public async Task<EnrollmentResponse> EnrollAsync(
         Uri serverUri,
         string enrollmentCode,

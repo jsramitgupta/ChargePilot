@@ -117,6 +117,15 @@ object AgentApi {
         )
     }
 
+    fun deregister(serverOrigin: String, credential: String) {
+        request(
+            origin = validateOrigin(serverOrigin),
+            path = "/api/v1/endpoint-enrollment/deregister",
+            body = JSONObject(),
+            credential = credential,
+        )
+    }
+
     private fun request(
         origin: String,
         path: String,
@@ -208,6 +217,7 @@ class TelemetryWorker(context: Context, parameters: WorkerParameters) : Worker(c
             val request = PeriodicWorkRequestBuilder<TelemetryWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .addTag(TELEMETRY_WORK_TAG)
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 PERIODIC_REPORT,
@@ -218,6 +228,7 @@ class TelemetryWorker(context: Context, parameters: WorkerParameters) : Worker(c
 
         fun sendNow(context: Context): UUID {
             val request = OneTimeWorkRequestBuilder<TelemetryWorker>()
+                .addTag(TELEMETRY_WORK_TAG)
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -228,6 +239,13 @@ class TelemetryWorker(context: Context, parameters: WorkerParameters) : Worker(c
             WorkManager.getInstance(context).enqueue(request)
             return request.id
         }
+
+        fun cancel(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_REPORT)
+            WorkManager.getInstance(context).cancelAllWorkByTag(TELEMETRY_WORK_TAG)
+        }
+
+        private const val TELEMETRY_WORK_TAG = "chargepilot-telemetry"
     }
 }
 

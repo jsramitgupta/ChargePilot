@@ -68,6 +68,7 @@ private final class AgentStatusModel: ObservableObject {
     @Published private(set) var statusMessage = "Connect this Mac to begin."
     @Published private(set) var statusIsError = false
     @Published private(set) var launchesAtLogin = SMAppService.mainApp.status == .enabled
+    @Published var showDeregisterConfirmation = false
 
     private var reportingTask: Task<Void, Never>?
 
@@ -150,6 +151,40 @@ private final class AgentStatusModel: ObservableObject {
         }
     }
 
+    func deregister() {
+        guard !isWorking, let configuration else { return }
+        let wasReporting = isReporting
+        reportingTask?.cancel()
+        reportingTask = nil
+        isReporting = false
+        isWorking = true
+        statusMessage = "Deregistering this Mac…"
+        statusIsError = false
+        Task {
+            defer { isWorking = false }
+            do {
+                try await ChargePilotAgent.deregisterFromServer(configuration: configuration)
+                self.configuration = nil
+                lastReport = nil
+                batteryPercentage = nil
+                do {
+                    try ChargePilotAgent.clearLocalEnrollment(configuration: configuration)
+                    statusMessage = "Mac deregistered. Enter a new enrollment token to connect again."
+                    statusIsError = false
+                } catch {
+                    statusMessage = "Mac deregistered, but local credential cleanup failed: \(error.localizedDescription)"
+                    statusIsError = true
+                }
+            } catch {
+                statusMessage = error.localizedDescription
+                statusIsError = true
+                if wasReporting {
+                    startReporting()
+                }
+            }
+        }
+    }
+
     func setLaunchAtLogin(_ enabled: Bool) {
         do {
             if enabled {
@@ -208,6 +243,18 @@ private struct AgentMenuView: View {
         .frame(width: 360, height: 520, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
         .task { model.startIfEnrolled() }
+        .confirmationDialog(
+            "Deregister this Mac?",
+            isPresented: $model.showDeregisterConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Deregister", role: .destructive) {
+                model.deregister()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This revokes the installation and stops its reports. You can enroll again here with a new workspace token.")
+        }
     }
 
     private var header: some View {
@@ -286,6 +333,11 @@ private struct AgentMenuView: View {
             .font(.system(size: 12))
             .toggleStyle(.switch)
             .controlSize(.small)
+
+            Button("Deregister this Mac", role: .destructive) {
+                model.showDeregisterConfirmation = true
+            }
+            .disabled(model.isWorking)
 
             if let lastReport = model.lastReport {
                 Text("Last accepted \(lastReport.formatted(date: .abbreviated, time: .shortened))")

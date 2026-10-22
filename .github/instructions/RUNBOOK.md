@@ -226,9 +226,10 @@ uvicorn app.main:app --host 127.0.0.1 --port 8010
   start with automation enabled for all four platforms, subject to the
   server-side allow-list, fresh-sample check, and enabled tenant-safe mapping.
   Android has a debug-signed APK build and emulator smoke test, but
-  physical-device validation and store signing remain outstanding. iOS has an
-  unsigned IPA build and simulator smoke test; physical-device validation and
-  signing remain outstanding.
+  physical-device validation and store distribution remain outstanding. iOS
+  has an unsigned IPA build and simulator smoke test; physical-device
+  validation and signed distribution remain outstanding. Tagged releases can
+  publish unsigned builds until the platform signing secrets are configured.
   See `.github/instructions/platform-agents/SERVER_SIDE_CONFIG.md` for current
   configuration and rollout behavior.
 - For an existing PostgreSQL database, apply
