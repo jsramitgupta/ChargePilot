@@ -65,6 +65,8 @@ report with missing timestamps last. Both views expose the last successful
 refresh and a manual refresh action. The Smart switches page groups LAN
 discovery, manual setup, and the searchable/filterable inventory into clear
 work areas; card and list views remain available on small screens.
+The configured switch inventory loads independently of live connector status
+refreshes, so a failed device read does not block switch management.
 Switch onboarding separates device identity, local access, and command routing.
 The route picker limits tenant users to enrolled connectors for their tenant;
 Super Admins can choose an enrolled connector across tenants and the new device

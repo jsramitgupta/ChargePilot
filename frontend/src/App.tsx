@@ -180,7 +180,6 @@ type ConnectorCommandStatus = {
 
 type DevicesPageData = {
   devices: Device[]
-  skippedDevices: DeviceStatusRefresh['skipped_devices']
 }
 
 type AdminUser = {
@@ -1527,22 +1526,41 @@ function DevicesPage() {
   const { data, isLoading, error } = useQuery<DevicesPageData>({
     queryKey: ['devices'],
     queryFn: async () => {
-      const refresh = await apiFetch<DeviceStatusRefresh>('/api/v1/devices/status/refresh', {
-        method: 'POST',
-      })
-      await waitForConnectorCommands(refresh.commands, 30_000)
       const devices = await apiFetch<Device[]>('/api/v1/devices')
       return {
         devices: await Promise.all(devices.map(async (device) => ({
           ...device,
           channels: await apiFetch<DeviceChannel[]>(`/api/v1/devices/${device.id}/channels`),
         }))),
-        skippedDevices: refresh.skipped_devices,
       }
     },
     refetchInterval: 5 * 60 * 1000,
     refetchIntervalInBackground: false,
   })
+  const {
+    data: statusRefresh,
+    dataUpdatedAt: statusRefreshUpdatedAt,
+    error: statusRefreshError,
+  } = useQuery<DeviceStatusRefresh>({
+    queryKey: ['device-status-refresh'],
+    queryFn: async () => {
+      const refresh = await apiFetch<DeviceStatusRefresh>('/api/v1/devices/status/refresh', {
+        method: 'POST',
+      })
+      await waitForConnectorCommands(refresh.commands, 30_000)
+      return refresh
+    },
+    enabled: data !== undefined,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+    refetchIntervalInBackground: false,
+  })
+  useEffect(() => {
+    if (statusRefreshUpdatedAt) {
+      void queryClient.invalidateQueries({ queryKey: ['devices'] })
+    }
+  }, [queryClient, statusRefreshUpdatedAt])
   const { data: connectors = [] } = useQuery({
     queryKey: ['connectors'],
     queryFn: () => apiFetch<Connector[]>('/api/v1/connectors'),
@@ -1862,8 +1880,9 @@ function DevicesPage() {
           <div><p className="switch-section-caption">Your device inventory</p><h2 id="switch-inventory-title">Configured switches</h2><p>Check live state, connection route, and channel controls.</p></div>
           <span className="switch-inventory-count">{filteredDevices.length}<small>showing</small></span>
         </div>
-        {error && <div className="mb-4"><ErrorCard message={`Could not refresh switch status: ${error.message}`} /></div>}
-        {!!data?.skippedDevices.length && <p className="switch-inventory-alert" role="status">{data.skippedDevices.length} switch{data.skippedDevices.length === 1 ? '' : 'es'} could not return live status. Check each switch’s assigned site connector and its heartbeat.</p>}
+        {error && <div className="mb-4"><ErrorCard message={`Could not load switch inventory: ${error.message}`} /></div>}
+        {statusRefreshError && <div className="mb-4"><ErrorCard message={`Could not refresh live switch status: ${statusRefreshError.message}`} /></div>}
+        {!!statusRefresh?.skipped_devices.length && <p className="switch-inventory-alert" role="status">{statusRefresh.skipped_devices.length} switch{statusRefresh.skipped_devices.length === 1 ? '' : 'es'} could not return live status. Check each switch’s assigned site connector and its heartbeat.</p>}
         <div className="switch-inventory-tools">
           <label className="switch-search" htmlFor="switch-search"><Search size={17} /><input id="switch-search" value={switchSearch} onChange={(event) => setSwitchSearch(event.target.value)} placeholder="Find a switch" /></label>
           <div className="switch-filter-group" role="group" aria-label="Filter switches">

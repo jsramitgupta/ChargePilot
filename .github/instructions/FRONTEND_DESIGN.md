@@ -165,7 +165,9 @@ operational state colors for explicit status indicators.
 - The Smart switches page orders discovery, manual setup, and inventory by
   task. Keep scan location and action together, give inventory search and
   filters usable tap targets, and let device cards collapse to one column
-  without narrowing a single result to an unused grid track.
+  without narrowing a single result to an unused grid track. Load configured
+  inventory independently from connector status refreshes; report refresh
+  failures without hiding switch management.
   The switch setup presents identity, local access, and command routing as
   three clear stages. Route choices use selectable cards: tenant users see only
   their enrolled tenant connectors, while Super Admins can select a connector

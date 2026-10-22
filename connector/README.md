@@ -12,7 +12,7 @@ connector credential on the local Docker host:
 ```yaml
 services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:sha-922f4aac9cef35276eef7814620f38d674720f73
+    image: endusercompute/chargepilot-connector:sha-6056b0205cd2e3927b279d68a95f56fbe008bef3
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped
@@ -33,6 +33,10 @@ services:
 volumes:
   connector-data:
 ```
+
+For an existing installation, update the image reference and redeploy the
+service while keeping its `connector-data` volume; the saved credential does
+not need to be enrolled again.
 
 Pass the code only for first enrollment and start the published image:
 
