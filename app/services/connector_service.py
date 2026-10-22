@@ -3,17 +3,20 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device, DeviceChannel
 from app.models.event import AutomationEvent
 from app.services.local_key_service import decrypt_local_key
+from app.services.tuya_energy import apply_meter_result
 
 COMMAND_TTL = timedelta(minutes=5)
 COMMAND_LEASE = timedelta(seconds=60)
 MAX_COMMAND_ATTEMPTS = 5
 CONNECTOR_ONLINE_WINDOW = timedelta(seconds=90)
+METER_POLL_INTERVAL = timedelta(seconds=60)
 
 
 def hash_connector_token(token: str) -> str:
@@ -136,6 +139,37 @@ def expire_overdue_commands(db: Session) -> int:
     return len(commands)
 
 
+def _queue_due_meter_poll(db: Session, connector: SiteConnector, now: datetime) -> bool:
+    cutoff = now - METER_POLL_INTERVAL
+    device = (
+        db.query(Device)
+        .filter(
+            Device.connector_id == connector.id,
+            Device.tenant_id == connector.tenant_id,
+            Device.enabled.is_(True),
+            or_(Device.power_dp_id.is_not(None), Device.energy_dp_id.is_not(None)),
+            or_(Device.meter_last_sample_at.is_(None), Device.meter_last_sample_at <= cutoff),
+            or_(Device.meter_poll_requested_at.is_(None), Device.meter_poll_requested_at <= cutoff),
+        )
+        .order_by(Device.meter_last_sample_at.asc().nullsfirst(), Device.created_at.asc())
+        .with_for_update(skip_locked=True)
+        .first()
+    )
+    if device is None:
+        return False
+
+    queue_device_command(
+        db,
+        device=device,
+        operation="get_status",
+        channel_index=1,
+        context={"meter_poll": True},
+    )
+    device.meter_poll_requested_at = now
+    db.flush()
+    return True
+
+
 def claim_next_command(db: Session, connector: SiteConnector) -> dict | None:
     now = datetime.now(UTC)
     expired = (
@@ -163,6 +197,9 @@ def claim_next_command(db: Session, connector: SiteConnector) -> dict | None:
         ),
     )
     command = eligible.order_by(DeviceCommand.created_at.asc()).with_for_update(skip_locked=True).first()
+    if command is None:
+        if _queue_due_meter_poll(db, connector, now):
+            command = eligible.order_by(DeviceCommand.created_at.asc()).with_for_update(skip_locked=True).first()
     if command is None:
         exhausted = (
             db.query(DeviceCommand)
@@ -224,6 +261,10 @@ def claim_next_command(db: Session, connector: SiteConnector) -> dict | None:
             "local_key": local_key,
             "device_type": device.device_type or "default",
             "protocol_version": device.protocol_version or "3.5",
+            "power_dp_id": device.power_dp_id,
+            "power_multiplier": device.power_multiplier,
+            "energy_dp_id": device.energy_dp_id,
+            "energy_multiplier": device.energy_multiplier,
         }
     db.commit()
     return payload
@@ -293,6 +334,9 @@ def finalize_command(
             device.current_state = state
         device.last_seen_at = now
         device.updated_at = now
+
+    if success and command.operation in {"get_status", "set_state"}:
+        apply_meter_result(device, result or {}, observed_at=now)
 
     if context.get("event_type"):
         db.add(

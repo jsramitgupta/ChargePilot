@@ -645,6 +645,26 @@ It restores all pre-migration flags, pauses newly enrolled endpoints created
 since the migration, and removes the backup table. Test both scripts against a
 backup before production.
 
+Tuya energy monitoring adds per-device datapoint configuration and collected
+meter samples. For an existing PostgreSQL deployment:
+
+1. Take and verify a database backup.
+2. Apply `deploy/migrations/20261022_tuya_energy_monitoring.sql` through the
+   private database service using the established secure connection method.
+   Do not publish the PostgreSQL port or place credentials in command-line
+   arguments.
+3. Deploy the API/frontend and upgrade each site connector that should collect
+   meter data to connector version 0.1.3 or later.
+4. Configure the device-specific datapoint IDs and conversion multipliers on
+   the Switches page, then verify sample times and values before relying on
+   Overview aggregates.
+
+The application bootstrap can add missing columns on new/compatible installs,
+but it does not replace this reviewed migration on an existing PostgreSQL
+schema. The rollback script drops all meter settings and collected samples;
+first stop the new feature version and preserve any needed data from backup.
+Test both migration scripts against a restored backup before production.
+
 Legacy Windows endpoints are identified by the
 `Win32_ComputerSystemProduct.UUID`; hostname remains mutable display and
 diagnostic data. The endpoint `hardware_uuid` column is nullable for existing

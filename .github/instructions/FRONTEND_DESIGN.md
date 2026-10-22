@@ -29,9 +29,9 @@ browser interactions:
 | `/register` | Create a tenant or complete legacy code-based standard-user signup |
 | `/verify-email` | Explain and complete email verification |
 | `/accept-invitation` | Review an emailed invitation and set the account password |
-| `/` | Endpoint and switch overview with live telemetry summary |
+| `/` | Endpoint, switch, and energy overview with live telemetry summary |
 | `/endpoints` | Review enrolled devices, ownership, readings, and endpoint assignment |
-| `/devices` | Review switches, channels, connector assignment, and device state |
+| `/devices` | Review switches, channels, connector assignment, device state, and optional meter readings |
 | `/mappings` | Create, edit, and remove endpoint-to-switch battery rules |
 | `/events` | Review automation activity and outcomes |
 | `/connectors` | Enroll and operate site connectors |
@@ -172,6 +172,15 @@ operational state colors for explicit status indicators.
   and the new switch is created in that connector's tenant. A connector scan
   preselects that same route. The Smart Life key-retrieval dialog and discovery
   results use the shared theme surfaces and status tokens in both themes.
+  Compatible Tuya meters can be configured per switch with explicit power and
+  energy datapoint IDs and unit multipliers; do not infer datapoints from a
+  device family or treat unsupported readings as zero. Show the sample time,
+  connector requirement, and cumulative-counter partial-month behavior.
+- Overview energy totals include only power samples from the last five minutes
+  and energy recorded for the current UTC month. Show the number of contributing
+  switches and an explicit no-data state. Cumulative energy starts at its first
+  observation in each month; do not present a partial counter delta as a full
+  month total.
 - Use surface, muted-surface, and line tokens for hierarchy. Reserve the
   mineral-green hero and navigation surfaces for strong anchors; do not turn
   every content group into an identical raised card.

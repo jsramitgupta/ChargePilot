@@ -147,6 +147,48 @@ def test_connector_reads_selected_channel_from_unfiltered_status():
     assert chargepilot_connector._read_device_state(device, 2) is True
 
 
+def test_connector_returns_only_configured_meter_datapoints(monkeypatch):
+    device = _FakeDevice({"1": True, "cur_power": "845", "add_ele": "12500", "other": "secret"})
+    monkeypatch.setattr(chargepilot_connector, "OutletDevice", lambda *args, **kwargs: device)
+
+    result = chargepilot_connector._execute_device_command(
+        {
+            "operation": "get_status",
+            "device": {
+                "device_id": "metered-device",
+                "ip_address": "192.168.1.15",
+                "local_key": "not-returned",
+                "power_dp_id": "cur_power",
+                "power_multiplier": 0.1,
+                "energy_dp_id": "add_ele",
+                "energy_multiplier": 0.001,
+            },
+        }
+    )
+
+    assert result == {"state": True, "power_watts": 84.5, "energy_total_kwh": 12.5}
+
+
+def test_connector_ignores_invalid_meter_datapoint_values(monkeypatch):
+    device = _FakeDevice({"1": False, "cur_power": True, "add_ele": "not-numeric"})
+    monkeypatch.setattr(chargepilot_connector, "OutletDevice", lambda *args, **kwargs: device)
+
+    result = chargepilot_connector._execute_device_command(
+        {
+            "operation": "get_status",
+            "device": {
+                "device_id": "metered-device",
+                "ip_address": "192.168.1.15",
+                "local_key": "not-returned",
+                "power_dp_id": "cur_power",
+                "energy_dp_id": "add_ele",
+            },
+        }
+    )
+
+    assert result == {"state": False}
+
+
 @pytest.mark.parametrize(
     "url",
     ["https://chargepilot.example", "http://localhost:8000", "http://127.0.0.1:8000"],

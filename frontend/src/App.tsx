@@ -114,8 +114,28 @@ type Device = {
   current_state?: boolean | null
   last_state_change_at?: string | null
   last_seen_at?: string | null
+  power_dp_id?: string | null
+  power_multiplier?: number
+  energy_dp_id?: string | null
+  energy_multiplier?: number
+  energy_counter_type?: 'cumulative' | 'monthly'
+  meter_power_watts?: number | null
+  meter_power_sample_at?: string | null
+  meter_energy_month_kwh?: number | null
+  meter_energy_sample_at?: string | null
+  meter_month_key?: string | null
+  meter_last_sample_at?: string | null
+  meter_tracking_since?: string | null
   channels?: DeviceChannel[]
   connector_id?: string | null
+}
+
+type DeviceMeterSettings = {
+  power_dp_id: string | null
+  power_multiplier: number
+  energy_dp_id: string | null
+  energy_multiplier: number
+  energy_counter_type: 'cumulative' | 'monthly'
 }
 
 type DeviceChannel = {
@@ -1280,6 +1300,19 @@ function DashboardPage() {
   const { endpoints, devices } = data
   const onlineCount = endpoints.filter((endpoint) => endpoint.status === 'online').length
   const recentEndpoints = sortEndpointsByLastSeen(endpoints).slice(0, OVERVIEW_ENDPOINT_LIMIT)
+  const currentMonth = new Date(now).toISOString().slice(0, 7)
+  const powerDevices = devices.filter((device) => (
+    device.meter_power_watts != null
+    && device.meter_power_sample_at
+    && now - Date.parse(device.meter_power_sample_at) <= 5 * 60 * 1000
+  ))
+  const monthEnergyDevices = devices.filter((device) => (
+    device.meter_month_key === currentMonth
+    && device.meter_energy_month_kwh != null
+    && device.meter_energy_sample_at != null
+  ))
+  const totalPowerWatts = powerDevices.reduce((total, device) => total + (device.meter_power_watts ?? 0), 0)
+  const totalEnergyKwh = monthEnergyDevices.reduce((total, device) => total + (device.meter_energy_month_kwh ?? 0), 0)
 
   return (
     <div className="dashboard-page">
@@ -1300,6 +1333,28 @@ function DashboardPage() {
         <MetricCard label="Online endpoints" value={String(onlineCount)} hint="seen in the last 10 minutes" icon={CheckCircle2} />
         <MetricCard label="Offline endpoints" value={String(endpoints.length - onlineCount)} hint="not recently reporting" icon={CircleDashed} />
         <MetricCard label="Smart switches" value={String(devices.length)} hint="configured devices" icon={PlugZap} />
+      </section>
+
+      <section className="energy-summary" aria-labelledby="energy-summary-title">
+        <div className="energy-summary-heading">
+          <div>
+            <h2 id="energy-summary-title">Switch energy</h2>
+            <p>Readings are shown only for switches with compatible meter datapoints.</p>
+          </div>
+          <NavLink to="/devices" className="secondary-btn">Configure switch meters</NavLink>
+        </div>
+        <div className="energy-summary-values">
+          <div className="energy-summary-reading">
+            <span>Live power</span>
+            <strong>{powerDevices.length ? formatPower(totalPowerWatts) : 'No meter data'}</strong>
+            <small>{powerDevices.length ? `From ${powerDevices.length} reporting switch${powerDevices.length === 1 ? '' : 'es'} · updated within 5 minutes` : 'Set up a power datapoint on a compatible switch.'}</small>
+          </div>
+          <div className="energy-summary-reading">
+            <span>Energy this month (UTC)</span>
+            <strong>{monthEnergyDevices.length ? `${totalEnergyKwh.toFixed(2)} kWh` : 'No meter data'}</strong>
+            <small>{monthEnergyDevices.length ? `From ${monthEnergyDevices.length} switch meter${monthEnergyDevices.length === 1 ? '' : 's'} · cumulative meters start with their first reading` : 'Set up an energy datapoint on a compatible switch.'}</small>
+          </div>
+        </div>
       </section>
 
       <section className="panel table-panel">
@@ -1340,9 +1395,108 @@ function DashboardPage() {
   )
 }
 
+function DeviceMeterPanel({
+  device,
+  isSaving,
+  currentMonth,
+  onSave,
+}: {
+  device: Device
+  isSaving: boolean
+  currentMonth: string
+  onSave: (settings: DeviceMeterSettings) => void
+}) {
+  const [powerDpId, setPowerDpId] = useState(device.power_dp_id ?? '')
+  const [powerMultiplier, setPowerMultiplier] = useState(String(device.power_multiplier ?? 1))
+  const [energyDpId, setEnergyDpId] = useState(device.energy_dp_id ?? '')
+  const [energyMultiplier, setEnergyMultiplier] = useState(String(device.energy_multiplier ?? 0.001))
+  const [energyCounterType, setEnergyCounterType] = useState<DeviceMeterSettings['energy_counter_type']>(
+    device.energy_counter_type ?? 'cumulative',
+  )
+  const [validationMessage, setValidationMessage] = useState('')
+
+  const saveSettings = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const powerScale = Number(powerMultiplier)
+    const energyScale = Number(energyMultiplier)
+    if ((powerDpId.trim() && (!Number.isFinite(powerScale) || powerScale <= 0))
+      || (energyDpId.trim() && (!Number.isFinite(energyScale) || energyScale <= 0))) {
+      setValidationMessage('Enter a positive multiplier for each configured datapoint.')
+      return
+    }
+    setValidationMessage('')
+    onSave({
+      power_dp_id: powerDpId.trim() || null,
+      power_multiplier: powerScale,
+      energy_dp_id: energyDpId.trim() || null,
+      energy_multiplier: energyScale,
+      energy_counter_type: energyCounterType,
+    })
+  }
+
+  const cumulativePartialMonth = device.energy_counter_type === 'cumulative'
+    && device.meter_tracking_since
+    && device.meter_tracking_since.slice(0, 7) === device.meter_month_key
+
+  return (
+    <section className="switch-meter-panel" aria-label={`Energy readings for ${device.name}`}>
+      <div className="switch-meter-readings">
+        <div>
+          <span>Live power</span>
+          <strong>{device.meter_power_watts == null ? '—' : formatPower(device.meter_power_watts)}</strong>
+        </div>
+        <div>
+          <span>Energy this month (UTC)</span>
+          <strong>{device.meter_energy_month_kwh == null || device.meter_energy_sample_at == null || device.meter_month_key !== currentMonth ? '—' : `${device.meter_energy_month_kwh.toFixed(2)} kWh`}</strong>
+        </div>
+      </div>
+      <p className="switch-meter-status">
+        {device.meter_power_sample_at || device.meter_energy_sample_at
+          ? `Power sampled ${formatTimestamp(device.meter_power_sample_at ?? null)} · energy sampled ${formatTimestamp(device.meter_energy_sample_at ?? null)}${cumulativePartialMonth ? ` · cumulative tracking began ${formatTimestamp(device.meter_tracking_since ?? null)}` : ''}`
+          : 'No meter sample yet. A configured, compatible datapoint and an online site connector are required.'}
+      </p>
+      <details className="switch-meter-settings">
+        <summary>Configure meter datapoints</summary>
+        <form className="switch-meter-form" onSubmit={saveSettings}>
+          <p className="switch-meter-help">Tuya datapoint IDs differ by device. Use the IDs from your device’s specification; ChargePilot does not guess them. Updates are polled about once a minute by the assigned site connector.</p>
+          <div>
+            <label htmlFor={`meter-power-dp-${device.id}`}>Power datapoint ID</label>
+            <input id={`meter-power-dp-${device.id}`} className="field" value={powerDpId} onChange={(event) => setPowerDpId(event.target.value)} placeholder="For example,  cur_power" />
+          </div>
+          <div>
+            <label htmlFor={`meter-power-scale-${device.id}`}>Power multiplier to watts</label>
+            <input id={`meter-power-scale-${device.id}`} className="field" type="number" min="0.000000001" step="any" value={powerMultiplier} onChange={(event) => setPowerMultiplier(event.target.value)} />
+          </div>
+          <div>
+            <label htmlFor={`meter-energy-dp-${device.id}`}>Energy datapoint ID</label>
+            <input id={`meter-energy-dp-${device.id}`} className="field" value={energyDpId} onChange={(event) => setEnergyDpId(event.target.value)} placeholder="For example,  add_ele" />
+          </div>
+          <div>
+            <label htmlFor={`meter-energy-scale-${device.id}`}>Energy multiplier to kWh</label>
+            <input id={`meter-energy-scale-${device.id}`} className="field" type="number" min="0.000000001" step="any" value={energyMultiplier} onChange={(event) => setEnergyMultiplier(event.target.value)} />
+            <small>Raw Wh values commonly use 0.001.</small>
+          </div>
+          <div className="switch-meter-counter">
+            <label htmlFor={`meter-energy-mode-${device.id}`}>Energy counter type</label>
+            <select id={`meter-energy-mode-${device.id}`} className="field" value={energyCounterType} onChange={(event) => setEnergyCounterType(event.target.value === 'monthly' ? 'monthly' : 'cumulative')}>
+              <option value="cumulative">Cumulative total</option>
+              <option value="monthly">Monthly counter</option>
+            </select>
+          </div>
+          <p className="switch-meter-help switch-meter-disclaimer">Cumulative monthly totals begin at the first reading in the UTC month, so setup partway through a month gives a partial total. Monthly counters use the device-reported month value.</p>
+          {validationMessage && <p className="switch-meter-validation" role="alert">{validationMessage}</p>}
+          {!device.connector_id && <p className="switch-route-warning" role="status">Assign a site connector on the switch’s LAN to poll meter values automatically.</p>}
+          <button type="submit" className="btn-secondary px-3 py-2 text-xs" disabled={isSaving}>{isSaving ? 'Saving meter settings…' : 'Save meter settings'}</button>
+        </form>
+      </details>
+    </section>
+  )
+}
+
 function DevicesPage() {
   const queryClient = useQueryClient()
   const { data: user } = useSession()
+  const [currentMonth, setCurrentMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [manualOpen, setManualOpen] = useState(false)
   const [switchView, setSwitchView] = useState<'cards' | 'list'>('cards')
   const [switchFilter, setSwitchFilter] = useState<'all' | 'on' | 'off' | 'unassigned'>('all')
@@ -1356,6 +1510,13 @@ function DevicesPage() {
   const [qr, setQr] = useState('')
   const [smartLifeStatus, setSmartLifeStatus] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setCurrentMonth(new Date().toISOString().slice(0, 7))
+    }, 60_000)
+    return () => window.clearInterval(interval)
+  }, [])
   const [smartLifeUserCode, setSmartLifeUserCode] = useState<string | null>(null)
   const [qrScheme, setQrScheme] = useState('smartlife')
   const [rememberUserCode, setRememberUserCode] = useState<boolean | null>(null)
@@ -1412,6 +1573,19 @@ function DevicesPage() {
     onSuccess: ({ message }) => {
       setStatusMessage(message)
       queryClient.invalidateQueries({ queryKey: ['devices'] })
+    },
+  })
+
+  const meterMutation = useMutation({
+    mutationFn: ({ deviceId, settings }: { deviceId: string; settings: DeviceMeterSettings }) =>
+      apiFetch<Device>(`/api/v1/devices/${deviceId}/meter-settings`, {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+      }),
+    onSuccess: () => {
+      setStatusMessage('Meter settings saved. The site connector will collect the next reading within about a minute.')
+      queryClient.invalidateQueries({ queryKey: ['devices'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     },
   })
 
@@ -1647,7 +1821,7 @@ function DevicesPage() {
           }}>{manualOpen ? 'Close setup' : 'Add switch manually'}</button>
         </div>
         {statusMessage && <p className="switch-action-message" role="status">{statusMessage}</p>}
-        {(mutation.isError || switchMutation.isError || connectorMutation.isError || deleteMutation.isError) && <div className="mb-4"><ErrorCard message={mutation.error?.message ?? switchMutation.error?.message ?? connectorMutation.error?.message ?? deleteMutation.error?.message ?? 'The action failed.'} /></div>}
+        {(mutation.isError || switchMutation.isError || connectorMutation.isError || meterMutation.isError || deleteMutation.isError) && <div className="mb-4"><ErrorCard message={mutation.error?.message ?? switchMutation.error?.message ?? connectorMutation.error?.message ?? meterMutation.error?.message ?? deleteMutation.error?.message ?? 'The action failed.'} /></div>}
         {manualOpen && <form className="switch-setup-form" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
           <div className="switch-setup-step"><span>1</span><div><strong>Identify the switch</strong><small>Use LAN scan details or enter the device identity.</small></div></div>
           <div><label className="label" htmlFor="device-name">Display name</label><input id="device-name" className="field" placeholder="Living room plug" {...form.register('name')} />{form.formState.errors.name && <FieldError>{form.formState.errors.name.message}</FieldError>}</div>
@@ -1730,6 +1904,13 @@ function DevicesPage() {
                 <span className="channel-state-label">Whole switch</span>
                 <button type="button" className="btn-secondary px-3 py-2 text-xs" disabled={switchMutation.isPending} onClick={() => switchMutation.mutate({ deviceId: device.id, channelId: '', desiredState: !device.current_state })}>{device.current_state ? 'Turn off' : 'Turn on'}</button>
               </div>}
+              <DeviceMeterPanel
+                key={JSON.stringify([device.power_dp_id, device.power_multiplier, device.energy_dp_id, device.energy_multiplier, device.energy_counter_type])}
+                device={device}
+                isSaving={meterMutation.isPending}
+                currentMonth={currentMonth}
+                onSave={(settings) => meterMutation.mutate({ deviceId: device.id, settings })}
+              />
               {canManageConnectors && <form className="switch-route-editor" onSubmit={(event) => { event.preventDefault(); const body = new FormData(event.currentTarget); connectorMutation.mutate({ deviceId: device.id, connectorId: String(body.get('connector_id') ?? '') }) }}>
                 <div className="switch-route-editor-copy"><strong>Command route</strong><small>{device.connector_id ? 'Commands are sent to the selected site.' : 'Choose a site connector to control this switch remotely.'}</small></div>
                 <label className="sr-only" htmlFor={`connector-${device.id}`}>Select a command route for {device.name}</label>
@@ -3151,6 +3332,12 @@ function AgentSetupPage() {
       <p className="text-sm text-[var(--muted)]">After the first report, review devices on the <NavLink to="/endpoints" className="font-semibold text-[var(--leaf)] underline">Endpoints</NavLink> page.</p>
     </section>
   </div>
+}
+
+function formatPower(watts: number) {
+  return watts >= 1000
+    ? `${(watts / 1000).toFixed(2)} kW`
+    : `${watts.toFixed(1)} W`
 }
 
 function formatTimestamp(value: string | null) {

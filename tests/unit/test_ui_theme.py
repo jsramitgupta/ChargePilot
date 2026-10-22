@@ -126,6 +126,23 @@ def test_overview_and_endpoints_pair_platform_marks_with_device_identity():
     assert "body.theme-dark .platform-mark-android" in dark
 
 
+def test_switch_energy_readings_and_datapoint_settings_use_theme_aware_ui():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    dark = DARK_THEME.read_text(encoding="utf-8")
+
+    assert "Switch energy" in app
+    assert "Configure switch meters" in app
+    assert "meter-settings" in app
+    assert "Cumulative total" in app
+    assert "Monthly counter" in app
+    assert "does not guess them" in app
+    assert ".energy-summary" in light
+    assert ".switch-meter-panel" in light
+    assert "body.theme-dark .energy-summary" in dark
+    assert "body.theme-dark .switch-meter-readings strong" in dark
+
+
 def test_mapping_threshold_preview_keeps_labels_clear_when_thresholds_coincide():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     light = LIGHT_THEME.read_text(encoding="utf-8")

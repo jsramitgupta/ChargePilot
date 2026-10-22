@@ -525,11 +525,36 @@ regardless of any supplied `tenant_id`.
 
 Retrieves one device by UUID.
 
-### 4.4 GET /api/v1/devices/{device_id}/channels
+### 4.4 PUT /api/v1/devices/{device_id}/meter-settings
+
+Saves optional per-device Tuya meter datapoint configuration. The operation is
+tenant-scoped and requires an authenticated session.
+
+Request:
+
+```json
+{
+  "power_dp_id": "cur_power",
+  "power_multiplier": 0.1,
+  "energy_dp_id": "add_ele",
+  "energy_multiplier": 0.001,
+  "energy_counter_type": "cumulative"
+}
+```
+
+Datapoint IDs are device-specific and are not inferred. Multipliers convert raw
+values to watts and kWh. `energy_counter_type` is `cumulative` (the API derives
+monthly deltas) or `monthly` (the API uses the device's reported month counter).
+Each setting may be disabled by sending a `null` datapoint ID. The response
+includes configuration, latest power, current UTC-month energy, independent
+`meter_power_sample_at` / `meter_energy_sample_at` timestamps, and cumulative
+tracking start. Unconfigured values are `null`, not zero.
+
+### 4.5 GET /api/v1/devices/{device_id}/channels
 
 Lists all channels for a device.
 
-### 4.5 POST /api/v1/devices/{device_id}/channels
+### 4.6 POST /api/v1/devices/{device_id}/channels
 
 Creates a new device channel.
 
@@ -544,23 +569,23 @@ Example body:
 }
 ```
 
-### 4.6 PUT /api/v1/devices/{device_id}
+### 4.7 PUT /api/v1/devices/{device_id}
 
 Updates device metadata.
 
-### 4.7 DELETE /api/v1/devices/{device_id}
+### 4.8 DELETE /api/v1/devices/{device_id}
 
 Deletes a device.
 
-### 4.8 GET /api/v1/devices/channels/{channel_id}
+### 4.9 GET /api/v1/devices/channels/{channel_id}
 
 Gets one channel.
 
-### 4.9 PUT /api/v1/devices/channels/{channel_id}
+### 4.10 PUT /api/v1/devices/channels/{channel_id}
 
 Updates one channel.
 
-### 4.10 DELETE /api/v1/devices/channels/{channel_id}
+### 4.11 DELETE /api/v1/devices/channels/{channel_id}
 
 Deletes one channel.
 
@@ -582,7 +607,7 @@ Exchange a one-time enrollment code in the `Authorization: Bearer` header for a
 connector ID and permanent credential. Codes expire after 15 minutes, are
 single-use, and are returned only once.
 
-Request: `{"version":"0.1.2"}`
+Request: `{"version":"0.1.3"}`
 
 Response:
 
@@ -609,7 +634,7 @@ expire after 15 minutes and are stored only as hashes. The response is marked
 ### POST /api/v1/connectors/heartbeat
 
 Refreshes last-seen time and connector version. The connector sends its
-credential and `{"version":"0.1.2"}`.
+credential and `{"version":"0.1.3"}`.
 
 ### POST /api/v1/connectors/commands/claim
 
@@ -621,6 +646,11 @@ device APIs.
 Commands are persisted, leased, expire, and are eligible for bounded reclaim
 after connection loss. Operations are allowlisted (`set_state`, `get_status`,
 `discover`) and device commands are scoped to the authenticating connector.
+For devices with meter datapoints configured, idle command polling schedules a
+`get_status` command about once per minute. The command includes only the
+configured datapoint IDs and conversion multipliers; the connector returns
+normalized `power_watts` and `energy_total_kwh` values, never the arbitrary DPS
+map. Meter data is ignored unless its corresponding datapoint is configured.
 
 ### POST /api/v1/connectors/commands/{command_id}/result
 
@@ -632,6 +662,10 @@ Acknowledges a claimed operation:
 
 Failures use `success: false`; discovery results contain normalized device
 metadata and must not include local keys. Result bodies are size-limited.
+Successful `get_status` or `set_state` results may also include configured
+`power_watts` and `energy_total_kwh` values. Cumulative counters are converted
+to UTC-month deltas by the API; full-month totals require collection from the
+start of the month.
 
 ### GET /api/v1/connectors/commands/{command_id}
 

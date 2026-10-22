@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -9,6 +9,15 @@ from app.core.database import Base
 
 class Device(Base):
     __tablename__ = "devices"
+    __table_args__ = (
+        Index(
+            "ix_devices_meter_poll",
+            "connector_id",
+            "meter_last_sample_at",
+            postgresql_where=text("enabled IS TRUE AND (power_dp_id IS NOT NULL OR energy_dp_id IS NOT NULL)"),
+            sqlite_where=text("enabled IS TRUE AND (power_dp_id IS NOT NULL OR energy_dp_id IS NOT NULL)"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -26,6 +35,20 @@ class Device(Base):
     current_state: Mapped[bool] = mapped_column(Boolean, default=False)
     last_state_change_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    power_dp_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    power_multiplier: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+    energy_dp_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    energy_multiplier: Mapped[float] = mapped_column(Float, default=0.001, nullable=False)
+    energy_counter_type: Mapped[str] = mapped_column(String(16), default="cumulative", nullable=False)
+    meter_power_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
+    meter_power_sample_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    meter_energy_month_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    meter_energy_sample_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    meter_energy_total_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    meter_month_key: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    meter_last_sample_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    meter_poll_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    meter_tracking_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

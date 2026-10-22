@@ -561,6 +561,41 @@ body.theme-dark .choice-card.active {
   background: #22372c;
 }
 
+body.theme-dark .energy-summary {
+  border-color: #34463e;
+  background: var(--surface);
+}
+
+body.theme-dark .energy-summary-heading h2,
+body.theme-dark .energy-summary-reading strong,
+body.theme-dark .switch-meter-readings strong,
+body.theme-dark .switch-meter-form label {
+  color: #e1ece5;
+}
+
+body.theme-dark .energy-summary-heading p,
+body.theme-dark .energy-summary-reading small,
+body.theme-dark .energy-summary-reading span,
+body.theme-dark .switch-meter-readings span,
+body.theme-dark .switch-meter-status,
+body.theme-dark .switch-meter-help,
+body.theme-dark .switch-meter-form small {
+  color: #a4b5ac;
+}
+
+body.theme-dark .energy-summary-reading + .energy-summary-reading,
+body.theme-dark .switch-meter-panel {
+  border-color: #34463e;
+}
+
+body.theme-dark .switch-meter-settings summary {
+  color: #a7d4b3;
+}
+
+body.theme-dark .switch-meter-validation {
+  color: #f0a89b;
+}
+
 .auth-theme-toggle {
   position: absolute;
   top: 18px;

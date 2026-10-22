@@ -18,6 +18,7 @@ from app.schemas.device import (
     DeviceChannelRead,
     DeviceChannelUpdate,
     DeviceCreate,
+    DeviceMeterSettingsUpdate,
     DeviceRead,
     DeviceUpdate,
 )
@@ -51,7 +52,11 @@ def _device_read(db: Session, device: Device) -> DeviceRead:
         if device.tenant_id is not None
         else None
     )
-    return DeviceRead.model_validate(device).model_copy(update={"tenant_name": tenant_name})
+    result = DeviceRead.model_validate(device)
+    current_month = datetime.now(UTC).strftime("%Y-%m")
+    if result.meter_month_key != current_month:
+        result = result.model_copy(update={"meter_energy_month_kwh": None})
+    return result.model_copy(update={"tenant_name": tenant_name})
 
 
 def _get_channel(db: Session, channel_id: str, user: User) -> DeviceChannel:
@@ -334,6 +339,49 @@ async def update_device(
             "type": "device_updated",
             "tenant_id": device.tenant_id,
             "device": {"id": device.id, "name": device.name, "current_state": device.current_state},
+        }
+    )
+    return _device_read(db, device)
+
+
+@router.put("/{device_id}/meter-settings", response_model=DeviceRead)
+async def update_device_meter_settings(
+    device_id: UUID,
+    payload: DeviceMeterSettingsUpdate,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    device = _get_device(db, str(device_id), user)
+    settings = payload.model_dump()
+    power_changed = any(
+        getattr(device, field) != settings[field]
+        for field in ("power_dp_id", "power_multiplier")
+    )
+    energy_changed = any(
+        getattr(device, field) != settings[field]
+        for field in ("energy_dp_id", "energy_multiplier", "energy_counter_type")
+    )
+    for field, value in settings.items():
+        setattr(device, field, value)
+    if power_changed:
+        device.meter_power_watts = None
+        device.meter_power_sample_at = None
+    if energy_changed:
+        device.meter_energy_month_kwh = None
+        device.meter_energy_sample_at = None
+        device.meter_energy_total_kwh = None
+        device.meter_month_key = None
+        device.meter_tracking_since = None
+    if power_changed or energy_changed:
+        device.meter_last_sample_at = None
+        device.meter_poll_requested_at = None
+    db.commit()
+    db.refresh(device)
+    publish_event(
+        {
+            "type": "device_updated",
+            "tenant_id": device.tenant_id,
+            "device": {"id": device.id, "name": device.name},
         }
     )
     return _device_read(db, device)

@@ -4,6 +4,7 @@ import getpass
 import ipaddress
 import json
 import logging
+import math
 import os
 import stat
 import subprocess
@@ -15,7 +16,7 @@ from urllib.parse import urlsplit
 import httpx
 from tinytuya import OutletDevice, deviceScan
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 POLL_INTERVAL_SECONDS = 3
 HEARTBEAT_INTERVAL_SECONDS = 20
 logger = logging.getLogger("chargepilot.connector")
@@ -148,7 +149,7 @@ def _normalize_device_type(device_type: str | None) -> str:
     return value
 
 
-def _read_device_state(device: OutletDevice, channel: int) -> bool:
+def _read_device_dps(device: OutletDevice) -> dict[str, Any]:
     response = device.status()
     dps = response.get("dps") if isinstance(response, dict) else None
     if dps is None and isinstance(response, dict) and isinstance(response.get("data"), dict):
@@ -156,11 +157,52 @@ def _read_device_state(device: OutletDevice, channel: int) -> bool:
     if dps is None and isinstance(response, dict) and isinstance(response.get("status"), dict):
         dps = response["status"]
     if not isinstance(dps, dict):
-        raise RuntimeError("The local device returned no channel state.")
+        raise RuntimeError("The local device returned no status datapoints.")
+    return dps
+
+
+def _read_device_state(device: OutletDevice, channel: int) -> bool:
+    dps = _read_device_dps(device)
     state = _switch_state(dps.get(str(channel), dps.get(channel)))
     if state is None:
         raise RuntimeError("The local device returned an unsupported channel state.")
     return state
+
+
+def _meter_value(dps: dict[str, Any], dp_id: Any, multiplier: Any) -> float | None:
+    if not isinstance(dp_id, str) or not dp_id:
+        return None
+    raw_value = dps.get(dp_id)
+    if raw_value is None and dp_id.isdigit():
+        raw_value = dps.get(int(dp_id))
+    if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float, str)):
+        return None
+    try:
+        value = float(raw_value) * float(multiplier)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(value) or value < 0 or value > 1_000_000_000_000:
+        return None
+    return value
+
+
+def _meter_readings(dps: dict[str, Any], device_info: dict[str, Any]) -> dict[str, float]:
+    readings: dict[str, float] = {}
+    power = _meter_value(
+        dps,
+        device_info.get("power_dp_id"),
+        device_info.get("power_multiplier", 1.0),
+    )
+    energy = _meter_value(
+        dps,
+        device_info.get("energy_dp_id"),
+        device_info.get("energy_multiplier", 0.001),
+    )
+    if power is not None:
+        readings["power_watts"] = power
+    if energy is not None:
+        readings["energy_total_kwh"] = energy
+    return readings
 
 
 def _execute_device_command(command: dict[str, Any]) -> dict[str, Any]:
@@ -188,12 +230,19 @@ def _execute_device_command(command: dict[str, Any]) -> dict[str, Any]:
             raise RuntimeError("The local device rejected the requested state.")
         if not success:
             raise RuntimeError("The local device rejected the requested state.")
-        actual_state = _read_device_state(device, channel)
+        dps = _read_device_dps(device)
+        actual_state = _switch_state(dps.get(str(channel), dps.get(channel)))
+        if actual_state is None:
+            raise RuntimeError("The local device returned an unsupported channel state.")
         if actual_state != desired_state:
             raise RuntimeError("The switch did not report the requested state.")
-        return {"state": actual_state}
+        return {"state": actual_state, **_meter_readings(dps, device_info)}
     if command["operation"] == "get_status":
-        return {"state": _read_device_state(device, channel)}
+        dps = _read_device_dps(device)
+        state = _switch_state(dps.get(str(channel), dps.get(channel)))
+        if state is None:
+            raise RuntimeError("The local device returned an unsupported channel state.")
+        return {"state": state, **_meter_readings(dps, device_info)}
     raise ValueError("Unsupported device operation.")
 
 

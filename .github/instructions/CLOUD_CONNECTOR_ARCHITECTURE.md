@@ -114,6 +114,32 @@ LAN reachability and TinyTuya discovery traffic. A device without an assigned,
 active connector cannot be remotely controlled from cloud hosting; the UI must
 say what is missing.
 
+## Optional Tuya meter telemetry
+
+Energy monitoring is opt-in per switch. Users configure the power and energy
+datapoint IDs and raw-value conversion multipliers from the Switches page;
+ChargePilot never assumes a universal Tuya DPS layout. A connector at the
+assigned site polls configured meters through ordinary `get_status` work when
+no other command is waiting, with a nominal 60-second per-device cadence.
+It sends only configured readings normalized as watts and kWh, not the full
+device status map.
+
+The API stores the latest power sample and current UTC-calendar-month energy.
+For cumulative energy counters, it derives monthly increments from observed
+counter deltas; the first sample in a month establishes a baseline, so a total
+collected after the month begins is necessarily partial. For monthly counters,
+the API uses the device-reported month value. Unsupported or invalid datapoints
+remain unavailable (`null`) rather than being represented as zero. The Overview
+includes only power samples no older than five minutes and clearly reports the
+number of contributing meters. Power and energy keep separate valid-sample
+timestamps so a missing datapoint cannot make the other measurement look fresh.
+
+The feature requires connector version 0.1.3 or newer and the
+`20261022_tuya_energy_monitoring.sql` schema migration on existing PostgreSQL
+installations. Back up the database before applying it. The rollback script
+removes both configuration and collected meter history; use it only when
+intentionally removing the feature and after preserving any required data.
+
 ## Deployment requirements
 
 Cloud deployment:

@@ -71,6 +71,18 @@ Super Admins can choose an enrolled connector across tenants and the new device
 is assigned to that connector's tenant. Scanning through a connector selects
 that route by default. Discovery results and Smart Life key retrieval follow
 the shared light/dark theme tokens.
+Switches can be configured with device-specific Tuya power and energy
+datapoints and conversion scales. The assigned site connector polls configured
+meters about once a minute and returns only normalized values. The Switches
+page shows per-device readings and meter configuration; Overview aggregates
+fresh power readings (five-minute freshness window) and current UTC-month energy
+with explicit no-data and partial cumulative-month guidance. Cumulative energy
+uses observed monthly deltas from the first sample of each month; monthly
+counters use the device's month-to-date value. The feature requires connector
+version 0.1.3+ and the explicit `20261022_tuya_energy_monitoring.sql` migration
+for existing PostgreSQL schemas. Power and energy retain separate valid-sample
+timestamps so an unavailable datapoint cannot make the other reading appear
+fresh.
 The mapping wizard has no form submission side effect: Continue only advances
 the setup, and creating or editing a mapping requires its explicit save button.
 Step 3 reviews the selected device and switch alongside editable battery rules.
@@ -183,6 +195,7 @@ at sign-in; it is not a system daemon and does not report during sleep.
 - app/services/smartlife_service.py — QR generation and linked-device polling
 - app/services/broadcaster.py — SSE updates
 - app/services/connector_service.py — connector identity, command queue, lease, and result handling
+- app/services/tuya_energy.py — meter-value validation and UTC-month energy accumulation
 - app/services/automation_processor.py — asynchronous rule evaluation and command creation
 - app/workers.py — transactional-outbox relay and Kafka automation consumer processes
 
@@ -230,6 +243,8 @@ sharded PostgreSQL infrastructure before setting throughput or SLO claims.
   not maintain a distributed login-rate counter
 - the database bootstrap uses `create_all()` plus compatibility SQL, not
   versioned Alembic revisions; schema changes need a reviewed migration plan
+- the Tuya energy fields require the explicit migration under `deploy/migrations/`
+  for existing production databases; `create_all()` is not the upgrade path
 - device payloads vary by Tuya firmware and hardware model
 - SmartLife QR tokens may expire or respond invalidly; the system refreshes QR automatically when needed
 - local keys and session data are sensitive and should never be committed to source control

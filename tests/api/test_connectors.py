@@ -296,6 +296,109 @@ def test_enrollment_code_is_single_use_and_commands_wait_for_connector_ack():
         assert event.new_state == "true"
 
 
+def test_meter_settings_are_tenant_scoped_and_connectors_collect_readings():
+    owner = _tenant_admin_client("connector_meter_owner")
+    connector_id, token = _enroll_connector(owner, "Meter LAN")
+    device_response = owner.post(
+        "/api/v1/devices",
+        json={
+            "name": "Metered plug",
+            "device_id": "connector-meter-device",
+            "ip_address": "192.168.1.41",
+            "device_type": "switch",
+            "protocol_version": "3.5",
+            "encrypted_local_key": "meter-local-key",
+        },
+    )
+    assert device_response.status_code == 201, device_response.text
+    device_id = device_response.json()["id"]
+    assigned = owner.put(
+        f"/api/v1/devices/{device_id}/connector",
+        json={"connector_id": connector_id},
+    )
+    assert assigned.status_code == 200, assigned.text
+
+    settings_response = owner.put(
+        f"/api/v1/devices/{device_id}/meter-settings",
+        json={
+            "power_dp_id": " cur_power ",
+            "power_multiplier": 0.1,
+            "energy_dp_id": " add_ele ",
+            "energy_multiplier": 0.001,
+            "energy_counter_type": "cumulative",
+        },
+    )
+    assert settings_response.status_code == 200, settings_response.text
+    assert settings_response.json()["power_dp_id"] == "cur_power"
+    assert settings_response.json()["energy_dp_id"] == "add_ele"
+
+    other_tenant = _tenant_admin_client("connector_meter_guest")
+    assert other_tenant.put(
+        f"/api/v1/devices/{device_id}/meter-settings",
+        json={"power_dp_id": "1"},
+    ).status_code == 404
+
+    heartbeat = owner.post(
+        "/api/v1/connectors/heartbeat",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"version": "test"},
+    )
+    assert heartbeat.status_code == 200, heartbeat.text
+    claim = owner.post(
+        "/api/v1/connectors/commands/claim",
+        headers={"Authorization": f"Bearer {token}"},
+        json={},
+    )
+    assert claim.status_code == 200, claim.text
+    command = claim.json()["command"]
+    assert command["operation"] == "get_status"
+    assert command["device"]["power_dp_id"] == "cur_power"
+    assert command["device"]["power_multiplier"] == 0.1
+    assert command["device"]["energy_dp_id"] == "add_ele"
+    assert command["device"]["energy_multiplier"] == 0.001
+
+    no_second_poll = owner.post(
+        "/api/v1/connectors/commands/claim",
+        headers={"Authorization": f"Bearer {token}"},
+        json={},
+    )
+    assert no_second_poll.json()["command"] is None
+
+    result = owner.post(
+        f"/api/v1/connectors/commands/{command['id']}/result",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "success": True,
+            "result": {"state": True, "power_watts": 84.5, "energy_total_kwh": 12.5},
+        },
+    )
+    assert result.status_code == 200, result.text
+
+    device = owner.get(f"/api/v1/devices/{device_id}")
+    assert device.status_code == 200, device.text
+    assert device.json()["meter_power_watts"] == 84.5
+    assert device.json()["meter_energy_month_kwh"] == 0
+    assert device.json()["meter_month_key"] == datetime.now(UTC).strftime("%Y-%m")
+    assert device.json()["meter_power_sample_at"] is not None
+    assert device.json()["meter_energy_sample_at"] is not None
+
+    reset_settings = owner.put(
+        f"/api/v1/devices/{device_id}/meter-settings",
+        json={
+            "power_dp_id": "new_power",
+            "power_multiplier": 1,
+            "energy_dp_id": "new_energy",
+            "energy_multiplier": 0.001,
+            "energy_counter_type": "monthly",
+        },
+    )
+    assert reset_settings.status_code == 200, reset_settings.text
+    assert reset_settings.json()["meter_power_watts"] is None
+    assert reset_settings.json()["meter_power_sample_at"] is None
+    assert reset_settings.json()["meter_energy_month_kwh"] is None
+    assert reset_settings.json()["meter_energy_sample_at"] is None
+
+
 def test_connector_data_is_scoped_to_the_enrolling_tenant():
     owner = _tenant_admin_client("connector_tenant_owner")
     connector_id, token = _enroll_connector(owner, "Owner LAN")

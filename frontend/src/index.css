@@ -1389,6 +1389,77 @@ button, a {
   gap: 12px;
 }
 
+.energy-summary {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-inline-start: 3px solid var(--copper);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.energy-summary-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.energy-summary-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: -.02em;
+}
+
+.energy-summary-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.energy-summary-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.energy-summary-reading {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.energy-summary-reading + .energy-summary-reading {
+  padding-left: 20px;
+  border-left: 1px solid var(--line);
+}
+
+.energy-summary-reading span,
+.switch-meter-readings span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.energy-summary-reading strong {
+  color: var(--ink);
+  font-size: clamp(20px, 2.2vw, 26px);
+  font-weight: 750;
+  letter-spacing: -.04em;
+  line-height: 1.15;
+}
+
+.energy-summary-reading small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .metric-card {
   display: flex;
   min-width: 0;
@@ -3837,6 +3908,101 @@ button, a {
   font-size: 9px;
 }
 
+.switch-meter-panel {
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.switch-meter-readings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.switch-meter-readings > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.switch-meter-readings strong {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 750;
+  letter-spacing: -.03em;
+}
+
+.switch-meter-status,
+.switch-meter-help {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.switch-meter-status {
+  font-size: 10px;
+}
+
+.switch-meter-help {
+  font-size: 12px;
+}
+
+.switch-meter-settings summary {
+  width: fit-content;
+  color: var(--leaf);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.switch-meter-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.switch-meter-form > div {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.switch-meter-form label {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.switch-meter-form .field {
+  min-height: 36px;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.switch-meter-form small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.switch-meter-help,
+.switch-meter-disclaimer,
+.switch-meter-form > button,
+.switch-meter-validation,
+.switch-meter-form > .switch-route-warning {
+  grid-column: 1 / -1;
+}
+
+.switch-meter-validation {
+  margin: 0;
+  color: #a23c31;
+  font-size: 12px;
+}
+
 .switch-route-warning,
 .switch-inventory-alert {
   padding: 9px 11px;
@@ -4032,6 +4198,23 @@ button, a {
 }
 
 @media (max-width: 600px) {
+  .energy-summary-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .energy-summary-values,
+  .switch-meter-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .energy-summary-reading + .energy-summary-reading {
+    padding-top: 11px;
+    padding-left: 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
   .dashboard-page-header {
     align-items: flex-start;
     flex-direction: column;
