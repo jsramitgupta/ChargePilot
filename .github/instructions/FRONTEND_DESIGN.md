@@ -80,6 +80,9 @@ prompts locally for the enrollment code. Connector and agent source downloads
 are public; code creation and credential management remain authenticated.
 Mapping setup advances only on an explicit user action and saves only from its
 explicit create/save action.
+The mapping stepper places each label below its numbered marker; connector
+segments join the markers only and never run behind step text. Keep this layout
+at narrow widths so longer step names wrap without crossing the progress line.
 The mapping rule editor can disable automatic turn-on independently from the
 regular turn-off threshold, and can enable a separate charging-completion
 cutoff that uses the selected device's `charging` telemetry flag. Show threshold labels

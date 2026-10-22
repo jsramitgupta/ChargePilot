@@ -2037,12 +2037,13 @@ button, a {
 
 .mapping-stepper li:not(:last-child)::after {
   position: absolute;
-  top: 17px;
-  left: calc(50% + 32px);
-  width: calc(100% - 64px);
+  top: 21px;
+  left: calc(50% + 16px);
+  width: calc(100% - 40px);
   height: 1px;
   background: var(--line);
   content: "";
+  pointer-events: none;
 }
 
 .mapping-stepper li.is-complete:not(:last-child)::after {
@@ -2054,9 +2055,10 @@ button, a {
   z-index: 1;
   display: flex;
   width: 100%;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 9px;
+  gap: 7px;
   padding: 5px;
   border: 0;
   color: var(--muted);
@@ -2068,6 +2070,12 @@ button, a {
 
 .mapping-stepper button:disabled {
   cursor: default;
+}
+
+.mapping-step-title {
+  max-width: 100%;
+  line-height: 1.3;
+  text-align: center;
 }
 
 .mapping-step-number {
@@ -4160,16 +4168,8 @@ button, a {
   }
 
   .mapping-stepper button {
-    flex-direction: column;
     gap: 5px;
-    font-size: 9px;
-    text-align: center;
-  }
-
-  .mapping-stepper li:not(:last-child)::after {
-    top: 16px;
-    left: calc(50% + 23px);
-    width: calc(100% - 46px);
+    font-size: 10px;
   }
 
   .mapping-empty-inline,

@@ -1922,7 +1922,7 @@ function MappingsPage() {
                 onClick={() => setStep(item.number)}
               >
                 <span className="mapping-step-number">{step > item.number ? <CheckCircle2 size={17} /> : item.number}</span>
-                <span>{item.title}</span>
+                <span className="mapping-step-title">{item.title}</span>
               </button>
             </li>
           ))}
