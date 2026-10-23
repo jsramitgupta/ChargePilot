@@ -423,9 +423,11 @@ policy.
   and retains endpoint history; the client can then exchange a new enrollment
   token using a fresh installation identity without being reinstalled.
 - `POST /api/v1/endpoint-enrollment/deregister` accepts an empty request (no
-  body is required) and returns `204 No Content`. It accepts only a valid
-  per-install credential, never the
-  tenant-wide legacy Windows token. Invalid credentials receive `401`.
+  body is required) and returns `204 No Content`. A valid per-install
+  credential revokes itself and disables automation. If the credential is
+  already revoked, invalid, or its endpoint record was deleted, the request
+  succeeds as a no-op so the client can clear its stale local enrollment and
+  re-enroll. It never changes a different endpoint.
 - `PATCH /api/v1/endpoints/{endpoint_id}/automation` accepts
   `{"enabled":true|false}`. Enabling requires a recent sample and a platform
   allowed by `CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`.

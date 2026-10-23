@@ -281,6 +281,13 @@ def test_installed_agent_can_deregister_its_own_credential():
     assert response.headers["cache-control"] == "private, no-store"
     assert response.content == b""
 
+    repeated = client.post(
+        "/api/v1/endpoint-enrollment/deregister",
+        headers={"Authorization": f"Bearer {credential}"},
+    )
+    assert repeated.status_code == 204
+    assert repeated.headers["cache-control"] == "private, no-store"
+
     with SessionLocal() as db:
         endpoint = db.query(Endpoint).one()
         assert endpoint.token_hash is None
@@ -303,13 +310,57 @@ def test_installed_agent_can_deregister_its_own_credential():
     assert telemetry.status_code == 401
 
 
-def test_deregister_rejects_non_installation_credentials():
+def test_deregister_is_idempotent_for_missing_or_invalid_credentials():
     client = TestClient(app)
-    response = client.post(
+    missing = client.post(
+        "/api/v1/endpoint-enrollment/deregister",
+    )
+    invalid = client.post(
         "/api/v1/endpoint-enrollment/deregister",
         headers={"Authorization": "Bearer not-an-installation-credential"},
     )
-    assert response.status_code == 401
+    assert missing.status_code == 204
+    assert invalid.status_code == 204
+    assert missing.headers["cache-control"] == "private, no-store"
+    assert invalid.headers["cache-control"] == "private, no-store"
+
+
+def test_deregister_succeeds_after_endpoint_record_was_deleted():
+    client = TestClient(app)
+    register_tenant_admin(
+        client,
+        "deleted-endpoint-deregister-admin",
+        "deleted-endpoint-deregister-password",
+        "Deleted Endpoint Deregister Tenant",
+    )
+    enrollment = client.post("/api/v1/admin/endpoint-enrollments", json={}).json()
+    installation_id = str(uuid4())
+    exchange = client.post(
+        "/api/v1/endpoint-enrollment/exchange",
+        json={
+            "code": enrollment["enrollment_code"],
+            "platform": "android",
+            "installation_id": installation_id,
+            "hostname": "Deleted endpoint device",
+            "device_class": "phone",
+        },
+    )
+    assert exchange.status_code == 201, exchange.text
+    endpoint_id = exchange.json()["endpoint_id"]
+    credential = exchange.json()["credential"]
+
+    with SessionLocal() as db:
+        endpoint = db.get(Endpoint, endpoint_id)
+        assert endpoint is not None
+        db.delete(endpoint)
+        db.commit()
+
+    response = client.post(
+        "/api/v1/endpoint-enrollment/deregister",
+        headers={"Authorization": f"Bearer {credential}"},
+    )
+    assert response.status_code == 204
+    assert response.headers["cache-control"] == "private, no-store"
 
 
 def test_enrollment_credentials_cannot_spoof_platform_or_installation():

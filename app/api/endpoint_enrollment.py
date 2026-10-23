@@ -37,14 +37,10 @@ async def deregister_installed_endpoint(
     db: Session = Depends(get_db),
 ):
     endpoint = authenticate_installed_endpoint(authorization, db)
-    if endpoint is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="A valid per-install endpoint credential is required.",
-        )
-    endpoint.token_hash = None
-    endpoint.automation_enabled = False
-    db.commit()
+    if endpoint is not None:
+        endpoint.token_hash = None
+        endpoint.automation_enabled = False
+        db.commit()
     response.headers["Cache-Control"] = "private, no-store"
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
