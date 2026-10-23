@@ -234,7 +234,7 @@ available. No application environment variable is required.
 The authenticated **Set up a device** page links to the latest GitHub Release
 for agent builds and platform source archives. Tagged releases publish
 Windows `ChargePilotAgent.exe`, Android `app-release.apk`, macOS
-`ChargePilotAgent-0.1.0.dmg`, and iOS `ChargePilotAgent-0.1.0.ipa` whether or
+`ChargePilotAgent-<version>.dmg`, and iOS `ChargePilotAgent-<version>.ipa` whether or
 not signing secrets are configured. Each release includes
 `agent-release-manifest.json` and notes identifying each platform as signed
 or unsigned. The iOS signed option is ad-hoc provisioned for included devices,

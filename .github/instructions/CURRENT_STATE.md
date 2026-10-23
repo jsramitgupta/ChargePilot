@@ -14,7 +14,9 @@ configured signing is applied and verified per platform, otherwise the
 release contains clearly documented unsigned assets. Partially configured
 signing credentials fail that platform's release job. The iOS IPA is ad-hoc
 signed for devices in its provisioning profile when credentials are set, not
-a public App Store release. Windows targets x64 and its service is
+a public App Store release. Agent telemetry and app metadata use `agent/VERSION`
+for development builds and the `agents-vMAJOR.MINOR.PATCH` tag for releases.
+Windows targets x64 and its service is
 independent of user sign-in. Windows service runtime validation remains
 pending.
 Android has an emulator smoke test; iOS has a simulator smoke test.

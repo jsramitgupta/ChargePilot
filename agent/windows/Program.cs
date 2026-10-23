@@ -7,6 +7,12 @@ using Microsoft.Extensions.Logging;
 
 namespace ChargePilotAgent;
 
+internal static class AgentBuildInfo
+{
+    public static string Version { get; } =
+        typeof(AgentBuildInfo).Assembly.GetName().Version?.ToString(3) ?? "0.1.2";
+}
+
 internal static class Program
 {
     private const int AttachParentConsole = -1;
@@ -49,7 +55,9 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         Application.Run(new SetupForm(
             values.GetValueOrDefault("--server-url") ?? string.Empty,
-            values.GetValueOrDefault("--agent-version") ?? "1.0.0"));
+            string.IsNullOrWhiteSpace(values.GetValueOrDefault("--agent-version"))
+                ? AgentBuildInfo.Version
+                : values["--agent-version"]));
         return 0;
     }
 
@@ -112,7 +120,7 @@ internal static class Program
                 installationId,
                 deviceName,
                 deviceClass,
-                "1.0.0",
+                AgentBuildInfo.Version,
                 interval);
         }
         else
@@ -134,7 +142,7 @@ internal static class Program
                 previous.InstallationId,
                 deviceName,
                 deviceClass,
-                "1.0.0",
+                AgentBuildInfo.Version,
                 interval);
         }
 

@@ -10,6 +10,28 @@ val releaseSigningConfigured = listOf(
     "ANDROID_KEY_ALIAS",
     "ANDROID_KEY_PASSWORD",
 ).all { !System.getenv(it).isNullOrBlank() }
+val sourceVersionFile = rootProject.file("VERSION").takeIf { it.isFile }
+    ?: rootProject.file("../VERSION")
+val agentVersion = providers.environmentVariable("AGENT_VERSION")
+    .orElse(sourceVersionFile.readText().trim())
+    .get()
+require(Regex("""(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)""").matches(agentVersion)) {
+    "Agent version must use MAJOR.MINOR.PATCH format."
+}
+val agentVersionParts = agentVersion.split(".").map(String::toInt)
+require(agentVersionParts[1] <= 999 && agentVersionParts[2] <= 999) {
+    "Agent version minor and patch components must not exceed 999."
+}
+val agentBuildNumber = providers.environmentVariable("AGENT_BUILD_NUMBER")
+    .orElse(
+        (
+            agentVersionParts[0] * 1_000_000 +
+                agentVersionParts[1] * 1_000 +
+                agentVersionParts[2]
+            ).toString(),
+    )
+    .get()
+    .toInt()
 
 android {
     namespace = "in.chargepilot.agent"
@@ -19,8 +41,8 @@ android {
         applicationId = "in.chargepilot.agent"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = agentBuildNumber
+        versionName = agentVersion
     }
 
     compileOptions {

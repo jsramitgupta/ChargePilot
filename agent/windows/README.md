@@ -11,7 +11,9 @@ Authenticode signing is configured. Configure both Windows signing secrets to
 sign it; otherwise it is unsigned and may trigger Windows SmartScreen. A
 partially configured secret group or failed signature verification stops the
 release. Check the release notes and `agent-release-manifest.json` for its
-signing status. The executable does not hide or encrypt its application code.
+signing status. The executable's assembly and telemetry versions come from
+the `agents-vMAJOR.MINOR.PATCH` release tag. The executable does not hide or
+encrypt its application code.
 Enrollment tokens are entered in the UI or at a masked CLI prompt, never
 passed as command-line arguments.
 

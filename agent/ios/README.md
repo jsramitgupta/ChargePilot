@@ -33,7 +33,9 @@ IPA is ad-hoc provisioned and can only be installed on devices included in
 its profile. Configure all iOS signing secrets and `APPLE_TEAM_ID` to enable
 release signing. An absent group publishes an unsigned IPA; a partial group
 or failed signature verification fails the release. Check the release notes
-and `agent-release-manifest.json` for the signing status.
+and `agent-release-manifest.json` for the signing status. Tagged release
+versions are taken from the `agents-vMAJOR.MINOR.PATCH` tag and applied to the
+IPA's app metadata and telemetry reports.
 
 The app exposes **Report battery to ChargePilot** as an App Shortcut. After
 enrollment, set up these personal automations in the Shortcuts app:

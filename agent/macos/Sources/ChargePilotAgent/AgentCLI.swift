@@ -3,7 +3,7 @@ import Foundation
 import IOKit.ps
 import Security
 
-private let agentVersion = "0.1.0"
+private let agentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.2"
 private let reportingInterval = Duration.seconds(300)
 private let keychainService = "in.chargepilot.telemetry"
 

@@ -2,7 +2,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$ServerUrl,
-    [string]$AgentVersion = "1.0.0"
+    [string]$AgentVersion = ""
 )
 
 $ErrorActionPreference = "Stop"

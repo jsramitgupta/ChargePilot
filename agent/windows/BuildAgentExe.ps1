@@ -2,7 +2,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$OutputPath,
-    [string]$AgentVersion = "1.0.0"
+    [string]$AgentVersion = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +15,9 @@ if ($env:OS -ne "Windows_NT") {
 $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
 if (-not $dotnet) {
     throw "Install the .NET 10 SDK before building the ChargePilot Windows agent."
+}
+if ([string]::IsNullOrWhiteSpace($AgentVersion)) {
+    $AgentVersion = (Get-Content -Raw (Join-Path $PSScriptRoot "../VERSION")).Trim()
 }
 
 $projectPath = Join-Path $PSScriptRoot "ChargePilotAgent.csproj"

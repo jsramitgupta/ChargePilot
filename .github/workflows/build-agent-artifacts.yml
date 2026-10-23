@@ -23,9 +23,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  version:
+    name: Resolve agent version
+    runs-on: ubuntu-24.04
+    outputs:
+      agent_version: ${{ steps.version.outputs.agent_version }}
+      build_number: ${{ steps.version.outputs.build_number }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve version from release tag or project version
+        id: version
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          ref = os.environ["REF"]
+          version = (
+              ref.removeprefix("refs/tags/agents-v")
+              if ref.startswith("refs/tags/agents-v")
+              else Path("agent/VERSION").read_text(encoding="utf-8").strip()
+          )
+          match = re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version)
+          if match is None:
+              raise SystemExit(f"Invalid agent version: {version!r}; expected MAJOR.MINOR.PATCH")
+          major, minor, patch = map(int, match.groups())
+          build_number = major * 1_000_000 + minor * 1_000 + patch
+          if minor > 999 or patch > 999 or build_number < 1 or build_number > 2_100_000_000:
+              raise SystemExit("Agent version is outside the supported mobile build-number range")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"agent_version={version}\n")
+              output.write(f"build_number={build_number}\n")
+          PY
+
   android:
     name: Build Android agent
     runs-on: ubuntu-24.04
+    needs: version
+    env:
+      AGENT_VERSION: ${{ needs.version.outputs.agent_version }}
+      AGENT_BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
     outputs:
       signed: ${{ steps.signing.outputs.signed }}
     steps:
@@ -135,6 +177,10 @@ jobs:
   ios:
     name: Build iOS device agent
     runs-on: macos-15
+    needs: version
+    env:
+      AGENT_VERSION: ${{ needs.version.outputs.agent_version }}
+      AGENT_BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
     outputs:
       signed: ${{ steps.signing.outputs.signed }}
     steps:
@@ -180,6 +226,8 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/chargepilot-ios" \
+            MARKETING_VERSION="$AGENT_VERSION" \
+            CURRENT_PROJECT_VERSION="$AGENT_BUILD_NUMBER" \
             CODE_SIGNING_ALLOWED=NO \
             build
 
@@ -191,14 +239,14 @@ jobs:
           test -d "$app_path"
           mkdir -p "$package_dir/Payload"
           ditto "$app_path" "$package_dir/Payload/ChargePilotAgent.app"
-          (cd "$package_dir" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/ChargePilotAgent-0.1.0-unsigned.ipa" Payload)
+          (cd "$package_dir" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/ChargePilotAgent-$AGENT_VERSION-unsigned.ipa" Payload)
 
       - name: Upload unsigned IPA
         if: ${{ !startsWith(github.ref, 'refs/tags/agents-v') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chargepilot-ios-unsigned-ipa
-          path: ChargePilotAgent-0.1.0-unsigned.ipa
+          path: ChargePilotAgent-${{ env.AGENT_VERSION }}-unsigned.ipa
           if-no-files-found: error
           retention-days: 90
 
@@ -251,6 +299,8 @@ jobs:
             CODE_SIGN_IDENTITY="Apple Distribution" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_UUID" \
+            MARKETING_VERSION="$AGENT_VERSION" \
+            CURRENT_PROJECT_VERSION="$AGENT_BUILD_NUMBER" \
             archive
           cat > "$RUNNER_TEMP/ios-export-options.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -268,7 +318,7 @@ jobs:
             -archivePath "$archive" \
             -exportPath "$export_dir" \
             -exportOptionsPlist "$RUNNER_TEMP/ios-export-options.plist"
-          cp "$export_dir/ChargePilotAgent.ipa" "$RUNNER_TEMP/ChargePilotAgent-0.1.0.ipa"
+          cp "$export_dir/ChargePilotAgent.ipa" "$RUNNER_TEMP/ChargePilotAgent-$AGENT_VERSION.ipa"
           app="$export_dir/Payload/ChargePilotAgent.app"
           test -d "$app"
           codesign --verify --deep --strict "$app"
@@ -286,7 +336,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chargepilot-ios-release-ipa
-          path: ChargePilotAgent-0.1.0-unsigned.ipa
+          path: ChargePilotAgent-${{ env.AGENT_VERSION }}-unsigned.ipa
           if-no-files-found: error
           retention-days: 90
 
@@ -295,7 +345,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chargepilot-ios-release-ipa
-          path: ${{ runner.temp }}/ChargePilotAgent-0.1.0.ipa
+          path: ${{ runner.temp }}/ChargePilotAgent-${{ env.AGENT_VERSION }}.ipa
           if-no-files-found: error
           retention-days: 90
 
@@ -311,6 +361,10 @@ jobs:
   macos:
     name: Build macOS agent
     runs-on: macos-15
+    needs: version
+    env:
+      AGENT_VERSION: ${{ needs.version.outputs.agent_version }}
+      AGENT_BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
     outputs:
       signed: ${{ steps.signing.outputs.signed }}
     steps:
@@ -389,7 +443,7 @@ jobs:
           test -n "$APPLE_ID"
           test -n "$APPLE_APP_SPECIFIC_PASSWORD"
           test -n "$APPLE_TEAM_ID"
-          dmg="agent/macos/dist/ChargePilotAgent-0.1.0.dmg"
+          dmg="agent/macos/dist/ChargePilotAgent-$AGENT_VERSION.dmg"
           xcrun notarytool submit "$dmg" --wait --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID"
           xcrun stapler staple "$dmg"
           xcrun stapler validate "$dmg"
@@ -400,7 +454,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chargepilot-macos-development-dmg
-          path: agent/macos/dist/ChargePilotAgent-0.1.0.dmg
+          path: agent/macos/dist/ChargePilotAgent-${{ env.AGENT_VERSION }}.dmg
           if-no-files-found: error
           retention-days: 90
 
@@ -409,7 +463,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chargepilot-macos-release-dmg
-          path: agent/macos/dist/ChargePilotAgent-0.1.0.dmg
+          path: agent/macos/dist/ChargePilotAgent-${{ env.AGENT_VERSION }}.dmg
           if-no-files-found: error
           retention-days: 90
 
@@ -418,7 +472,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: chargepilot-macos-release-dmg
-          path: agent/macos/dist/ChargePilotAgent-0.1.0.dmg
+          path: agent/macos/dist/ChargePilotAgent-${{ env.AGENT_VERSION }}.dmg
           if-no-files-found: error
           retention-days: 90
 
@@ -434,6 +488,10 @@ jobs:
   windows:
     name: Build Windows service agent
     runs-on: windows-2022
+    needs: version
+    env:
+      AGENT_VERSION: ${{ needs.version.outputs.agent_version }}
+      AGENT_BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
     outputs:
       signed: ${{ steps.signing.outputs.signed }}
     steps:
@@ -470,6 +528,7 @@ jobs:
         shell: powershell
         run: |
           .\agent\windows\BuildAgentExe.ps1 `
+            -AgentVersion $env:AGENT_VERSION `
             -OutputPath "$env:RUNNER_TEMP\ChargePilotAgent.exe"
 
       - name: Authenticode-sign Windows executable
@@ -516,6 +575,7 @@ jobs:
     name: Publish GitHub release assets
     if: startsWith(github.ref, 'refs/tags/agents-v')
     needs:
+      - version
       - android
       - ios
       - macos
@@ -555,6 +615,7 @@ jobs:
 
       - name: Normalize release asset names and describe signing status
         env:
+          AGENT_VERSION: ${{ needs.version.outputs.agent_version }}
           WINDOWS_SIGNED: ${{ needs.windows.outputs.signed }}
           ANDROID_SIGNED: ${{ needs.android.outputs.signed }}
           IOS_SIGNED: ${{ needs.ios.outputs.signed }}
@@ -563,10 +624,10 @@ jobs:
           RELEASE_NOTES_PATH: ${{ runner.temp }}/release-notes.md
         run: |
           set -euo pipefail
-          if [[ -f artifacts/ChargePilotAgent-0.1.0-unsigned.ipa ]]; then
-            mv artifacts/ChargePilotAgent-0.1.0-unsigned.ipa artifacts/ChargePilotAgent-0.1.0.ipa
+          if [[ -f "artifacts/ChargePilotAgent-$AGENT_VERSION-unsigned.ipa" ]]; then
+            mv "artifacts/ChargePilotAgent-$AGENT_VERSION-unsigned.ipa" "artifacts/ChargePilotAgent-$AGENT_VERSION.ipa"
           fi
-          test -f artifacts/ChargePilotAgent-0.1.0.ipa
+          test -f "artifacts/ChargePilotAgent-$AGENT_VERSION.ipa"
           python3 - <<'PY'
           import json
           import os
@@ -588,6 +649,7 @@ jobs:
               json.dumps(
                   {
                       "tag": os.environ["TAG"],
+                      "agent_version": os.environ["AGENT_VERSION"],
                       "signing": signed,
                       "distribution": details,
                   },
@@ -605,8 +667,11 @@ jobs:
           PY
 
       - name: Package public agent source downloads
+        env:
+          AGENT_VERSION: ${{ needs.version.outputs.agent_version }}
         run: |
           python3 - <<'PY'
+          import os
           import subprocess
           import zipfile
           from pathlib import Path
@@ -633,6 +698,7 @@ jobs:
                   "w",
                   compression=zipfile.ZIP_DEFLATED,
               ) as archive:
+                  archive.writestr("VERSION", os.environ["AGENT_VERSION"] + "\n")
                   for path in sources:
                       archive.write(
                           root / path,
@@ -657,6 +723,7 @@ jobs:
               "w",
               compression=zipfile.ZIP_DEFLATED,
           ) as archive:
+              archive.writestr("VERSION", os.environ["AGENT_VERSION"] + "\n")
               for source in windows_files:
                   archive.write(
                       root / source,

@@ -474,7 +474,7 @@ private struct TelemetryRequest: Encodable {
     let batteryPercentage: Int
     let charging: Bool
     let timestamp: String
-    let agentVersion = "0.1.0"
+    let agentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.2"
 
     enum CodingKeys: String, CodingKey {
         case hostname

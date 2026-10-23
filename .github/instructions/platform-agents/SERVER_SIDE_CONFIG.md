@@ -228,6 +228,12 @@ verification must pass or the release is stopped. Store the following as
 repository **Actions secrets** to enable signatures; never commit these values
 or put them in source archives:
 
+Agent versions come from `agent/VERSION` for development builds and from the
+numeric `agents-vMAJOR.MINOR.PATCH` tag for releases. The same version is
+embedded in all platform telemetry and platform package metadata; release IPA
+and DMG filenames use that version. Android build numbers are derived from the
+same version so updates have increasing package versions.
+
 | Secret | Content |
 | --- | --- |
 | `ANDROID_KEYSTORE_BASE64` | Base64-encoded release JKS/PKCS12 keystore; keep this key for subsequent upgrades. |

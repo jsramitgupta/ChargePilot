@@ -28,8 +28,11 @@ From the extracted project directory, create a development DMG:
 
 ```sh
 ./scripts/build-dmg.sh
-open dist/ChargePilotAgent-0.1.0.dmg
+open dist/ChargePilotAgent-0.1.2.dmg
 ```
+
+The app's telemetry version and DMG filename use the version in
+`agent/VERSION`; tagged CI releases use the `agents-vMAJOR.MINOR.PATCH` tag.
 
 Drag `ChargePilotAgent.app` to **Applications** and open it. The ChargePilot
 battery icon appears in the menu bar. Use it to configure the server origin,

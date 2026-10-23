@@ -5,7 +5,8 @@ PROJECT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUTPUT_DIR="$PROJECT_DIR/dist"
 STAGING_DIR="$OUTPUT_DIR/staging"
 APP_DIR="$STAGING_DIR/ChargePilotAgent.app"
-VERSION=0.1.0
+VERSION=${AGENT_VERSION:-$(tr -d '[:space:]' < "$PROJECT_DIR/../VERSION")}
+BUILD_NUMBER=${AGENT_BUILD_NUMBER:-1002}
 ARM64_BUILD="$PROJECT_DIR/.build/dmg-arm64"
 X86_64_BUILD="$PROJECT_DIR/.build/dmg-x86_64"
 
@@ -39,6 +40,8 @@ lipo -create \
     "$X86_64_BIN/ChargePilotAgent" \
     -output "$APP_DIR/Contents/MacOS/ChargePilotAgent"
 cp "$PROJECT_DIR/Info.plist" "$APP_DIR/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_DIR/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP_DIR/Contents/Info.plist"
 chmod 755 "$APP_DIR/Contents/MacOS/ChargePilotAgent"
 if [ -n "${MACOS_DEVELOPER_ID_APPLICATION:-}" ]; then
     codesign \

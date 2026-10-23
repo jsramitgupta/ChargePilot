@@ -47,7 +47,7 @@ internal sealed class ConfigurationStore
                 Guid.Parse(stored.InstallationId),
                 stored.DeviceName,
                 stored.DeviceClass,
-                stored.AgentVersion,
+                AgentBuildInfo.Version,
                 stored.IntervalMinutes);
         }
         finally
@@ -132,7 +132,7 @@ internal sealed class ConfigurationStore
         var agentVersion = ReadString(root, "agentVersion");
         if (string.IsNullOrWhiteSpace(agentVersion))
         {
-            agentVersion = "1.0.0";
+            agentVersion = AgentBuildInfo.Version;
         }
 
         var protectedToken = ReadString(root, "protectedEndpointToken");
