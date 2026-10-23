@@ -577,13 +577,47 @@ Request:
 }
 ```
 
-Datapoint IDs are device-specific and are not inferred. Multipliers convert raw
-values to watts and kWh. `energy_counter_type` is `cumulative` (the API derives
-monthly deltas) or `monthly` (the API uses the device's reported month counter).
-Each setting may be disabled by sending a `null` datapoint ID. The response
-includes configuration, latest power, current UTC-month energy, independent
-`meter_power_sample_at` / `meter_energy_sample_at` timestamps, and cumulative
-tracking start. Unconfigured values are `null`, not zero.
+Reading IDs are stored internally. Use the discovery operation below to find
+numeric readings from the configured switch; recognizable names are suggested
+as power or energy, and other readings can be selected by their live sample.
+Multipliers convert raw values to watts and kWh. `energy_counter_type` is
+`cumulative` (the API derives monthly deltas) or `monthly` (the API uses the
+device's reported month counter). Each setting may be disabled by sending a
+`null` datapoint ID. The response includes configuration, latest power,
+current UTC-month energy, independent `meter_power_sample_at` /
+`meter_energy_sample_at` timestamps, and cumulative tracking start.
+Unconfigured values are `null`, not zero.
+
+### 4.4.1 POST /api/v1/devices/{device_id}/meter-discovery
+
+Finds meter reading candidates from the current status of an enabled switch.
+For a switch assigned to a site connector, the API returns `202 Accepted` with
+a `command_id` and
+the authenticated user polls `GET /api/v1/connectors/commands/{command_id}`.
+The connector sends at most 32 finite, numeric readings (ID, sample, and
+optional recognized power/energy role); it does not send the full device
+status map. For an unassigned switch, the API reads it directly from the local
+ChargePilot host, returns `200 OK` with the same candidate shape, and completes
+the read in the request:
+
+```json
+{
+  "candidates": [
+    {
+      "id": "cur_power",
+      "label": "Power reading",
+      "sample": 845,
+      "suggested_role": "power"
+    }
+  ]
+}
+```
+
+The route is tenant-scoped. It does not change switch state or persist
+candidates. Unknown numeric readings are presented for user selection; the
+API does not infer their units or meter meaning. Direct reads require the
+ChargePilot host to reach the switch. In cloud hosting, assign an online site
+connector on the switch LAN.
 
 ### 4.5 GET /api/v1/devices/{device_id}/channels
 
@@ -642,7 +676,7 @@ Exchange a one-time enrollment code in the `Authorization: Bearer` header for a
 connector ID and permanent credential. Codes expire after 15 minutes, are
 single-use, and are returned only once.
 
-Request: `{"version":"0.1.3"}`
+Request: `{"version":"0.1.4"}`
 
 Response:
 
@@ -669,18 +703,18 @@ expire after 15 minutes and are stored only as hashes. The response is marked
 ### POST /api/v1/connectors/heartbeat
 
 Refreshes last-seen time and connector version. The connector sends its
-credential and `{"version":"0.1.3"}`.
+credential and `{"version":"0.1.4"}`.
 
 ### POST /api/v1/connectors/commands/claim
 
 Claims up to one command for that connector. Returns `{"command":null}` when no
-work is waiting. State commands include metadata for a registered device
+work is waiting. Device commands include metadata for a registered device
 assigned to that connector; local keys are not returned from user-facing
 device APIs.
 
 Commands are persisted, leased, expire, and are eligible for bounded reclaim
 after connection loss. Operations are allowlisted (`set_state`, `get_status`,
-`discover`) and device commands are scoped to the authenticating connector.
+`inspect_meter`, `discover`) and device commands are scoped to the authenticating connector.
 For devices with meter datapoints configured, idle command polling schedules a
 `get_status` command about once per minute. The command includes only the
 configured datapoint IDs and conversion multipliers; the connector returns
@@ -698,9 +732,10 @@ Acknowledges a claimed operation:
 Failures use `success: false`; discovery results contain normalized device
 metadata and must not include local keys. Result bodies are size-limited.
 Successful `get_status` or `set_state` results may also include configured
-`power_watts` and `energy_total_kwh` values. Cumulative counters are converted
-to UTC-month deltas by the API; full-month totals require collection from the
-start of the month.
+`power_watts` and `energy_total_kwh` values. Successful `inspect_meter`
+results contain up to 32 finite numeric candidates and recognized role hints,
+not the full status map. Cumulative counters are converted to UTC-month deltas
+by the API; full-month totals require collection from the start of the month.
 
 ### GET /api/v1/connectors/commands/{command_id}
 

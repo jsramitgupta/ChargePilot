@@ -6,6 +6,7 @@ from typing import Any
 from tinytuya import OutletDevice, deviceScan
 
 from app.services.local_key_service import decrypt_local_key
+from app.services.meter_discovery import meter_candidates
 
 logger = logging.getLogger("chargepilot.tuya")
 DISCOVERY_LOCK = asyncio.Lock()
@@ -213,6 +214,16 @@ class TuyaService:
             return {"device_id": device_id, "channel": channel, "online": True, "state": state}
         except Exception as exc:  # pragma: no cover - defensive fallback
             return {"device_id": device_id, "channel": channel, "online": False, "state": False, "error": str(exc)}
+
+    async def get_meter_candidates(self) -> list[dict[str, Any]]:
+        device = self._build_device()
+        if device is None:
+            raise RuntimeError("Switch connection details are incomplete.")
+        try:
+            data = await asyncio.to_thread(device.status)
+        except Exception as exc:
+            raise RuntimeError("Could not read the switch from the ChargePilot host.") from exc
+        return meter_candidates(self._extract_dps(data))
 
     async def turn_on(self, device_id: str, channel: int = 1) -> dict[str, Any]:
         device = self._build_device() if self.device_id == device_id else None

@@ -399,6 +399,94 @@ def test_meter_settings_are_tenant_scoped_and_connectors_collect_readings():
     assert reset_settings.json()["meter_energy_sample_at"] is None
 
 
+def test_meter_discovery_uses_assigned_connector_and_is_tenant_scoped():
+    owner = _tenant_admin_client("connector_meter_discovery_owner")
+    connector_id, token = _enroll_connector(owner, "Meter discovery LAN")
+    device_response = owner.post(
+        "/api/v1/devices",
+        json={
+            "name": "Meter discovery plug",
+            "device_id": "connector-meter-discovery-device",
+            "ip_address": "192.168.1.42",
+            "device_type": "switch",
+            "protocol_version": "3.5",
+            "encrypted_local_key": "meter-discovery-local-key",
+        },
+    )
+    device_id = device_response.json()["id"]
+    assigned = owner.put(
+        f"/api/v1/devices/{device_id}/connector",
+        json={"connector_id": connector_id},
+    )
+    assert assigned.status_code == 200, assigned.text
+    owner.post(
+        "/api/v1/connectors/heartbeat",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"version": "0.1.4"},
+    )
+
+    discovery = owner.post(f"/api/v1/devices/{device_id}/meter-discovery")
+    assert discovery.status_code == 202, discovery.text
+    command_id = discovery.json()["command_id"]
+
+    claim = owner.post(
+        "/api/v1/connectors/commands/claim",
+        headers={"Authorization": f"Bearer {token}"},
+        json={},
+    )
+    command = claim.json()["command"]
+    assert command["id"] == command_id
+    assert command["operation"] == "inspect_meter"
+
+    candidates = [
+        {"id": "cur_power", "label": "Power reading", "sample": 845, "suggested_role": "power"},
+        {"id": "add_ele", "label": "Energy reading", "sample": 12500, "suggested_role": "energy"},
+    ]
+    completed = owner.post(
+        f"/api/v1/connectors/commands/{command_id}/result",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"success": True, "result": {"candidates": candidates}},
+    )
+    assert completed.status_code == 200, completed.text
+    command_status = owner.get(f"/api/v1/connectors/commands/{command_id}")
+    assert command_status.status_code == 200, command_status.text
+    assert command_status.json()["result"]["candidates"] == candidates
+
+    other_tenant = _tenant_admin_client("connector_meter_discovery_guest")
+    assert other_tenant.get(f"/api/v1/connectors/commands/{command_id}").status_code == 404
+    assert other_tenant.post(f"/api/v1/devices/{device_id}/meter-discovery").status_code == 404
+
+
+def test_meter_discovery_reads_directly_when_no_connector_is_assigned(monkeypatch):
+    owner = _tenant_admin_client("meter_discovery_local_owner")
+    device = owner.post(
+        "/api/v1/devices",
+        json={
+            "name": "Local meter plug",
+            "device_id": "local-meter-discovery-device",
+            "ip_address": "192.168.1.43",
+            "encrypted_local_key": "local-meter-discovery-key",
+        },
+    )
+    assert device.status_code == 201, device.text
+
+    class FakeTuyaService:
+        @staticmethod
+        def from_device(_device):
+            return FakeTuyaService()
+
+        async def get_meter_candidates(self):
+            return [{"id": "cur_power", "label": "Power reading", "sample": 845, "suggested_role": "power"}]
+
+    monkeypatch.setattr("app.api.devices.TuyaService", FakeTuyaService)
+    response = owner.post(f"/api/v1/devices/{device.json()['id']}/meter-discovery")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["candidates"] == [
+        {"id": "cur_power", "label": "Power reading", "sample": 845, "suggested_role": "power"}
+    ]
+
+
 def test_connector_data_is_scoped_to_the_enrolling_tenant():
     owner = _tenant_admin_client("connector_tenant_owner")
     connector_id, token = _enroll_connector(owner, "Owner LAN")

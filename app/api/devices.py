@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -385,6 +385,64 @@ async def update_device_meter_settings(
         }
     )
     return _device_read(db, device)
+
+
+@router.post("/{device_id}/meter-discovery")
+async def discover_device_meter_readings(
+    device_id: UUID,
+    response: Response,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    device = _get_device(db, str(device_id), user)
+    if not device.enabled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Enable this switch before finding readings.")
+    if not device.ip_address or not device.encrypted_local_key:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Add the switch IP address and local key before finding readings.",
+        )
+
+    if device.connector_id:
+        connector = (
+            db.query(SiteConnector)
+            .filter(
+                SiteConnector.id == device.connector_id,
+                SiteConnector.tenant_id == device.tenant_id,
+                SiteConnector.is_active.is_(True),
+                SiteConnector.token_hash.is_not(None),
+            )
+            .first()
+        )
+        if connector is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The assigned site connector is not active.")
+        if not connector_is_online(connector):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="The assigned site connector is offline. Bring it online and try again.",
+            )
+        try:
+            command = queue_device_command(
+                db,
+                device=device,
+                operation="inspect_meter",
+                channel_index=1,
+                context={"meter_discovery": True},
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        db.commit()
+        response.status_code = status.HTTP_202_ACCEPTED
+        return {"command_id": command.id}
+
+    try:
+        candidates = await TuyaService.from_device(device).get_meter_candidates()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach this switch from the ChargePilot host. Assign an online site connector on its LAN and try again.",
+        ) from exc
+    return {"candidates": candidates}
 
 
 @router.delete("/{device_id}", status_code=status.HTTP_204_NO_CONTENT)

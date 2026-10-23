@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 import httpx
 from tinytuya import OutletDevice, deviceScan
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 POLL_INTERVAL_SECONDS = 3
 HEARTBEAT_INTERVAL_SECONDS = 20
 logger = logging.getLogger("chargepilot.connector")
@@ -205,6 +205,51 @@ def _meter_readings(dps: dict[str, Any], device_info: dict[str, Any]) -> dict[st
     return readings
 
 
+def _meter_candidates(dps: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    power_names = {"activepower", "curpower", "power", "powerw", "watt", "watts"}
+    energy_names = {
+        "addele",
+        "electricenergy",
+        "electricity",
+        "energy",
+        "energykwh",
+        "energytotal",
+        "totalenergy",
+    }
+    for raw_id, raw_value in dps.items():
+        dp_id = str(raw_id).strip()
+        if not dp_id or len(dp_id) > 50 or isinstance(raw_value, bool):
+            continue
+        if not isinstance(raw_value, (int, float, str)):
+            continue
+        try:
+            sample = float(raw_value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not math.isfinite(sample) or sample < 0 or sample > 1_000_000_000_000:
+            continue
+        normalized_id = "".join(character for character in dp_id.lower() if character.isalnum())
+        role = (
+            "power"
+            if normalized_id in power_names
+            else "energy"
+            if normalized_id in energy_names
+            else None
+        )
+        candidates.append(
+            {
+                "id": dp_id,
+                "label": "Power reading" if role == "power" else "Energy reading" if role == "energy" else "Other reading",
+                "sample": sample,
+                "suggested_role": role,
+            }
+        )
+        if len(candidates) == 32:
+            break
+    return candidates
+
+
 def _execute_device_command(command: dict[str, Any]) -> dict[str, Any]:
     device_info = command.get("device")
     if not isinstance(device_info, dict):
@@ -243,6 +288,8 @@ def _execute_device_command(command: dict[str, Any]) -> dict[str, Any]:
         if state is None:
             raise RuntimeError("The local device returned an unsupported channel state.")
         return {"state": state, **_meter_readings(dps, device_info)}
+    if command["operation"] == "inspect_meter":
+        return {"candidates": _meter_candidates(_read_device_dps(device))}
     raise ValueError("Unsupported device operation.")
 
 

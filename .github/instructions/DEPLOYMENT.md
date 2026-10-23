@@ -657,10 +657,11 @@ meter samples. For an existing PostgreSQL deployment:
    Do not publish the PostgreSQL port or place credentials in command-line
    arguments.
 3. Deploy the API/frontend and upgrade each site connector that should collect
-   meter data to connector version 0.1.3 or later.
-4. Configure the device-specific datapoint IDs and conversion multipliers on
-   the Switches page, then verify sample times and values before relying on
-   Overview aggregates.
+   meter data to connector version 0.1.3 or later. Guided meter discovery
+   requires connector version 0.1.4 or later.
+4. Use the Switches page to find readings and select the matching power and
+   energy values and units, then verify sample times and values before relying
+   on Overview aggregates.
 
 The application bootstrap can add missing columns on new/compatible installs,
 but it does not replace this reviewed migration on an existing PostgreSQL

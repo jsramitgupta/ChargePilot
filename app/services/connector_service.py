@@ -33,7 +33,7 @@ def queue_device_command(
     desired_state: bool | None = None,
     context: dict | None = None,
 ) -> DeviceCommand:
-    if operation not in {"set_state", "get_status", "discover"}:
+    if operation not in {"set_state", "get_status", "inspect_meter", "discover"}:
         raise ValueError("Unsupported connector command.")
     if operation == "set_state" and desired_state is None:
         raise ValueError("Desired state is required for a state command.")
@@ -54,7 +54,7 @@ def queue_device_command(
     if connector is None:
         raise ValueError("The assigned site connector is not enrolled or active.")
 
-    if operation in {"set_state", "get_status"}:
+    if operation in {"set_state", "get_status", "inspect_meter"}:
         outstanding = (
             db.query(DeviceCommand)
             .filter(

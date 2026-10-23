@@ -134,9 +134,10 @@ def test_switch_energy_readings_and_datapoint_settings_use_theme_aware_ui():
     assert "Switch energy" in app
     assert "Configure switch meters" in app
     assert "meter-settings" in app
-    assert "Cumulative total" in app
-    assert "Monthly counter" in app
-    assert "does not guess them" in app
+    assert "Total since the meter was installed" in app
+    assert "This month’s total" in app
+    assert "Find readings from switch" in app
+    assert "Advanced setup" in app
     assert ".energy-summary" in light
     assert ".switch-meter-panel" in light
     assert "body.theme-dark .energy-summary" in dark

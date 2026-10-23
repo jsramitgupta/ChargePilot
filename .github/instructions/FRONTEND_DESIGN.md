@@ -183,10 +183,14 @@ operational state colors for explicit status indicators.
   and the new switch is created in that connector's tenant. A connector scan
   preselects that same route. The Smart Life key-retrieval dialog and discovery
   results use the shared theme surfaces and status tokens in both themes.
-  Compatible Tuya meters can be configured per switch with explicit power and
-  energy datapoint IDs and unit multipliers; do not infer datapoints from a
-  device family or treat unsupported readings as zero. Show the sample time,
-  connector requirement, and cumulative-counter partial-month behavior.
+  Compatible Tuya meters can be configured per switch through a guided
+  "find readings" action. Show power/energy descriptions and live samples
+  instead of requiring users to know datapoint IDs or conversion multipliers;
+  keep those values in advanced setup. Only recognized reading names get
+  suggested roles; let users select unknown numeric readings and their units.
+  Never guess from device family or treat unsupported readings as zero. Show
+  the sample time, connector requirement, and cumulative-counter
+  partial-month behavior.
 - Overview energy totals include only power samples from the last five minutes
   and energy recorded for the current UTC month. Show the number of contributing
   switches and an explicit no-data state. Cumulative energy starts at its first

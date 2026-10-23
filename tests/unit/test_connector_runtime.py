@@ -189,6 +189,40 @@ def test_connector_ignores_invalid_meter_datapoint_values(monkeypatch):
     assert result == {"state": False}
 
 
+def test_connector_meter_inspection_returns_bounded_numeric_candidates(monkeypatch):
+    device = _FakeDevice(
+        {
+            "1": True,
+            "cur_power": "845",
+            "add_ele": "12500",
+            "other": 17,
+            "private_text": "secret",
+            "nested": {"value": 3},
+            "bad_number": float("nan"),
+        }
+    )
+    monkeypatch.setattr(chargepilot_connector, "OutletDevice", lambda *args, **kwargs: device)
+
+    result = chargepilot_connector._execute_device_command(
+        {
+            "operation": "inspect_meter",
+            "device": {
+                "device_id": "metered-device",
+                "ip_address": "192.168.1.15",
+                "local_key": "not-returned",
+            },
+        }
+    )
+
+    assert result == {
+        "candidates": [
+            {"id": "cur_power", "label": "Power reading", "sample": 845.0, "suggested_role": "power"},
+            {"id": "add_ele", "label": "Energy reading", "sample": 12500.0, "suggested_role": "energy"},
+            {"id": "other", "label": "Other reading", "sample": 17.0, "suggested_role": None},
+        ]
+    }
+
+
 @pytest.mark.parametrize(
     "url",
     ["https://chargepilot.example", "http://localhost:8000", "http://127.0.0.1:8000"],

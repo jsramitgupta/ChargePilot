@@ -139,6 +139,13 @@ type DeviceMeterSettings = {
   energy_counter_type: 'cumulative' | 'monthly'
 }
 
+type MeterCandidate = {
+  id: string
+  label: string
+  sample: number
+  suggested_role: 'power' | 'energy' | null
+}
+
 type DeviceChannel = {
   id: string
   device_id: string
@@ -176,7 +183,7 @@ type DeviceStatusRefresh = {
 
 type ConnectorCommandStatus = {
   status: 'queued' | 'leased' | 'succeeded' | 'failed' | 'expired'
-  result?: { error?: string } | null
+  result?: { error?: string; candidates?: MeterCandidate[] } | null
 }
 
 type DevicesPageData = {
@@ -402,6 +409,23 @@ async function waitForConnectorCommands(
     }
     await new Promise((resolve) => window.setTimeout(resolve, 2000))
   }
+}
+
+async function discoverMeterReadings(deviceId: string): Promise<MeterCandidate[]> {
+  const response = await apiFetch<{ command_id?: string; candidates?: MeterCandidate[] }>(
+    `/api/v1/devices/${deviceId}/meter-discovery`,
+    { method: 'POST' },
+  )
+  if (response.candidates) return response.candidates
+  if (!response.command_id) throw new Error('The switch did not return any readings.')
+  await waitForConnectorCommands([{ id: response.command_id }])
+  const command = await apiFetch<ConnectorCommandStatus>(
+    `/api/v1/connectors/commands/${response.command_id}`,
+  )
+  if (!Array.isArray(command.result?.candidates)) {
+    throw new Error('The site connector finished the check without returning a reading list. Update it and try again.')
+  }
+  return command.result.candidates
 }
 
 async function fetchSession(): Promise<User> {
@@ -1415,6 +1439,33 @@ function DeviceMeterPanel({
     device.energy_counter_type ?? 'cumulative',
   )
   const [validationMessage, setValidationMessage] = useState('')
+  const [candidates, setCandidates] = useState<MeterCandidate[]>([])
+  const [isDiscovering, setIsDiscovering] = useState(false)
+  const [discoveryMessage, setDiscoveryMessage] = useState('')
+  const [discoveryError, setDiscoveryError] = useState('')
+
+  const findReadings = async () => {
+    setIsDiscovering(true)
+    setDiscoveryError('')
+    setDiscoveryMessage('')
+    try {
+      const found = await discoverMeterReadings(device.id)
+      setCandidates(found)
+      const suggestedPower = found.find((candidate) => candidate.suggested_role === 'power')
+      const suggestedEnergy = found.find((candidate) => candidate.suggested_role === 'energy')
+      if (suggestedPower) setPowerDpId(suggestedPower.id)
+      if (suggestedEnergy) setEnergyDpId(suggestedEnergy.id)
+      setDiscoveryMessage(
+        found.length
+          ? `Found ${found.length} live reading${found.length === 1 ? '' : 's'}. Review the suggested matches and save to start monitoring.`
+          : 'The switch did not report any numeric readings. It may not support power or energy monitoring.',
+      )
+    } catch (error) {
+      setDiscoveryError(error instanceof Error ? error.message : 'Could not read this switch.')
+    } finally {
+      setIsDiscovering(false)
+    }
+  }
 
   const saveSettings = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1457,37 +1508,87 @@ function DeviceMeterPanel({
           : 'No meter sample yet. A configured, compatible datapoint and an online site connector are required.'}
       </p>
       <details className="switch-meter-settings">
-        <summary>Configure meter datapoints</summary>
+        <summary>Set up power and energy readings</summary>
         <form className="switch-meter-form" onSubmit={saveSettings}>
-          <p className="switch-meter-help">Tuya datapoint IDs differ by device. Use the IDs from your device’s specification; ChargePilot does not guess them. Updates are polled about once a minute by the assigned site connector.</p>
-          <div>
-            <label htmlFor={`meter-power-dp-${device.id}`}>Power datapoint ID</label>
-            <input id={`meter-power-dp-${device.id}`} className="field" value={powerDpId} onChange={(event) => setPowerDpId(event.target.value)} placeholder="For example,  cur_power" />
-          </div>
-          <div>
-            <label htmlFor={`meter-power-scale-${device.id}`}>Power multiplier to watts</label>
-            <input id={`meter-power-scale-${device.id}`} className="field" type="number" min="0.000000001" step="any" value={powerMultiplier} onChange={(event) => setPowerMultiplier(event.target.value)} />
-          </div>
-          <div>
-            <label htmlFor={`meter-energy-dp-${device.id}`}>Energy datapoint ID</label>
-            <input id={`meter-energy-dp-${device.id}`} className="field" value={energyDpId} onChange={(event) => setEnergyDpId(event.target.value)} placeholder="For example,  add_ele" />
-          </div>
-          <div>
-            <label htmlFor={`meter-energy-scale-${device.id}`}>Energy multiplier to kWh</label>
-            <input id={`meter-energy-scale-${device.id}`} className="field" type="number" min="0.000000001" step="any" value={energyMultiplier} onChange={(event) => setEnergyMultiplier(event.target.value)} />
-            <small>Raw Wh values commonly use 0.001.</small>
-          </div>
+          <p className="switch-meter-help">ChargePilot can check the switch and suggest its power and energy readings. This does not change the switch state.</p>
+          <button type="button" className="btn-secondary switch-meter-discover" onClick={() => { void findReadings() }} disabled={isDiscovering || isSaving}>
+            {isDiscovering ? 'Checking switch…' : 'Find readings from switch'}
+          </button>
+          {discoveryMessage && <p className="switch-meter-discovery-message" role="status">{discoveryMessage}</p>}
+          {discoveryError && <p className="switch-meter-validation" role="alert">{discoveryError}</p>}
+          {candidates.length > 0 && <>
+            <div>
+              <label htmlFor={`meter-power-reading-${device.id}`}>Which reading shows live power?</label>
+              <select id={`meter-power-reading-${device.id}`} className="field" value={powerDpId} onChange={(event) => setPowerDpId(event.target.value)}>
+                <option value="">Don’t monitor power</option>
+                {powerDpId && !candidates.some((candidate) => candidate.id === powerDpId) && <option value={powerDpId}>Keep current power reading</option>}
+                {candidates.map((candidate) => <option key={`power-${candidate.id}`} value={candidate.id}>{candidate.label} · {candidate.sample.toLocaleString()}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor={`meter-energy-reading-${device.id}`}>Which reading shows energy used?</label>
+              <select id={`meter-energy-reading-${device.id}`} className="field" value={energyDpId} onChange={(event) => setEnergyDpId(event.target.value)}>
+                <option value="">Don’t monitor energy</option>
+                {energyDpId && !candidates.some((candidate) => candidate.id === energyDpId) && <option value={energyDpId}>Keep current energy reading</option>}
+                {candidates.map((candidate) => <option key={`energy-${candidate.id}`} value={candidate.id}>{candidate.label} · {candidate.sample.toLocaleString()}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor={`meter-power-units-${device.id}`}>Power reading is in</label>
+              <select id={`meter-power-units-${device.id}`} className="field" value={powerMultiplier === '1' ? 'watts' : powerMultiplier === '1000' ? 'kilowatts' : 'custom'} onChange={(event) => {
+                if (event.target.value === 'watts') setPowerMultiplier('1')
+                if (event.target.value === 'kilowatts') setPowerMultiplier('1000')
+              }}>
+                <option value="watts">Watts (W)</option>
+                <option value="kilowatts">Kilowatts (kW)</option>
+                <option value="custom">Custom scale</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor={`meter-energy-units-${device.id}`}>Energy reading is in</label>
+              <select id={`meter-energy-units-${device.id}`} className="field" value={energyMultiplier === '1' ? 'kwh' : energyMultiplier === '0.001' ? 'wh' : 'custom'} onChange={(event) => {
+                if (event.target.value === 'kwh') setEnergyMultiplier('1')
+                if (event.target.value === 'wh') setEnergyMultiplier('0.001')
+              }}>
+                <option value="wh">Watt-hours (Wh)</option>
+                <option value="kwh">Kilowatt-hours (kWh)</option>
+                <option value="custom">Custom scale</option>
+              </select>
+            </div>
+          </>}
           <div className="switch-meter-counter">
-            <label htmlFor={`meter-energy-mode-${device.id}`}>Energy counter type</label>
+            <label htmlFor={`meter-energy-mode-${device.id}`}>How does the switch report energy?</label>
             <select id={`meter-energy-mode-${device.id}`} className="field" value={energyCounterType} onChange={(event) => setEnergyCounterType(event.target.value === 'monthly' ? 'monthly' : 'cumulative')}>
-              <option value="cumulative">Cumulative total</option>
-              <option value="monthly">Monthly counter</option>
+              <option value="cumulative">Total since the meter was installed</option>
+              <option value="monthly">This month’s total</option>
             </select>
           </div>
-          <p className="switch-meter-help switch-meter-disclaimer">Cumulative monthly totals begin at the first reading in the UTC month, so setup partway through a month gives a partial total. Monthly counters use the device-reported month value.</p>
+          <p className="switch-meter-help switch-meter-disclaimer">A running total starts from the first reading this month, so the first monthly total may be partial. Readings update about once a minute.</p>
+          <details className="switch-meter-advanced">
+            <summary>Advanced setup</summary>
+            <p className="switch-meter-help">Use these fields only when your switch documentation gives you its reading IDs or a custom unit scale.</p>
+            <div className="switch-meter-form switch-meter-advanced-fields">
+              <div>
+                <label htmlFor={`meter-power-dp-${device.id}`}>Power reading ID</label>
+                <input id={`meter-power-dp-${device.id}`} className="field" value={powerDpId} onChange={(event) => setPowerDpId(event.target.value)} />
+              </div>
+              <div>
+                <label htmlFor={`meter-power-scale-${device.id}`}>Power scale to watts</label>
+                <input id={`meter-power-scale-${device.id}`} className="field" type="number" min="0.000000001" step="any" value={powerMultiplier} onChange={(event) => setPowerMultiplier(event.target.value)} />
+              </div>
+              <div>
+                <label htmlFor={`meter-energy-dp-${device.id}`}>Energy reading ID</label>
+                <input id={`meter-energy-dp-${device.id}`} className="field" value={energyDpId} onChange={(event) => setEnergyDpId(event.target.value)} />
+              </div>
+              <div>
+                <label htmlFor={`meter-energy-scale-${device.id}`}>Energy scale to kWh</label>
+                <input id={`meter-energy-scale-${device.id}`} className="field" type="number" min="0.000000001" step="any" value={energyMultiplier} onChange={(event) => setEnergyMultiplier(event.target.value)} />
+              </div>
+            </div>
+          </details>
           {validationMessage && <p className="switch-meter-validation" role="alert">{validationMessage}</p>}
-          {!device.connector_id && <p className="switch-route-warning" role="status">Assign a site connector on the switch’s LAN to poll meter values automatically.</p>}
-          <button type="submit" className="btn-secondary px-3 py-2 text-xs" disabled={isSaving}>{isSaving ? 'Saving meter settings…' : 'Save meter settings'}</button>
+          {!device.connector_id && <p className="switch-route-warning" role="status">The ChargePilot host will try to reach this switch directly. For cloud or remote networks, assign a site connector on the switch’s LAN.</p>}
+          <button type="submit" className="btn-secondary px-3 py-2 text-xs" disabled={isSaving}>{isSaving ? 'Saving…' : 'Save meter setup'}</button>
         </form>
       </details>
     </section>

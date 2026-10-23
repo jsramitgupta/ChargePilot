@@ -134,7 +134,17 @@ includes only power samples no older than five minutes and clearly reports the
 number of contributing meters. Power and energy keep separate valid-sample
 timestamps so a missing datapoint cannot make the other measurement look fresh.
 
-The feature requires connector version 0.1.3 or newer and the
+Meter setup can request an explicit, one-time `inspect_meter` command through
+the assigned site connector. The connector returns up to 32 finite numeric
+readings with their IDs, samples, and only recognized power/energy role hints;
+it does not return the complete DPS map, booleans, nested values, or device
+state. Candidates are scoped to the authenticated tenant and are not persisted
+as meter settings. Unknown IDs and units require user selection rather than
+guessing.
+
+Regular meter polling requires connector version 0.1.3 or newer; guided
+meter discovery requires connector version 0.1.4 or newer. The feature also
+requires the
 `20261022_tuya_energy_monitoring.sql` schema migration on existing PostgreSQL
 installations. Back up the database before applying it. The rollback script
 removes both configuration and collected meter history; use it only when

@@ -592,6 +592,14 @@ body.theme-dark .switch-meter-settings summary {
   color: #a7d4b3;
 }
 
+body.theme-dark .switch-meter-advanced summary {
+  color: #a4b5ac;
+}
+
+body.theme-dark .switch-meter-discovery-message {
+  color: #a7d4b3;
+}
+
 body.theme-dark .switch-meter-validation {
   color: #f0a89b;
 }

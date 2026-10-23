@@ -3951,6 +3951,18 @@ button, a {
   font-size: 12px;
 }
 
+.switch-meter-discover {
+  justify-self: start;
+}
+
+.switch-meter-discovery-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--leaf);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .switch-meter-settings summary {
   width: fit-content;
   color: var(--leaf);
@@ -3995,6 +4007,24 @@ button, a {
 .switch-meter-validation,
 .switch-meter-form > .switch-route-warning {
   grid-column: 1 / -1;
+}
+
+.switch-meter-advanced {
+  grid-column: 1 / -1;
+}
+
+.switch-meter-advanced summary {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.switch-meter-advanced > .switch-meter-help {
+  margin-bottom: 8px;
+}
+
+.switch-meter-advanced-fields {
+  margin-top: 0;
 }
 
 .switch-meter-validation {
