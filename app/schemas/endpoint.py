@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EndpointBase(BaseModel):
@@ -33,3 +33,15 @@ class EndpointTenantAssignment(BaseModel):
 
 class EndpointAutomationUpdate(BaseModel):
     enabled: bool
+
+
+class EndpointLabelUpdate(BaseModel):
+    label: str = Field(min_length=1, max_length=160)
+
+    @field_validator("label")
+    @classmethod
+    def trim_label(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("A device label is required.")
+        return value

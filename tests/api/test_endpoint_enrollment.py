@@ -71,6 +71,78 @@ def test_new_enrollment_enables_automation_for_every_platform(platform, device_c
     assert endpoint_row["automation_available"] is True
 
 
+def test_admin_can_rename_enrolled_endpoint_and_telemetry_preserves_label():
+    client = TestClient(app)
+    register_tenant_admin(
+        client,
+        "endpoint-label-admin",
+        "endpoint-label-admin-password",
+        "Endpoint Label Tenant",
+    )
+    enrollment = client.post("/api/v1/admin/endpoint-enrollments", json={}).json()
+    installation_id = str(uuid4())
+    exchanged = client.post(
+        "/api/v1/endpoint-enrollment/exchange",
+        json={
+            "code": enrollment["enrollment_code"],
+            "platform": "android",
+            "installation_id": installation_id,
+            "hostname": "Pixel 9",
+            "device_class": "phone",
+        },
+    )
+    assert exchanged.status_code == 201, exchanged.text
+    endpoint_id = exchanged.json()["endpoint_id"]
+
+    invalid_label = client.patch(
+        f"/api/v1/endpoints/{endpoint_id}/label",
+        json={"label": "   "},
+    )
+    assert invalid_label.status_code == 422
+
+    renamed = client.patch(
+        f"/api/v1/endpoints/{endpoint_id}/label",
+        json={"label": "Kitchen phone"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["display_name"] == "Kitchen phone"
+
+    other_client = TestClient(app)
+    register_tenant_admin(
+        other_client,
+        "other-endpoint-label-admin",
+        "other-endpoint-label-admin-password",
+        "Other Endpoint Label Tenant",
+    )
+    out_of_scope = other_client.patch(
+        f"/api/v1/endpoints/{endpoint_id}/label",
+        json={"label": "Not allowed"},
+    )
+    assert out_of_scope.status_code == 404
+
+    telemetry = client.post(
+        "/api/v1/telemetry",
+        json={
+            "hostname": "Pixel 9 Pro",
+            "installation_id": installation_id,
+            "platform": "android",
+            "device_class": "phone",
+            "battery_percentage": 50,
+            "charging": False,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "agent_version": "0.1.0",
+        },
+        headers={"Authorization": f"Bearer {exchanged.json()['credential']}"},
+    )
+    assert telemetry.status_code == 200, telemetry.text
+
+    listed = client.get("/api/v1/endpoints")
+    assert listed.status_code == 200, listed.text
+    endpoint_row = next(row for row in listed.json() if row["id"] == endpoint_id)
+    assert endpoint_row["display_name"] == "Kitchen phone"
+    assert endpoint_row["hostname"] == "Pixel 9 Pro"
+
+
 def test_enrollment_is_tenant_bound_reusable_across_platforms_and_returns_credentials_once():
     client = TestClient(app)
     register_tenant_admin(

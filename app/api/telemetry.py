@@ -167,7 +167,6 @@ async def receive_telemetry(
         is_newer_snapshot = timestamp >= last_seen_at
 
     if is_newer_snapshot:
-        endpoint.name = payload.hostname
         endpoint.hostname = payload.hostname
         if hardware_uuid is not None:
             endpoint.hardware_uuid = hardware_uuid

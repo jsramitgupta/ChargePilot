@@ -1,6 +1,7 @@
 package `in`.chargepilot.agent
 
 import android.os.Bundle
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -86,7 +87,13 @@ private fun AgentScreen(store: AgentStore) {
         if (forceUnenrolled) null else store.configuration()
     }
     var serverOrigin by remember { mutableStateOf(configuration?.serverOrigin ?: "https://api-chargepilot.endusercompute.in") }
-    var label by remember { mutableStateOf(configuration?.label ?: "") }
+    var label by remember {
+        mutableStateOf(
+            configuration?.label
+                ?: Build.MODEL.takeIf { it.isNotBlank() && !it.equals("unknown", ignoreCase = true) }
+                ?: if (context.resources.configuration.smallestScreenWidthDp >= 600) "Android tablet" else "Android phone",
+        )
+    }
     var enrollmentToken by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf("") }
@@ -334,9 +341,15 @@ private fun EnrollmentForm(
             value = label,
             onValueChange = onLabelChange,
             label = { Text("Device label") },
-            placeholder = { Text("For example, Travel phone") },
+            placeholder = { Text("Android device model") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "Defaults to this device's model, not its serial number. You can change the label in the admin console.",
+            color = Muted,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
         )
         OutlinedTextField(
             value = enrollmentToken,

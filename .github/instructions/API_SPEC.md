@@ -340,8 +340,9 @@ Behavior:
 - delayed telemetry can be retained in the outbox for diagnostics but cannot
   overwrite a newer endpoint snapshot or `last_seen_at`
 - identifies an endpoint by `hardware_uuid`, while capturing the current
-  hostname as mutable display metadata; a hostname change updates the existing
-  hardware record rather than creating another endpoint
+  hostname as telemetry metadata; a hostname change updates the existing
+  hardware record rather than creating another endpoint. The administrator-set
+  display label is stored separately and is not overwritten by telemetry.
 - identifies enrolled installations by their opaque per-install credential;
   platform and installation ID in the request must match the server-side
   endpoint record
@@ -386,6 +387,9 @@ The iOS source exposes a Shortcuts action for fresh battery/charging reports,
 but iOS may defer or skip its invocation. Automation defaults to all four
 platforms and remains subject to the server-configured allow-list and freshness
 policy.
+Agents use a non-serial OS computer/model name as the initial label; mobile
+agents avoid uploading a personal device name. A tenant admin, manager, or
+Super Admin can customize the separate display label from the Endpoints page.
 
 #### Endpoint enrollment and automation operations
 
@@ -443,9 +447,11 @@ policy.
 
 ### 3.4 GET /api/v1/endpoints
 
-Lists visible endpoint records with tenant ID/name, platform, installation
-identity, battery, online/offline status, credential enrollment state, and
-automation eligibility. Tenant names are `null` for unassigned endpoints.
+Lists visible endpoint records with tenant ID/name, editable display label,
+telemetry hostname, platform, installation identity, battery, online/offline
+status, credential enrollment state, and automation eligibility. Tenant names
+are `null` for unassigned endpoints. `display_name` falls back to `hostname`
+until an administrator changes the label.
 
 Example response:
 
@@ -453,6 +459,7 @@ Example response:
 [
   {
     "id": "...",
+    "display_name": "Office laptop",
     "hostname": "LAPTOP-01",
     "hardware_uuid": "4b4b2b91-6c32-4d5b-8a9f-2a73b8e94d11",
     "platform": "windows",
@@ -474,7 +481,20 @@ Example response:
 upgrade. A current agent fills the value on its first matching telemetry
 request, keeping the existing endpoint ID and mappings.
 
-### 3.5 PATCH /api/v1/endpoints/{endpoint_id}/tenant
+### 3.5 PATCH /api/v1/endpoints/{endpoint_id}/label
+
+Tenant admins, managers, and Super Admins can set the endpoint's display label.
+The label is trimmed, must contain 1-160 characters, and is stored separately
+from the agent-reported hostname so future telemetry cannot overwrite it.
+
+```json
+{"label":"Office laptop"}
+```
+
+The response includes the updated `display_name`. This operation changes only
+the console label; it does not change device identity or telemetry matching.
+
+### 3.6 PATCH /api/v1/endpoints/{endpoint_id}/tenant
 
 Assigns an unassigned endpoint to an existing tenant. Super Admin only.
 Endpoints already assigned to another tenant cannot be transferred through
@@ -487,7 +507,7 @@ assignment, reconfigure the Windows agent with the tenant-specific token.
 {"tenant_id": "<tenant-uuid>"}
 ```
 
-### 3.6 GET /api/v1/endpoints/agent-config
+### 3.7 GET /api/v1/endpoints/agent-config
 
 Returns the endpoint's current agent configuration and mappings. Newly enrolled
 agents authenticate with their per-install credential and must supply the

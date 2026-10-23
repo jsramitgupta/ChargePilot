@@ -36,9 +36,10 @@ The app's telemetry version and DMG filename use the version in
 
 Drag `ChargePilotAgent.app` to **Applications** and open it. The ChargePilot
 battery icon appears in the menu bar. Use it to configure the server origin,
-an explicit device label, and the enrollment code from ChargePilot's **Set up
-a device** page. Select **Connect this Mac** to exchange the code. It is not
-saved; the per-install credential is stored in the user's macOS Keychain.
+the prefilled Mac computer-name label, and the enrollment code from
+ChargePilot's **Set up a device** page. Select **Connect this Mac** to exchange
+the code. The label can be customized later on the Endpoints page. The code is
+not saved; the per-install credential is stored in the user's macOS Keychain.
 
 After enrollment, the app sends a report immediately and every five minutes.
 Its menu shows the latest accepted report and any upload errors. **Pause
@@ -83,11 +84,10 @@ reuse the tenant-wide Windows agent token in this app.
 
 ## Data and privacy
 
-The agent sends the chosen device label, battery percentage, charging and AC
+The agent sends the chosen computer-name label, battery percentage, charging and AC
 state, observation timestamp, platform, installation ID, device class, and
-agent version. It does not send a serial number, hardware UUID, IP address, or
-system hostname. If Apple does not provide a usable battery reading, no sample
-is sent.
+agent version. It does not send a serial number, hardware UUID, or IP address.
+If Apple does not provide a usable battery reading, no sample is sent.
 
 ## Stop or revoke
 

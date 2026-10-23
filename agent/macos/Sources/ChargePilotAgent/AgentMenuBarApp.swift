@@ -59,7 +59,7 @@ private final class ChargePilotMenuBarDelegate: NSObject, NSApplicationDelegate 
 private final class AgentStatusModel: ObservableObject {
     @Published private(set) var configuration: LocalConfiguration?
     @Published var serverOrigin = ""
-    @Published var deviceLabel = ""
+    @Published var deviceLabel = Host.current().localizedName ?? "Mac"
     @Published var enrollmentCode = ""
     @Published private(set) var isReporting = false
     @Published private(set) var isWorking = false
@@ -362,10 +362,13 @@ private struct AgentMenuView: View {
                 TextField("https://chargepilot.example.com", text: $model.serverOrigin)
                     .textFieldStyle(.roundedBorder)
 
-                Text("Mac label")
+                Text("Device label")
                     .font(.system(size: 12, weight: .medium))
-                TextField("Office Mac", text: $model.deviceLabel)
+                TextField(Host.current().localizedName ?? "Mac", text: $model.deviceLabel)
                     .textFieldStyle(.roundedBorder)
+                Text("Filled from this Mac's computer name. You can change the label in the admin console.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
 
                 Text("Enrollment code")
                     .font(.system(size: 12, weight: .medium))

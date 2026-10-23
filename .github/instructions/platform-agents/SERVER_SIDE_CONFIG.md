@@ -94,11 +94,11 @@ The backward-compatible schema extension includes:
 | `device_class` | Optional enum such as `laptop`, `desktop`, `phone`, `tablet`; validate supported combinations. |
 | `installation_id` | Random UUID generated once per app installation; unique in the credential/tenant scope. It is not hardware identity. |
 | `ip_address` | Optional, volatile diagnostic value; mobile clients may omit it. Do not use it for identity or location inference. |
-| `hostname` | Keep existing field compatibility. For mobile, prefer an explicit user-chosen label or a generic platform label; do not upload personal device names by default. |
+| `hostname` | Keep existing field compatibility. Windows/macOS may use the OS computer name; Android may use its non-unique model name and iOS a generic model name. Do not collect serials or upload personal mobile device names. Admins can set a separate console display label. |
 | battery fields | Keep valid numeric percentage and charging data required for rule evaluation. Model unavailable readings explicitly or skip reporting that sample; never substitute zero/false for unknown. |
 | agent version | Keep required and version the client separately from the payload schema. |
 
-For mobile, do not derive or transmit serial/IMEI. Reinstallation should
+Do not derive or transmit serial/IMEI on any platform. Reinstallation should
 create a new installation identity unless a documented, secure recovery flow
 is designed. Resolve identity from the authenticated credential, not solely
 from request JSON. Keep the existing `hardware_uuid` handling for Windows.

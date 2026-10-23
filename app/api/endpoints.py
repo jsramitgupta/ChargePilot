@@ -17,6 +17,7 @@ from app.models.user import User
 from app.schemas.endpoint import (
     EndpointAutomationUpdate,
     EndpointCreate,
+    EndpointLabelUpdate,
     EndpointRead,
     EndpointTenantAssignment,
 )
@@ -85,6 +86,7 @@ async def list_endpoints(
                 "id": endpoint.id,
                 "tenant_id": endpoint.tenant_id,
                 "tenant_name": tenant_names.get(endpoint.tenant_id),
+                "display_name": endpoint.name or endpoint.hostname,
                 "hostname": endpoint.hostname,
                 "hardware_uuid": endpoint.hardware_uuid,
                 "installation_id": endpoint.installation_id,
@@ -111,6 +113,37 @@ async def list_endpoints(
             }
         )
     return rows
+
+
+@router.patch("/{endpoint_id}/label")
+async def update_endpoint_label(
+    endpoint_id: UUID,
+    payload: EndpointLabelUpdate,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    if not (
+        is_super_admin_user(user)
+        or (user.is_admin and user.tenant_id is not None)
+        or (user.role == "manager" and user.tenant_id is not None)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Endpoint label permission required.",
+        )
+
+    endpoint = (
+        tenant_scoped_query(db.query(Endpoint), Endpoint, user)
+        .filter(Endpoint.id == str(endpoint_id))
+        .with_for_update()
+        .first()
+    )
+    if endpoint is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found.")
+
+    endpoint.name = payload.label
+    db.commit()
+    return {"id": endpoint.id, "display_name": endpoint.name}
 
 
 @router.patch("/{endpoint_id}/automation")

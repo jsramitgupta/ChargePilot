@@ -68,7 +68,12 @@ shows endpoint and switch counts in a responsive summary grid, and lists the
 ten most recently seen endpoints first. The Endpoints page refreshes on the
 same cadence, supports search and 50- or 100-endpoint pages, and sorts by last
 report with missing timestamps last. Both views expose the last successful
-refresh and a manual refresh action. The Smart switches page groups LAN
+refresh and a manual refresh action. Agent enrollment defaults the label from
+the non-serial computer/model name; mobile agents use a generic model name
+rather than a personal device name. Tenant admins, managers, and Super Admins
+can edit the separate endpoint display label on the Endpoints page. The
+display label remains stable when telemetry hostnames update. ChargePilot does
+not collect device serial numbers. The Smart switches page groups LAN
 discovery, manual setup, and the searchable/filterable inventory into clear
 work areas; card and list views remain available on small screens.
 The configured switch inventory loads independently of live connector status

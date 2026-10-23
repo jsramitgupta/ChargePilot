@@ -82,6 +82,7 @@ type Endpoint = {
   id: string
   tenant_id?: string | null
   tenant_name?: string | null
+  display_name?: string
   hostname: string
   hardware_uuid: string | null
   installation_id?: string | null
@@ -426,7 +427,8 @@ function sortEndpointsByLastSeen(endpoints: Endpoint[]) {
     const firstTimestamp = Number.isFinite(firstSeen) ? firstSeen : Number.NEGATIVE_INFINITY
     const secondTimestamp = Number.isFinite(secondSeen) ? secondSeen : Number.NEGATIVE_INFINITY
 
-    return secondTimestamp - firstTimestamp || first.hostname.localeCompare(second.hostname)
+    return secondTimestamp - firstTimestamp
+      || (first.display_name || first.hostname).localeCompare(second.display_name || second.hostname)
   })
 }
 
@@ -473,7 +475,7 @@ function EndpointIdentity({ endpoint }: { endpoint: Endpoint }) {
     <div className="endpoint-identity">
       <PlatformMark platform={endpoint.platform} />
       <span className="endpoint-identity-copy">
-        <span className="endpoint-identity-hostname">{endpoint.hostname}</span>
+        <span className="endpoint-identity-hostname">{endpoint.display_name || endpoint.hostname}</span>
         <span className="endpoint-identity-platform">{PLATFORM_NAMES[endpoint.platform]}</span>
       </span>
     </div>
@@ -2159,7 +2161,7 @@ function MappingsPage() {
                 >
                   <span className={`mapping-choice-status ${endpoint.status === 'online' ? 'is-online' : ''}`} />
                   <MonitorSmartphone size={19} aria-hidden="true" />
-                  <span className="mapping-choice-copy"><strong>{endpoint.hostname}</strong><small>{endpoint.tenant_name ?? 'Unassigned tenant'}{endpoint.ip_address ? ` · ${endpoint.ip_address}` : ''}</small></span>
+                  <span className="mapping-choice-copy"><strong>{endpoint.display_name || endpoint.hostname}</strong><small>{endpoint.tenant_name ?? 'Unassigned tenant'}{endpoint.ip_address ? ` · ${endpoint.ip_address}` : ''}</small></span>
                   <span className={`mapping-choice-battery ${endpoint.battery <= 25 ? 'is-low' : ''}`}>{endpoint.battery}%</span>
                 </button>
               ))}
@@ -2347,12 +2349,15 @@ function EndpointsPage() {
   const [pageSize, setPageSize] = useState<EndpointPageSize>(50)
   const [currentPage, setCurrentPage] = useState(1)
   const [assignedTenantId, setAssignedTenantId] = useState('')
+  const [editingEndpointId, setEditingEndpointId] = useState<string | null>(null)
+  const [labelDraft, setLabelDraft] = useState('')
+  const [statusMessage, setStatusMessage] = useState('')
+  const canManageEndpoints = user?.role === 'super_admin' || user?.is_admin || user?.role === 'manager'
   const tenantsQuery = useQuery({
     queryKey: ['admin-tenants'],
     queryFn: () => apiFetch<TenantInfo[]>('/api/v1/admin/tenants'),
     enabled: user?.role === 'super_admin',
   })
-  const [statusMessage, setStatusMessage] = useState('')
   const { data, isLoading, error, dataUpdatedAt, isFetching, refetch } = useQuery({
     queryKey: ['endpoints'],
     queryFn: async () => apiFetch<Endpoint[]>('/api/v1/endpoints'),
@@ -2379,6 +2384,23 @@ function EndpointsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['endpoints'] }),
   })
 
+  const renameMutation = useMutation({
+    mutationFn: ({ endpointId, label }: { endpointId: string; label: string }) =>
+      apiFetch<{ id: string; display_name: string }>(`/api/v1/endpoints/${endpointId}/label`, {
+        method: 'PATCH',
+        body: JSON.stringify({ label }),
+      }),
+    onSuccess: ({ display_name }) => {
+      setEditingEndpointId(null)
+      setAssignedTenantId('')
+      setStatusMessage(`Device label changed to ${display_name}.`)
+      queryClient.invalidateQueries({ queryKey: ['endpoints'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['mappings'] })
+      queryClient.invalidateQueries({ queryKey: ['events'] })
+    },
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (endpointId: string) => apiFetch<void>(`/api/v1/endpoints/${endpointId}`, { method: 'DELETE' }),
     onSuccess: () => {
@@ -2395,6 +2417,7 @@ function EndpointsPage() {
   const filteredEndpoints = sortEndpointsByLastSeen(data).filter((endpoint) => {
     if (!searchTerm) return true
     const searchable = [
+      endpoint.display_name ?? '',
       endpoint.hostname,
       endpoint.platform,
       endpoint.tenant_name ?? '',
@@ -2418,8 +2441,9 @@ function EndpointsPage() {
           <p className="page-description">Review device identity and recent battery reports.</p>
         </div>
       </div>
-      {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage} <NavLink to={assignedTenantId ? `/agent?tenant_id=${assignedTenantId}` : '/agent'} className="font-semibold underline">Open tenant agent setup</NavLink></p>}
+      {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}{assignedTenantId && <> <NavLink to={`/agent?tenant_id=${assignedTenantId}`} className="font-semibold underline">Open tenant agent setup</NavLink></>}</p>}
       {assignTenantMutation.error && <ErrorCard message={assignTenantMutation.error.message} />}
+      {renameMutation.error && <ErrorCard message={renameMutation.error.message} />}
       {deleteMutation.isError && <ErrorCard message={deleteMutation.error.message} />}
       {revokeCredentialMutation.error && <ErrorCard message={revokeCredentialMutation.error.message} />}
       {error && <ErrorCard message={`Could not refresh endpoints: ${error.message}. Showing the last successful data.`} />}
@@ -2455,7 +2479,35 @@ function EndpointsPage() {
             <thead><tr><th>Device</th><th>Tenant</th><th>Identity</th><th>IP</th><th>Battery</th><th>Power</th><th aria-sort="descending">Last seen</th><th>Status</th><th className="align-right">Actions</th></tr></thead>
             <tbody>
               {visibleEndpoints.map((endpoint) => <tr key={endpoint.id}>
-                <td><EndpointIdentity endpoint={endpoint} /></td>
+                <td>
+                  <div className="flex min-w-44 flex-col items-start gap-2">
+                    <EndpointIdentity endpoint={endpoint} />
+                    {canManageEndpoints && editingEndpointId === endpoint.id ? (
+                      <form className="flex w-full flex-wrap items-center gap-2" onSubmit={(event) => {
+                        event.preventDefault()
+                        renameMutation.mutate({ endpointId: endpoint.id, label: labelDraft })
+                      }}>
+                        <input
+                          autoFocus
+                          aria-label={`New label for ${endpoint.display_name || endpoint.hostname}`}
+                          className="field min-w-32 flex-1 py-2"
+                          maxLength={160}
+                          required
+                          value={labelDraft}
+                          onChange={(event) => setLabelDraft(event.target.value)}
+                        />
+                        <button type="submit" className="btn-secondary px-3 py-2" disabled={renameMutation.isPending}>Save</button>
+                        <button type="button" className="secondary-btn px-3 py-2" disabled={renameMutation.isPending} onClick={() => setEditingEndpointId(null)}>Cancel</button>
+                      </form>
+                    ) : canManageEndpoints ? (
+                      <button type="button" className="secondary-btn px-3 py-1.5" onClick={() => {
+                        setEditingEndpointId(endpoint.id)
+                        setLabelDraft(endpoint.display_name || endpoint.hostname)
+                        renameMutation.reset()
+                      }}>Edit label</button>
+                    ) : null}
+                  </div>
+                </td>
                 <td>{endpoint.tenant_id ? endpoint.tenant_name ?? 'Unknown tenant' : user?.role === 'super_admin' ? <div className="flex min-w-56 flex-col gap-2"><span className="badge muted w-fit">Unassigned</span><form className="flex items-center gap-2" onSubmit={(event) => {
                   event.preventDefault()
                   const tenantId = String(new FormData(event.currentTarget).get('tenant_id') ?? '')
@@ -2472,10 +2524,10 @@ function EndpointsPage() {
                 <td><span className={`badge ${endpoint.status === 'online' ? 'success' : 'muted'}`}>{endpoint.status}</span></td>
                 <td className="align-right"><div className="flex flex-col items-end gap-2">
                   {endpoint.credential_enrolled && <button type="button" className="danger-btn small-btn" disabled={revokeCredentialMutation.isPending} onClick={() => {
-                    if (window.confirm(`Revoke the installation credential for ${endpoint.hostname}? Its agent will stop reporting.`)) revokeCredentialMutation.mutate(endpoint.id)
+                    if (window.confirm(`Revoke the installation credential for ${endpoint.display_name || endpoint.hostname}? Its agent will stop reporting.`)) revokeCredentialMutation.mutate(endpoint.id)
                   }}>Revoke agent</button>}
                   <button type="button" className="danger-btn small-btn" disabled={deleteMutation.isPending} onClick={() => {
-                    if (window.confirm(`Delete endpoint ${endpoint.hostname}? Its mappings and event history will also be removed.`)) deleteMutation.mutate(endpoint.id)
+                    if (window.confirm(`Delete endpoint ${endpoint.display_name || endpoint.hostname}? Its mappings and event history will also be removed.`)) deleteMutation.mutate(endpoint.id)
                   }}>Delete endpoint</button>
                 </div></td>
               </tr>)}

@@ -103,7 +103,7 @@ internal sealed class SetupForm : Form
             fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         }
         AddField(fields, 0, "ChargePilot server", _serverUrl);
-        AddField(fields, 1, "Device name", _deviceName);
+        AddField(fields, 1, "Device label", _deviceName);
         AddField(fields, 2, "Device class", _deviceClass);
         AddField(fields, 3, "Report every (minutes)", _interval);
         AddField(fields, 4, "Enrollment token", _enrollmentToken);
@@ -118,7 +118,7 @@ internal sealed class SetupForm : Form
         fieldsAndNote.Controls.Add(fields);
         fieldsAndNote.Controls.Add(new Label
         {
-            Text = "Leave the token blank to keep the current enrollment. New tokens are entered here and never saved in the command line.",
+            Text = "The label starts with this PC's computer name. Customize its display label in the admin console after enrollment. Leave the token blank to keep the current enrollment.",
             AutoSize = true,
             MaximumSize = new Size(660, 0),
             ForeColor = ColorTranslator.FromHtml("#71827B"),

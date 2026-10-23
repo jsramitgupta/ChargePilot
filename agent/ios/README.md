@@ -23,8 +23,10 @@ Latest IPA and source downloads: [ChargePilot GitHub Releases](https://github.co
 2. Open `ChargePilotAgent.xcodeproj` in Xcode.
 3. Select the `ChargePilotAgent` scheme and a signing team, then build and
    install it on an iPhone or iPad.
-4. Enter the API origin, a descriptive device label, and the 24-hour
-   enrollment token. The app exchanges the token and clears it from the form.
+4. Enter the API origin and 24-hour enrollment token. The device label is
+   prefilled with the generic device type (iPhone or iPad), not a serial number
+   or personal device name. The app exchanges the token and clears it from the
+   form. Admins can change the display label on the Endpoints page.
 5. The app stores a random installation ID locally and the persistent
    per-install credential in the device-only Keychain.
 
@@ -62,7 +64,7 @@ now** is tapped.
 
 ## Reporting and privacy
 
-The app sends a user-provided label, battery percentage, charging state,
+The app sends a generic device-type label, battery percentage, charging state,
 observation timestamp, platform, random installation ID, device class, and
 agent version. It does not send an IP address, hardware identifier, location,
 phone number, or the system device name. If iOS reports an unknown battery

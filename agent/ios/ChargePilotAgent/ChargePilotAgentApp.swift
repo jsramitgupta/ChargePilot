@@ -80,7 +80,10 @@ final class AgentModel: ObservableObject {
 
     init() {
         serverOrigin = defaults.string(forKey: "serverOrigin") ?? "https://api-chargepilot.endusercompute.in"
-        deviceLabel = defaults.string(forKey: "deviceLabel") ?? ""
+        deviceLabel = defaults.string(forKey: "deviceLabel")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? UIDevice.current.model
         endpointID = defaults.string(forKey: "endpointID")
         if let value = defaults.string(forKey: "installationID") {
             installationID = UUID(uuidString: value)
@@ -294,8 +297,11 @@ private struct AgentHomeView: View {
                 .autocorrectionDisabled()
                 .textFieldStyle(.roundedBorder)
 
-            TextField("Device label", text: $model.deviceLabel, prompt: Text("For example, Personal iPhone"))
+            TextField("Device label", text: $model.deviceLabel, prompt: Text("iPhone or iPad"))
                 .textFieldStyle(.roundedBorder)
+            Text("Uses the generic device type, not a serial number. You can change the label in the admin console.")
+                .font(.system(size: 12))
+                .foregroundStyle(muted)
 
             SecureField("24-hour enrollment token", text: $model.enrollmentToken)
                 .textInputAutocapitalization(.never)

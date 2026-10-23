@@ -27,8 +27,9 @@ Latest APK and source downloads: [ChargePilot GitHub Releases](https://github.co
    `adb install -r app/build/outputs/apk/debug/app-debug.apk`, then open
    ChargePilot from the launcher. This debug APK is for development; it is not
    a signed release.
-4. Enter the ChargePilot API origin, a device label, and the 24-hour
-   enrollment token. The token is cleared after exchange.
+4. Enter the ChargePilot API origin and 24-hour enrollment token. The device
+   label is prefilled from the non-unique Android model name; it is not a
+   serial number. The token is cleared after exchange.
 5. The app stores a random installation ID and encrypts its per-install
    credential with an AES key held by Android Keystore.
 6. Use **Send reading now** for an immediate sample. WorkManager also schedules
@@ -47,10 +48,11 @@ before trying another enrollment token.
 
 ## Reporting and privacy
 
-Each report contains the user-provided label, battery percentage, charging
+Each report contains the non-unique model label, battery percentage, charging
 state, optional AC connection state, current observation timestamp, platform,
 random installation ID, device class, and app version. It does not send a
-hardware ID, phone number, location, IP address, or the Android device name.
+serial number, hardware ID, phone number, location, IP address, or personal
+Android device name. Admins can change the display label on the Endpoints page.
 If Android cannot provide a valid battery reading, no sample is sent.
 
 WorkManager respects network availability, Doze, and system scheduling. Its

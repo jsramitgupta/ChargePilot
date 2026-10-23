@@ -30,7 +30,7 @@ browser interactions:
 | `/verify-email` | Explain and complete email verification |
 | `/accept-invitation` | Review an emailed invitation and set the account password |
 | `/` | Endpoint, switch, and energy overview with live telemetry summary |
-| `/endpoints` | Review enrolled devices, ownership, readings, and endpoint assignment |
+| `/endpoints` | Review enrolled devices, edit display labels, ownership, readings, and endpoint assignment |
 | `/devices` | Review switches, channels, connector assignment, device state, and optional meter readings |
 | `/mappings` | Create, edit, and remove endpoint-to-switch battery rules |
 | `/events` | Review automation activity and outcomes |
@@ -163,11 +163,14 @@ operational state colors for explicit status indicators.
   pagination; both pages refresh every 30 seconds while visible and provide a
   manual refresh with the last successful update time. Sort endpoints newest
   first and place missing timestamps last. Show a recognizable platform mark,
-  hostname, and platform name together in the device identity cell on both
+  display label and platform name together in the device identity cell on both
   pages; do not display the telemetry device-class value in these views.
   macOS uses an Apple-mark display and iOS an Apple-mark phone; Windows and
   Android use their platform marks. Keep the visible platform name accessible
   as text and omit protocol values such as `laptop`.
+  Tenant admins, managers, and Super Admins can edit a device's display label
+  inline from the Endpoints table. Keep the agent-reported hostname separate
+  so telemetry refreshes do not overwrite the chosen label.
 - The Smart switches page orders discovery, manual setup, and inventory by
   task. Keep scan location and action together, give inventory search and
   filters usable tap targets, and let device cards collapse to one column

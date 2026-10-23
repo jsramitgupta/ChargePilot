@@ -47,7 +47,10 @@ async def list_event_page(
                 "success": event.success,
                 "reason": event.reason,
                 "endpoint_id": event.endpoint_id,
-                "endpoint": endpoints_by_id[event.endpoint_id].hostname
+                "endpoint": (
+                    endpoints_by_id[event.endpoint_id].name
+                    or endpoints_by_id[event.endpoint_id].hostname
+                )
                 if event.endpoint_id in endpoints_by_id else (event.endpoint_id or "unknown"),
                 "battery": f"{event.battery_percentage}%"
                 if event.battery_percentage is not None else "n/a",

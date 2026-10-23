@@ -26,7 +26,8 @@ latest executable over HTTPS and opens its setup UI.
 
 In the setup window:
 
-1. Confirm the ChargePilot API origin and device name.
+1. Confirm the ChargePilot API origin and the prefilled PC-name label. The
+   console display label can be customized later on the Endpoints page.
 2. Select **Laptop** or **Desktop**, then choose the reporting interval.
 3. Enter the enrollment token and choose **Save and start service**.
 
@@ -49,7 +50,9 @@ Run `ChargePilotAgent.exe ui` as Administrator. The window can install or
 update configuration, deregister this device, start or stop the service, and
 remove the service.
 Leave the enrollment-token field blank to keep an existing enrollment when
-changing the device name, class, or reporting interval. Enter a new token to
+changing the reported computer name, class, or reporting interval. The
+administrator-managed display label remains controlled from the Endpoints
+page. Enter a new token to
 enroll again or change the server. Deregistration revokes this installation's
 credential on the server, stops reporting, and returns the window to an
 unenrolled state; the Windows app does not need to be reinstalled.
