@@ -12,7 +12,6 @@ Latest APK and source downloads: [ChargePilot GitHub Releases](https://github.co
 
 - Android Studio with JDK 17 and Android SDK 35
 - Android 8.0 (API 26) or later
-- An API origin using HTTPS; use the origin only, without `/api/v1`
 - A tenant administrator's enrollment token from **Set up a device**
 
 ## Build and install
@@ -27,9 +26,10 @@ Latest APK and source downloads: [ChargePilot GitHub Releases](https://github.co
    `adb install -r app/build/outputs/apk/debug/app-debug.apk`, then open
    ChargePilot from the launcher. This debug APK is for development; it is not
    a signed release.
-4. Enter the ChargePilot API origin and 24-hour enrollment token. The device
-   label is prefilled from the non-unique Android model name; it is not a
-   serial number. The token is cleared after exchange.
+4. Paste the 24-hour enrollment token. The API origin is fixed to
+   `https://api-chargepilot.endusercompute.in`; the non-unique Android model
+   name is used automatically. Serial numbers are not collected. The token is
+   cleared after exchange.
 5. The app stores a random installation ID and encrypts its per-install
    credential with an AES key held by Android Keystore.
 6. Use **Send reading now** for an immediate sample. WorkManager also schedules

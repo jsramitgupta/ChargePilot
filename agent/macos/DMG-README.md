@@ -3,8 +3,10 @@
 ## Install and connect
 
 1. Drag `ChargePilotAgent.app` to **Applications**, then open it.
-2. Use the ChargePilot icon in the menu bar to enter your server origin, a
-   device label, and an enrollment code from **Set up a device**.
+2. The API origin is fixed to
+   `https://api-chargepilot.endusercompute.in`, and the Mac computer name is
+   used automatically. Serial numbers are not collected. Paste an enrollment
+   code from **Set up a device** in the menu-bar app.
 3. Select **Connect this Mac**. The one-time code is exchanged immediately and
    is not saved. The per-install credential is stored in Keychain.
 4. Leave the menu-bar app running. It reports immediately and every five

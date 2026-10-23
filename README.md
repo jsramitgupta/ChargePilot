@@ -138,7 +138,7 @@ To configure or control the service from an elevated PowerShell window, open
 the downloaded executable folder and run:
 
 ```powershell
-.\ChargePilotAgent.exe install --server-url "https://api-chargepilot.endusercompute.in" --name "Office device" --class laptop --interval-minutes 5
+.\ChargePilotAgent.exe install --class laptop --interval-minutes 5
 .\ChargePilotAgent.exe status
 .\ChargePilotAgent.exe start
 .\ChargePilotAgent.exe stop
@@ -154,10 +154,11 @@ Device setup also links the Windows executable and source archive. A Windows
 executable cannot run on macOS; use the macOS DMG or Swift source project there.
 
 For macOS, the setup page provides the Swift source archive. Build the package
-with Swift 5.9+ on macOS 13+, enter the enrollment token when prompted, enroll
-using the explicit device label, and start its foreground reporting process.
-The agent omits IP address and system hostname, stores the credential in
-Keychain, and sends no report while the Mac sleeps or the process is stopped.
+with Swift 5.9+ on macOS 13+, enter the enrollment token when prompted, and
+start its foreground reporting process. The API origin is fixed, the Mac
+computer name is used automatically, and serial numbers are not collected. The
+agent stores the credential in Keychain and sends no report while the Mac
+sleeps or the process is stopped.
 New endpoints are automation-enabled by default; server-side freshness,
 platform-policy, tenant, and mapping checks remain required. Android and iOS
 source projects are

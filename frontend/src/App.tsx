@@ -3328,7 +3328,6 @@ function AgentSetupPage() {
   const data = setupQuery.data
   if (setupQuery.isLoading) return <LoadingCard />
   if (setupQuery.error) return <ErrorCard message={setupQuery.error.message} />
-  const serverUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, '')
   const activeEnrollments = (tokenQuery.data ?? []).filter((token) => Date.parse(token.expires_at) > clockNow)
   const tokenLimitReached = activeEnrollments.length >= 5
   const revealedEnrollmentIsListed = activeEnrollments.some((token) => token.id === revealedEnrollment?.id)
@@ -3445,7 +3444,7 @@ function AgentSetupPage() {
         <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
           <li>Choose a current enrollment token above. The command does not contain the token.</li>
           <li>Run the command on Windows and approve the administrator prompt.</li>
-          <li>In the setup window, enter the token and choose a device name, type, and reporting interval. Select <strong>Save and start service</strong>.</li>
+          <li>The API server is fixed to <code>https://api-chargepilot.endusercompute.in</code>. The PC name is used automatically; serial numbers are not collected. Paste the token, choose a device type and reporting interval, then select <strong>Save and start service</strong>.</li>
         </ol>
         <a className="btn-secondary mt-2 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/ChargePilotAgent.exe`}>Download Windows executable</a>
         <p className="mt-3 text-xs text-amber-800">Windows release signing is optional until the Authenticode secrets are configured. Check the latest release notes and signing manifest before installation. The service reports without a signed-in user; use the setup window or CLI to configure, deregister, and re-enroll without reinstalling.</p>
@@ -3453,7 +3452,7 @@ function AgentSetupPage() {
         <details className="mt-4 rounded-lg border border-[var(--line)] p-3">
           <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">Command-line controls</summary>
           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Open an elevated PowerShell window in the folder containing the executable. Install or update configuration with a hidden enrollment-token prompt:</p>
-          <code className="mt-2 block break-all rounded-lg bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">.\ChargePilotAgent.exe install --server-url '{serverUrl}' --name 'My Windows device' --class laptop --interval-minutes 5</code>
+          <code className="mt-2 block break-all rounded-lg bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">.\ChargePilotAgent.exe install --class laptop --interval-minutes 5</code>
           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Use <code>status</code>, <code>start</code>, <code>stop</code>, <code>deregister</code>, <code>send-once</code>, or <code>uninstall</code> to manage the service. Never put an enrollment token in command-line arguments.</p>
         </details>
         <p className="mt-3 text-xs text-amber-800">The setup command downloads the installer over HTTPS and opens the setup window. Run it only if you trust this ChargePilot server.</p>
@@ -3464,12 +3463,10 @@ function AgentSetupPage() {
         <a className="btn-secondary mt-3 inline-flex" href={AGENT_RELEASE_URL}>View latest macOS release assets</a>
         <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
           <li>Open the downloaded DMG and drag ChargePilotAgent to Applications.</li>
-          <li>Open the app, enter this API origin, a device label, and the enrollment token, then select <strong>Connect this Mac</strong>.</li>
+          <li>The app uses <code>https://api-chargepilot.endusercompute.in</code> and this Mac’s computer name automatically. Paste the enrollment token, then select <strong>Connect this Mac</strong>.</li>
         </ol>
         <p className="mt-2 text-sm text-amber-800">Tagged macOS builds are signed and notarized when those secrets are configured; otherwise they are unsigned. Check the release notes before opening the app.</p>
         <a className="mt-3 inline-flex text-sm font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-macos-agent-source.zip`}>Download macOS source project</a>
-        <p className="mt-3 text-sm font-medium text-[var(--ink)]">API origin to enter in the app</p>
-        <code className="mt-1 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{serverUrl}</code>
       </div>
       <div className="panel p-5 sm:p-6">
         <h2 className="text-lg font-bold text-slate-900">Android</h2>
@@ -3477,10 +3474,8 @@ function AgentSetupPage() {
         <a className="btn-secondary mt-3 inline-flex" href={AGENT_RELEASE_URL}>View latest Android release assets</a>
         <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
           <li>Download the APK on the Android device and open it. If prompted, allow your browser or file manager to install this app.</li>
-          <li>Open ChargePilot, enter the API origin, a device label, and the enrollment token.</li>
+          <li>The app uses <code>https://api-chargepilot.endusercompute.in</code> and its non-unique model name automatically. Paste the enrollment token.</li>
         </ol>
-        <p className="mt-3 text-sm font-medium text-[var(--ink)]">API origin to enter in the app</p>
-        <code className="mt-1 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{serverUrl}</code>
         <p className="mt-2 text-sm text-[var(--muted)]">Tagged Android APKs are signed when the release key is configured; otherwise they are unsigned and Android may refuse installation. This is not a Play Store release. Android may delay background reports; use <strong>Send reading now</strong> to test a report. <a className="font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-android-agent-source.zip`}>Download Android source</a>.</p>
       </div>
       <div className="panel p-5 sm:p-6">
@@ -3490,11 +3485,9 @@ function AgentSetupPage() {
         <a className="mt-3 inline-flex text-sm font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-ios-agent-source.zip`}>Download iOS Xcode project</a>
         <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
           <li>On a Mac with Xcode, open <code>ChargePilotAgent.xcodeproj</code>, select your signing team, then build and install the app on your iPhone or iPad.</li>
-          <li>Enter the API origin, a device label, and the enrollment token. The app adds a <strong>Report battery to ChargePilot</strong> action to Shortcuts.</li>
+          <li>The app uses <code>https://api-chargepilot.endusercompute.in</code> and a generic device type automatically. Paste the enrollment token. The app adds a <strong>Report battery to ChargePilot</strong> action to Shortcuts.</li>
           <li>In Shortcuts, add that action to a Battery Level automation and a Charger automation set to <strong>Is Connected</strong>.</li>
         </ol>
-        <p className="mt-3 text-sm font-medium text-[var(--ink)]">API origin to enter in the app</p>
-        <code className="mt-1 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{serverUrl}</code>
         <p className="mt-2 text-sm text-[var(--muted)]">iOS may delay or skip background automations. They do not guarantee a report or switch action at an exact battery level.</p>
       </div>
       <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-4 text-sm leading-6 text-[var(--muted)]">

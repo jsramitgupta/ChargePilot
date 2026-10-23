@@ -1,7 +1,5 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$ServerUrl,
     [string]$AgentVersion = ""
 )
 
@@ -9,17 +7,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$serverUri = $null
-if (-not [Uri]::TryCreate($ServerUrl.TrimEnd("/"), [UriKind]::Absolute, [ref]$serverUri)) {
-    throw "The ChargePilot server URL is invalid."
-}
-$isLocalhost = $serverUri.Host -in @("localhost", "127.0.0.1", "::1")
-if ($serverUri.Scheme -ne "https" -and -not $isLocalhost) {
-    throw "The ChargePilot server URL must use HTTPS. Plain HTTP is allowed only for localhost development."
-}
-if ($ServerUrl.Contains('"') -or $AgentVersion.Contains('"')) {
-    throw "The server URL or agent version contains an unsupported character."
-}
+$serverUrl = "https://api-chargepilot.endusercompute.in"
 
 $temporaryExecutable = Join-Path `
     ([System.IO.Path]::GetTempPath()) `
@@ -59,8 +47,7 @@ try {
         $stream.Dispose()
     }
 
-    $arguments = 'ui --server-url "{0}" --agent-version "{1}"' -f `
-        $ServerUrl.TrimEnd('/'), $AgentVersion
+    $arguments = 'ui --agent-version "{0}"' -f $AgentVersion
     Start-Process `
         -FilePath $temporaryExecutable `
         -ArgumentList $arguments `

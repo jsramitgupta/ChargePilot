@@ -21,12 +21,12 @@ class AgentStore(context: Context) {
     private val preferences = context.getSharedPreferences("chargepilot-agent", Context.MODE_PRIVATE)
 
     fun configuration(): AgentConfiguration? {
-        val server = preferences.getString(KEY_SERVER, null) ?: return null
+        if (preferences.getString(KEY_SERVER, null) == null) return null
         val installationId = preferences.getString(KEY_INSTALLATION, null) ?: return null
         val endpointId = preferences.getString(KEY_ENDPOINT, null) ?: return null
         val label = preferences.getString(KEY_LABEL, null) ?: return null
         if (preferences.getString(KEY_CREDENTIAL, null) == null) return null
-        return AgentConfiguration(server, installationId, endpointId, label)
+        return AgentConfiguration(AgentApi.SERVER_ORIGIN, installationId, endpointId, label)
     }
 
     fun saveEnrollment(

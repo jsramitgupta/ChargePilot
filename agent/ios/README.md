@@ -14,7 +14,6 @@ Latest IPA and source downloads: [ChargePilot GitHub Releases](https://github.co
 
 - macOS with Xcode 15 or later
 - iOS 16 or later
-- An API origin using HTTPS; use the origin only, without `/api/v1`
 - A tenant administrator's enrollment token from **Set up a device**
 
 ## Build and enroll
@@ -23,10 +22,10 @@ Latest IPA and source downloads: [ChargePilot GitHub Releases](https://github.co
 2. Open `ChargePilotAgent.xcodeproj` in Xcode.
 3. Select the `ChargePilotAgent` scheme and a signing team, then build and
    install it on an iPhone or iPad.
-4. Enter the API origin and 24-hour enrollment token. The device label is
-   prefilled with the generic device type (iPhone or iPad), not a serial number
-   or personal device name. The app exchanges the token and clears it from the
-   form. Admins can change the display label on the Endpoints page.
+4. Paste the 24-hour enrollment token. The API origin is fixed to
+   `https://api-chargepilot.endusercompute.in`; the app uses a generic device
+   type (iPhone or iPad), not a serial number or personal device name. The app
+   exchanges the token and clears it from the form.
 5. The app stores a random installation ID locally and the persistent
    per-install credential in the device-only Keychain.
 

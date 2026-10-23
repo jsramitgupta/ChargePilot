@@ -32,7 +32,7 @@ def test_agent_setup_api_returns_credential_free_install_command_and_enrollment_
     assert setup.headers["cache-control"] == "private, no-store"
     payload = setup.json()
     assert set(payload) == {"install_command", "is_super_admin"}
-    assert "-ServerUrl " in payload["install_command"]
+    assert "-ServerUrl " not in payload["install_command"]
     assert "-EndpointToken " not in payload["install_command"]
     with SessionLocal() as db:
         tenant = db.query(Tenant).filter(Tenant.name == f"{username} tenant").one()
@@ -58,8 +58,10 @@ def test_agent_setup_uses_configured_public_api_origin(monkeypatch):
     setup = client.get("/api/v1/agent/setup")
 
     assert setup.status_code == 200
-    assert "-ServerUrl 'https://api.example.test'" in setup.json()["install_command"]
-    assert "-EndpointToken " not in setup.json()["install_command"]
+    install_command = setup.json()["install_command"]
+    assert "$(irm 'https://api.example.test/agent/install.ps1')" in install_command
+    assert "-ServerUrl " not in install_command
+    assert "-EndpointToken " not in install_command
 
 
 def test_agent_setup_requires_authentication_but_agent_sources_are_public():

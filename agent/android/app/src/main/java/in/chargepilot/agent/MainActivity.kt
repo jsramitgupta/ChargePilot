@@ -86,13 +86,10 @@ private fun AgentScreen(store: AgentStore) {
     val configuration = remember(revision, forceUnenrolled) {
         if (forceUnenrolled) null else store.configuration()
     }
-    var serverOrigin by remember { mutableStateOf(configuration?.serverOrigin ?: "https://api-chargepilot.endusercompute.in") }
-    var label by remember {
-        mutableStateOf(
-            configuration?.label
-                ?: Build.MODEL.takeIf { it.isNotBlank() && !it.equals("unknown", ignoreCase = true) }
-                ?: if (context.resources.configuration.smallestScreenWidthDp >= 600) "Android tablet" else "Android phone",
-        )
+    val serverOrigin = AgentApi.SERVER_ORIGIN
+    val label = remember {
+        Build.MODEL.takeIf { it.isNotBlank() && !it.equals("unknown", ignoreCase = true) }
+            ?: if (context.resources.configuration.smallestScreenWidthDp >= 600) "Android tablet" else "Android phone"
     }
     var enrollmentToken by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -135,15 +132,12 @@ private fun AgentScreen(store: AgentStore) {
         if (configuration == null) {
             EnrollmentForm(
                 serverOrigin = serverOrigin,
-                onServerOriginChange = { serverOrigin = it },
-                label = label,
-                onLabelChange = { label = it },
                 enrollmentToken = enrollmentToken,
                 onEnrollmentTokenChange = { enrollmentToken = it },
                 busy = busy,
                 onEnroll = {
-                    if (label.isBlank() || enrollmentToken.isBlank()) {
-                        statusMessage = "Enter a device label and enrollment token."
+                    if (enrollmentToken.isBlank()) {
+                        statusMessage = "Enter the enrollment token from ChargePilot."
                         statusIsError = true
                     } else {
                         busy = true
@@ -158,9 +152,8 @@ private fun AgentScreen(store: AgentStore) {
                                 ) "tablet" else "phone"
                                 val (endpointId, credential) = withContext(Dispatchers.IO) {
                                     AgentApi.enroll(
-                                        serverOrigin = serverOrigin,
                                         enrollmentToken = submittedToken,
-                                        label = label.trim(),
+                                        label = label,
                                         installationId = installationId,
                                         deviceClass = deviceClass,
                                     )
@@ -168,10 +161,10 @@ private fun AgentScreen(store: AgentStore) {
                                 withContext(Dispatchers.IO) {
                                     store.saveEnrollment(
                                         AgentConfiguration(
-                                            serverOrigin = serverOrigin.trimEnd('/'),
+                                            serverOrigin = serverOrigin,
                                             installationId = installationId,
                                             endpointId = endpointId,
-                                            label = label.trim(),
+                                            label = label,
                                         ),
                                         credential,
                                     )
@@ -271,10 +264,7 @@ private fun AgentScreen(store: AgentStore) {
                                 var serverDeregistered = false
                                 try {
                                     withContext(Dispatchers.IO) {
-                                        AgentApi.deregister(
-                                            configuration.serverOrigin,
-                                            store.credential(),
-                                        )
+                                        AgentApi.deregister(store.credential())
                                     }
                                     serverDeregistered = true
                                     forceUnenrolled = true
@@ -309,9 +299,6 @@ private fun AgentScreen(store: AgentStore) {
 @Composable
 private fun EnrollmentForm(
     serverOrigin: String,
-    onServerOriginChange: (String) -> Unit,
-    label: String,
-    onLabelChange: (String) -> Unit,
     enrollmentToken: String,
     onEnrollmentTokenChange: (String) -> Unit,
     busy: Boolean,
@@ -330,23 +317,14 @@ private fun EnrollmentForm(
             fontSize = 14.sp,
             lineHeight = 21.sp,
         )
-        OutlinedTextField(
-            value = serverOrigin,
-            onValueChange = onServerOriginChange,
-            label = { Text("ChargePilot API origin") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = label,
-            onValueChange = onLabelChange,
-            label = { Text("Device label") },
-            placeholder = { Text("Android device model") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+        Text(
+            "Server: $serverOrigin",
+            color = Muted,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
         )
         Text(
-            "Defaults to this device's model, not its serial number. You can change the label in the admin console.",
+            "ChargePilot uses this device's model name. Serial numbers are not collected.",
             color = Muted,
             fontSize = 12.sp,
             lineHeight = 17.sp,

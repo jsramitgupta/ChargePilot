@@ -16,6 +16,7 @@ internal static class AgentBuildInfo
 internal static class Program
 {
     private const int AttachParentConsole = -1;
+    private const string ServerUrl = "https://api-chargepilot.endusercompute.in";
 
     [STAThread]
     private static int Main(string[] args)
@@ -50,11 +51,10 @@ internal static class Program
 
     private static int RunUi(string[] arguments)
     {
-        var values = ParseOptions(arguments, "--server-url", "--agent-version");
+        var values = ParseOptions(arguments, "--agent-version");
         AttachConsoleIfAvailable();
         ApplicationConfiguration.Initialize();
         Application.Run(new SetupForm(
-            values.GetValueOrDefault("--server-url") ?? string.Empty,
             string.IsNullOrWhiteSpace(values.GetValueOrDefault("--agent-version"))
                 ? AgentBuildInfo.Version
                 : values["--agent-version"]));
@@ -66,8 +66,6 @@ internal static class Program
         AttachConsoleIfAvailable();
         var values = ParseOptions(
             arguments,
-            "--server-url",
-            "--name",
             "--class",
             "--interval-minutes");
         if (!ServiceManager.IsAdministrator())
@@ -83,12 +81,7 @@ internal static class Program
             previous = null;
         }
 
-        var serverUrl = values.GetValueOrDefault("--server-url") ?? Prompt(
-            "ChargePilot server URL",
-            previous?.ServerUri.ToString() ?? "https://api-chargepilot.endusercompute.in");
-        var deviceName = values.GetValueOrDefault("--name") ?? Prompt(
-            "Device name",
-            previous?.DeviceName ?? Environment.MachineName);
+        var deviceName = Environment.MachineName;
         var deviceClass = values.GetValueOrDefault("--class") ?? PromptChoice(
             "Device class",
             previous?.DeviceClass ?? "laptop",
@@ -97,7 +90,7 @@ internal static class Program
         var interval = ParseInterval(values.GetValueOrDefault("--interval-minutes"), previous?.IntervalMinutes ?? 5);
         Console.Write("Enrollment token (leave blank to keep the current enrollment): ");
         var enrollmentToken = ReadSecret();
-        var serverUri = ParseServerUri(serverUrl);
+        var serverUri = new Uri(ServerUrl);
 
         AgentOptions options;
         if (!string.IsNullOrEmpty(enrollmentToken))
@@ -132,7 +125,8 @@ internal static class Program
 
             if (previous.ServerUri != serverUri)
             {
-                throw new InvalidOperationException("Enter a new enrollment token when changing the server URL.");
+                throw new InvalidOperationException(
+                    "The saved enrollment uses a different server. Enter a token to connect to this ChargePilot server.");
             }
 
             options = AgentOptions.Create(
@@ -258,9 +252,9 @@ internal static class Program
             ChargePilot Windows telemetry agent
 
             Commands:
-              ChargePilotAgent.exe ui [--server-url URL]
-              ChargePilotAgent.exe install [--server-url URL] [--name NAME] [--class laptop|desktop] [--interval-minutes N]
-              ChargePilotAgent.exe configure [--server-url URL] [--name NAME] [--class laptop|desktop] [--interval-minutes N]
+              ChargePilotAgent.exe ui
+              ChargePilotAgent.exe install [--class laptop|desktop] [--interval-minutes N]
+              ChargePilotAgent.exe configure [--class laptop|desktop] [--interval-minutes N]
               ChargePilotAgent.exe status
               ChargePilotAgent.exe start
               ChargePilotAgent.exe stop
@@ -303,16 +297,6 @@ internal static class Program
         return values;
     }
 
-    private static Uri ParseServerUri(string value)
-    {
-        if (!Uri.TryCreate(value.TrimEnd('/'), UriKind.Absolute, out var serverUri))
-        {
-            throw new ArgumentException("Enter a valid ChargePilot server URL.");
-        }
-
-        return serverUri;
-    }
-
     private static int ParseInterval(string? value, int fallback)
     {
         if (value is null)
@@ -323,13 +307,6 @@ internal static class Program
         return int.TryParse(value, out var interval)
             ? interval
             : throw new ArgumentException("Reporting interval must be a whole number of minutes.");
-    }
-
-    private static string Prompt(string label, string defaultValue)
-    {
-        Console.Write($"{label} [{defaultValue}]: ");
-        var value = Console.ReadLine();
-        return string.IsNullOrWhiteSpace(value) ? defaultValue : value.Trim();
     }
 
     private static string PromptChoice(string label, string defaultValue, params string[] choices)

@@ -26,8 +26,9 @@ latest executable over HTTPS and opens its setup UI.
 
 In the setup window:
 
-1. Confirm the ChargePilot API origin and the prefilled PC-name label. The
-   console display label can be customized later on the Endpoints page.
+1. The ChargePilot API origin is fixed to
+   `https://api-chargepilot.endusercompute.in`. The Windows computer name is
+   used automatically; serial numbers are not collected.
 2. Select **Laptop** or **Desktop**, then choose the reporting interval.
 3. Enter the enrollment token and choose **Save and start service**.
 
@@ -49,11 +50,10 @@ available in the source archive only for compatibility and diagnostics.
 Run `ChargePilotAgent.exe ui` as Administrator. The window can install or
 update configuration, deregister this device, start or stop the service, and
 remove the service.
-Leave the enrollment-token field blank to keep an existing enrollment when
-changing the reported computer name, class, or reporting interval. The
-administrator-managed display label remains controlled from the Endpoints
-page. Enter a new token to
-enroll again or change the server. Deregistration revokes this installation's
+Leave the enrollment-token field blank to keep an existing enrollment while
+changing the device class or reporting interval. The reported computer name
+and API origin are not editable. Enter a new token to enroll again.
+Deregistration revokes this installation's
 credential on the server, stops reporting, and returns the window to an
 unenrolled state; the Windows app does not need to be reinstalled.
 
@@ -66,8 +66,8 @@ hysteresis, cooldowns, and switch commands.
 Open an elevated PowerShell window in the executable directory:
 
 ```powershell
-.\ChargePilotAgent.exe install --server-url "https://api-chargepilot.endusercompute.in" --name "Office device" --class laptop --interval-minutes 5
-.\ChargePilotAgent.exe configure --server-url "https://api-chargepilot.endusercompute.in" --name "Office device" --class desktop --interval-minutes 5
+.\ChargePilotAgent.exe install --class laptop --interval-minutes 5
+.\ChargePilotAgent.exe configure --class desktop --interval-minutes 5
 .\ChargePilotAgent.exe status
 .\ChargePilotAgent.exe start
 .\ChargePilotAgent.exe stop

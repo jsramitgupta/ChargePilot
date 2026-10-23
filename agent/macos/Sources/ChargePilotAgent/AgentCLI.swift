@@ -6,6 +6,7 @@ import Security
 private let agentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.2"
 private let reportingInterval = Duration.seconds(300)
 private let keychainService = "in.chargepilot.telemetry"
+private let chargePilotAPIOrigin = "https://api-chargepilot.endusercompute.in"
 
 struct LocalConfiguration: Codable {
     let serverURL: String
@@ -103,22 +104,25 @@ struct ChargePilotAgent {
             return nil
         }
         do {
-            return try JSONDecoder().decode(
+            let saved = try JSONDecoder().decode(
                 LocalConfiguration.self,
                 from: Data(contentsOf: configurationURL)
+            )
+            return LocalConfiguration(
+                serverURL: chargePilotAPIOrigin,
+                installationID: saved.installationID,
+                label: Host.current().localizedName ?? "Mac"
             )
         } catch {
             throw AgentError.invalidConfiguration
         }
     }
 
-    static func enrollFromUI(serverOrigin: String, label: String, code: String) async throws -> LocalConfiguration {
-        let serverURL = try validatedServerURL(serverOrigin)
-        let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? (Host.current().localizedName ?? "Mac")
-            : label.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func enrollFromUI(code: String) async throws -> LocalConfiguration {
+        let serverURL = try validatedServerURL(chargePilotAPIOrigin)
+        let cleanLabel = Host.current().localizedName ?? "Mac"
         let cleanCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanLabel.isEmpty, !cleanCode.isEmpty else {
+        guard !cleanCode.isEmpty else {
             throw AgentError.invalidEnrollmentCode
         }
         let configuration = LocalConfiguration(
@@ -181,13 +185,11 @@ struct ChargePilotAgent {
     }
 
     private static func enroll(arguments: [String]) async throws {
-        let options = parseOptions(arguments)
-        guard let rawServerURL = options["--server-url"] else {
+        guard arguments.isEmpty else {
             throw AgentError.usage
         }
-        let providedLabel = options["--label"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let label = providedLabel.isEmpty ? (Host.current().localizedName ?? "Mac") : providedLabel
-        let serverURL = try validatedServerURL(rawServerURL)
+        let label = Host.current().localizedName ?? "Mac"
+        let serverURL = try validatedServerURL(chargePilotAPIOrigin)
         let installationID = UUID()
         let configuration = LocalConfiguration(
             serverURL: serverURL.absoluteString,
@@ -329,16 +331,6 @@ struct ChargePilotAgent {
         return url
     }
 
-    private static func parseOptions(_ arguments: [String]) -> [String: String] {
-        var result: [String: String] = [:]
-        var index = 0
-        while index + 1 < arguments.count {
-            result[arguments[index]] = arguments[index + 1]
-            index += 2
-        }
-        return result
-    }
-
     private static var supportDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/ChargePilot", isDirectory: true)
@@ -458,7 +450,7 @@ private enum AgentError: LocalizedError {
             return """
             Usage:
               ChargePilotAgent check
-              ChargePilotAgent enroll --server-url URL [--label LABEL]
+              ChargePilotAgent enroll
               ChargePilotAgent run
             """
         case .invalidServerURL:

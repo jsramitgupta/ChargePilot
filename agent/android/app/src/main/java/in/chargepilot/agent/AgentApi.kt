@@ -17,7 +17,6 @@ import androidx.work.WorkerParameters
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.URI
 import java.net.URL
 import java.time.Instant
 import java.util.UUID
@@ -59,8 +58,9 @@ object BatteryReader {
 }
 
 object AgentApi {
+    const val SERVER_ORIGIN = "https://api-chargepilot.endusercompute.in"
+
     fun enroll(
-        serverOrigin: String,
         enrollmentToken: String,
         label: String,
         installationId: String,
@@ -73,7 +73,7 @@ object AgentApi {
             .put("hostname", label)
             .put("device_class", deviceClass)
         val response = request(
-            origin = validateOrigin(serverOrigin),
+            origin = SERVER_ORIGIN,
             path = "/api/v1/endpoint-enrollment/exchange",
             body = body,
         )
@@ -110,16 +110,16 @@ object AgentApi {
             .put("agent_version", BuildConfig.VERSION_NAME)
         reading.acConnected?.let { body.put("ac_connected", it) }
         request(
-            origin = validateOrigin(configuration.serverOrigin),
+            origin = SERVER_ORIGIN,
             path = "/api/v1/telemetry",
             body = body,
             credential = credential,
         )
     }
 
-    fun deregister(serverOrigin: String, credential: String) {
+    fun deregister(credential: String) {
         request(
-            origin = validateOrigin(serverOrigin),
+            origin = SERVER_ORIGIN,
             path = "/api/v1/endpoint-enrollment/deregister",
             body = JSONObject(),
             credential = credential,
@@ -152,25 +152,6 @@ object AgentApi {
         } finally {
             connection.disconnect()
         }
-    }
-
-    private fun validateOrigin(rawOrigin: String): String {
-        val uri = try {
-            URI(rawOrigin.trim())
-        } catch (_: Exception) {
-            throw IllegalArgumentException("Enter a valid ChargePilot API origin.")
-        }
-        val host = uri.host?.lowercase()
-        if (
-            host.isNullOrBlank() ||
-            uri.scheme != "https" ||
-            (uri.path.isNotEmpty() && uri.path != "/") ||
-            uri.query != null ||
-            uri.fragment != null
-        ) {
-            throw IllegalArgumentException("Use an HTTPS API origin without a path, query, or fragment.")
-        }
-        return uri.toString().trimEnd('/')
     }
 
 }

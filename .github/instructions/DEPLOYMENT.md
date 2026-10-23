@@ -801,7 +801,7 @@ For command-line setup and operations, open an elevated PowerShell window in
 the executable directory:
 
 ```powershell
-.\ChargePilotAgent.exe install --server-url "https://api-chargepilot.endusercompute.in" --name "Office device" --class laptop --interval-minutes 5
+.\ChargePilotAgent.exe install --class laptop --interval-minutes 5
 .\ChargePilotAgent.exe status
 .\ChargePilotAgent.exe start
 .\ChargePilotAgent.exe stop
@@ -828,8 +828,9 @@ enabled platforms until it expires or is revoked. Each admin may have up to
 five active tokens across workspaces; the creator can reveal or hide each
 active token until it expires. Expired and revoked tokens are hidden.
 Download the macOS DMG from the GitHub Release, move the app to Applications,
-and enter the API origin, device label, and enrollment token in the menu-bar
-app. The per-install credential is stored in the user's Keychain. The
+and enter the enrollment token in the menu-bar app. The API origin is fixed,
+the Mac computer name is used automatically, and serial numbers are not
+collected. The per-install credential is stored in the user's Keychain. The
 development DMG is unsigned and not notarized; follow the macOS approval
 prompt if needed. The app reports only while running and the Mac is awake.
 The source project is also available from the release for users who prefer to

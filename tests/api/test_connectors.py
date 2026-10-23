@@ -174,7 +174,8 @@ def test_agent_setup_api_supplies_token_free_install_command(monkeypatch):
     payload = response.json()
     assert set(payload) == {"install_command", "is_super_admin"}
     assert payload["install_command"].startswith('iex "& { $(irm ')
-    assert "-ServerUrl 'https://api.example.test'" in payload["install_command"]
+    assert "$(irm 'https://api.example.test/agent/install.ps1')" in payload["install_command"]
+    assert "-ServerUrl " not in payload["install_command"]
     assert "-EndpointToken " not in payload["install_command"]
 
 

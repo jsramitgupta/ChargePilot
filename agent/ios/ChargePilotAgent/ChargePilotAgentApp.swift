@@ -2,6 +2,8 @@ import Foundation
 import Combine
 import AppIntents
 import Security
+
+private let chargePilotAPIOrigin = "https://api-chargepilot.endusercompute.in"
 import SwiftUI
 import UIKit
 
@@ -63,8 +65,8 @@ struct ChargePilotAppShortcuts: AppShortcutsProvider {
 
 @MainActor
 final class AgentModel: ObservableObject {
-    @Published var serverOrigin: String
-    @Published var deviceLabel: String
+    let serverOrigin = chargePilotAPIOrigin
+    @Published private(set) var deviceLabel = UIDevice.current.model
     @Published var enrollmentToken = ""
     @Published private(set) var endpointID: String?
     @Published private(set) var batteryReading: BatteryReading?
@@ -79,11 +81,6 @@ final class AgentModel: ObservableObject {
     private var installationID: UUID?
 
     init() {
-        serverOrigin = defaults.string(forKey: "serverOrigin") ?? "https://api-chargepilot.endusercompute.in"
-        deviceLabel = defaults.string(forKey: "deviceLabel")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .flatMap { $0.isEmpty ? nil : $0 }
-            ?? UIDevice.current.model
         endpointID = defaults.string(forKey: "endpointID")
         if let value = defaults.string(forKey: "installationID") {
             installationID = UUID(uuidString: value)
@@ -99,15 +96,15 @@ final class AgentModel: ObservableObject {
 
     func enroll() async {
         guard !isWorking else { return }
-        let label = deviceLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let label = UIDevice.current.model
         let token = enrollmentToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !label.isEmpty, !token.isEmpty else {
-            statusMessage = "Enter a device label and enrollment token."
+        guard !token.isEmpty else {
+            statusMessage = "Enter the enrollment token from ChargePilot."
             lastError = statusMessage
             return
         }
         do {
-            let origin = try validatedOrigin(serverOrigin)
+            let origin = try validatedOrigin(chargePilotAPIOrigin)
             isWorking = true
             statusMessage = "Enrolling this device…"
             lastError = nil
@@ -128,7 +125,6 @@ final class AgentModel: ObservableObject {
             installationID = identity
             endpointID = response.endpointID.uuidString
             deviceLabel = label
-            serverOrigin = origin.absoluteString
             defaults.set(serverOrigin, forKey: "serverOrigin")
             defaults.set(deviceLabel, forKey: "deviceLabel")
             defaults.set(endpointID, forKey: "endpointID")
@@ -151,7 +147,7 @@ final class AgentModel: ObservableObject {
             return
         }
         do {
-            let origin = try validatedOrigin(serverOrigin)
+            let origin = try validatedOrigin(chargePilotAPIOrigin)
             refreshBatteryReading()
             guard let batteryReading else {
                 throw AgentError.batteryUnavailable
@@ -290,16 +286,11 @@ private struct AgentHomeView: View {
                 notice(status, isError: model.lastError != nil)
             }
 
-            TextField("ChargePilot API origin", text: $model.serverOrigin)
-                .textContentType(.URL)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
-
-            TextField("Device label", text: $model.deviceLabel, prompt: Text("iPhone or iPad"))
-                .textFieldStyle(.roundedBorder)
-            Text("Uses the generic device type, not a serial number. You can change the label in the admin console.")
+            Text("Server: \(model.serverOrigin)")
+                .font(.system(size: 12))
+                .foregroundStyle(muted)
+                .textSelection(.enabled)
+            Text("ChargePilot uses the generic device type. Serial numbers are not collected.")
                 .font(.system(size: 12))
                 .foregroundStyle(muted)
 
@@ -502,18 +493,16 @@ private enum ShortcutTelemetryReporter {
             let endpointID = defaults.string(forKey: "endpointID"),
             !endpointID.isEmpty,
             let installationValue = defaults.string(forKey: "installationID"),
-            let installationID = UUID(uuidString: installationValue),
-            let label = defaults.string(forKey: "deviceLabel"),
-            !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            let serverOrigin = defaults.string(forKey: "serverOrigin")
+            let installationID = UUID(uuidString: installationValue)
         else {
             throw AgentError.notEnrolled
         }
 
-        let origin = try APIOrigin.validate(serverOrigin)
+        let origin = try APIOrigin.validate(chargePilotAPIOrigin)
         let reading = try BatteryStateReader.read()
         let credential = try KeychainCredentialStore().load(account: installationID.uuidString)
         let deviceClass = UIDevice.current.userInterfaceIdiom == .pad ? "tablet" : "phone"
+        let label = UIDevice.current.model
         try await AgentAPI.sendTelemetry(
             origin: origin,
             credential: credential,
@@ -642,6 +631,7 @@ private enum APIOrigin {
             ),
             let scheme = components.scheme?.lowercased(),
             let host = components.host?.lowercased(),
+            !host.isEmpty,
             components.path.isEmpty || components.path == "/",
             components.query == nil,
             components.fragment == nil,

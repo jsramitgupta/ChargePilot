@@ -58,8 +58,6 @@ private final class ChargePilotMenuBarDelegate: NSObject, NSApplicationDelegate 
 @MainActor
 private final class AgentStatusModel: ObservableObject {
     @Published private(set) var configuration: LocalConfiguration?
-    @Published var serverOrigin = ""
-    @Published var deviceLabel = Host.current().localizedName ?? "Mac"
     @Published var enrollmentCode = ""
     @Published private(set) var isReporting = false
     @Published private(set) var isWorking = false
@@ -78,8 +76,6 @@ private final class AgentStatusModel: ObservableObject {
         do {
             guard let saved = try ChargePilotAgent.currentConfiguration() else { return }
             configuration = saved
-            serverOrigin = saved.serverURL
-            deviceLabel = saved.label
             statusMessage = "This Mac is connected to ChargePilot."
         } catch {
             statusMessage = error.localizedDescription
@@ -97,20 +93,14 @@ private final class AgentStatusModel: ObservableObject {
         isWorking = true
         statusMessage = "Connecting to ChargePilot…"
         statusIsError = false
-        let origin = serverOrigin
-        let label = deviceLabel
         let code = enrollmentCode
         Task {
             defer { isWorking = false }
             do {
                 let saved = try await ChargePilotAgent.enrollFromUI(
-                    serverOrigin: origin,
-                    label: label,
                     code: code
                 )
                 configuration = saved
-                serverOrigin = saved.serverURL
-                deviceLabel = saved.label
                 enrollmentCode = ""
                 statusMessage = "This Mac is connected. Sending its first report…"
                 startReporting()
@@ -357,16 +347,10 @@ private struct AgentMenuView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("ChargePilot server")
-                    .font(.system(size: 12, weight: .medium))
-                TextField("https://chargepilot.example.com", text: $model.serverOrigin)
-                    .textFieldStyle(.roundedBorder)
-
-                Text("Device label")
-                    .font(.system(size: 12, weight: .medium))
-                TextField(Host.current().localizedName ?? "Mac", text: $model.deviceLabel)
-                    .textFieldStyle(.roundedBorder)
-                Text("Filled from this Mac's computer name. You can change the label in the admin console.")
+                Text("Server: https://api-chargepilot.endusercompute.in")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Text("This Mac’s computer name is used. Serial numbers are not collected.")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
 
@@ -392,7 +376,7 @@ private struct AgentMenuView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Color(red: 0.10, green: 0.48, blue: 0.41))
-            .disabled(model.isWorking || model.serverOrigin.isEmpty || model.deviceLabel.isEmpty || model.enrollmentCode.isEmpty)
+            .disabled(model.isWorking || model.enrollmentCode.isEmpty)
         }
     }
 

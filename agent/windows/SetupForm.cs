@@ -10,8 +10,12 @@ internal sealed class SetupForm : Form
     private static readonly Color Paper = ColorTranslator.FromHtml("#EEF3F0");
     private static readonly Color Line = ColorTranslator.FromHtml("#D7E2DC");
     private readonly ConfigurationStore _configurationStore = new();
-    private readonly TextBox _serverUrl = new() { Dock = DockStyle.Fill };
-    private readonly TextBox _deviceName = new() { Dock = DockStyle.Fill };
+    private readonly Label _serverUrl = new()
+    {
+        AutoSize = true,
+        ForeColor = Ink,
+        Text = "https://api-chargepilot.endusercompute.in",
+    };
     private readonly ComboBox _deviceClass = new() { Dock = DockStyle.Left, DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
     private readonly NumericUpDown _interval = new() { Minimum = 1, Maximum = 60, Value = 5, Width = 180 };
     private readonly TextBox _enrollmentToken = new() { Dock = DockStyle.Fill, UseSystemPasswordChar = true };
@@ -25,7 +29,7 @@ internal sealed class SetupForm : Form
     private readonly string _agentVersion;
     private AgentOptions? _existingOptions;
 
-    public SetupForm(string serverUrl, string agentVersion)
+    public SetupForm(string agentVersion)
     {
         _agentVersion = agentVersion;
         Text = "ChargePilot Agent";
@@ -93,20 +97,19 @@ internal sealed class SetupForm : Form
             AutoSize = true,
             Dock = DockStyle.Top,
             ColumnCount = 2,
-            RowCount = 5,
+            RowCount = 4,
             Margin = new Padding(0, 0, 0, 16),
         };
         fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 174));
         fields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (var index = 0; index < 5; index++)
+        for (var index = 0; index < 4; index++)
         {
             fields.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         }
         AddField(fields, 0, "ChargePilot server", _serverUrl);
-        AddField(fields, 1, "Device label", _deviceName);
-        AddField(fields, 2, "Device class", _deviceClass);
-        AddField(fields, 3, "Report every (minutes)", _interval);
-        AddField(fields, 4, "Enrollment token", _enrollmentToken);
+        AddField(fields, 1, "Device class", _deviceClass);
+        AddField(fields, 2, "Report every (minutes)", _interval);
+        AddField(fields, 3, "Enrollment token", _enrollmentToken);
 
         var fieldsAndNote = new FlowLayoutPanel
         {
@@ -118,7 +121,7 @@ internal sealed class SetupForm : Form
         fieldsAndNote.Controls.Add(fields);
         fieldsAndNote.Controls.Add(new Label
         {
-            Text = "The label starts with this PC's computer name. Customize its display label in the admin console after enrollment. Leave the token blank to keep the current enrollment.",
+            Text = "The PC name is used automatically. Device serial numbers are not collected. Leave the token blank to keep the current enrollment.",
             AutoSize = true,
             MaximumSize = new Size(660, 0),
             ForeColor = ColorTranslator.FromHtml("#71827B"),
@@ -161,7 +164,7 @@ internal sealed class SetupForm : Form
         });
         page.Controls.Add(footer, 0, 4);
 
-        LoadConfiguration(serverUrl);
+        LoadConfiguration();
         RefreshServiceStatus();
         var isAdmin = ServiceManager.IsAdministrator();
         _saveButton.Enabled = isAdmin;
@@ -194,7 +197,7 @@ internal sealed class SetupForm : Form
         panel.Controls.Add(control, 1, row);
     }
 
-    private void LoadConfiguration(string serverUrl)
+    private void LoadConfiguration()
     {
         try
         {
@@ -206,8 +209,6 @@ internal sealed class SetupForm : Form
             ShowMessage(exception.Message, isError: true);
         }
 
-        _serverUrl.Text = _existingOptions?.ServerUri.ToString() ?? serverUrl;
-        _deviceName.Text = _existingOptions?.DeviceName ?? Environment.MachineName;
         _deviceClass.SelectedItem = _existingOptions?.DeviceClass == "desktop" ? "Desktop" : "Laptop";
         _interval.Value = _existingOptions?.IntervalMinutes ?? 5;
     }
@@ -217,14 +218,10 @@ internal sealed class SetupForm : Form
         SetBusy(true);
         try
         {
-            if (!Uri.TryCreate(_serverUrl.Text.Trim().TrimEnd('/'), UriKind.Absolute, out var serverUri))
-            {
-                throw new ArgumentException("Enter a valid ChargePilot server URL.");
-            }
-
+            var serverUri = new Uri("https://api-chargepilot.endusercompute.in");
             var deviceClass = _deviceClass.SelectedItem?.ToString()?.ToLowerInvariant()
                 ?? throw new ArgumentException("Select a device class.");
-            var deviceName = _deviceName.Text.Trim();
+            var deviceName = Environment.MachineName;
             var enrollmentCode = _enrollmentToken.Text.Trim();
             AgentOptions options;
 
@@ -258,7 +255,8 @@ internal sealed class SetupForm : Form
 
                 if (_existingOptions.ServerUri != serverUri)
                 {
-                    throw new InvalidOperationException("Enter a new enrollment token when changing the server URL.");
+                    throw new InvalidOperationException(
+                        "The saved enrollment uses a different server. Enter a token to connect to this ChargePilot server.");
                 }
 
                 options = AgentOptions.Create(

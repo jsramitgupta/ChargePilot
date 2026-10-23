@@ -205,6 +205,10 @@ Super Admin; it does not expose tenant or global agent credentials. The
 bootstrap downloads the self-contained Windows service executable over HTTPS
 and opens its elevated setup UI; the enrollment token is entered in that UI,
 not on the command line. The API response is marked `private, no-store`.
+The generated command does not pass a server URL or device label. All shipped
+native agents use `https://api-chargepilot.endusercompute.in`, and derive
+non-serial device names from platform metadata. Enrollment continues to use
+the server-generated high-entropy token.
 
 The following agent source downloads do not require a browser session and
 contain no credentials. They issue a `302` redirect to the corresponding asset
@@ -220,10 +224,10 @@ these source files alongside the platform build artifacts:
 - `GET /agent/android/download` redirects to the Kotlin/Compose Android source
   project ZIP.
 - `GET /agent/ios/download` redirects to the SwiftUI Xcode project ZIP.
-- `GET /agent/install.ps1` redirects to the scheduled-task installer used by
-  the one-line command. The installer downloads the Windows executable and
-  opens its setup UI, where the administrator enrolls the device and installs
-  the Windows service. New installs do not use Task Scheduler.
+- `GET /agent/install.ps1` redirects to the installer used by the one-line
+  command. The installer downloads the Windows executable and opens its setup
+  UI, where the administrator enrolls the device and installs the Windows
+  service. New installs do not use Task Scheduler.
 - `GET /agent/BatteryAgent.ps1` redirects to the legacy PowerShell telemetry
   script. The new Windows service does not execute this script.
 

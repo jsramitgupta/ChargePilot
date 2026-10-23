@@ -220,9 +220,7 @@ async def get_agent_setup(
     install_command = (
         'iex "& { $(irm '
         + _quote_powershell_literal(_escape_powershell_expandable(install_url))
-        + ") } -ServerUrl "
-        + _quote_powershell_literal(_escape_powershell_expandable(server_url))
-        + " -AgentVersion '1.0.0'\""
+        + ") } -AgentVersion '1.0.0'\""
     )
     return {
         "install_command": install_command,
