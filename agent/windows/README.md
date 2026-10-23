@@ -48,8 +48,15 @@ available in the source archive only for compatibility and diagnostics.
 ## Configure with the UI
 
 Run `ChargePilotAgent.exe ui` as Administrator. The window can install or
-update configuration, deregister this device, start or stop the service, and
-remove the service.
+update configuration, update the agent, deregister this device, start or stop
+the service, and remove the service. The installed app version appears beside
+the service status. Select **Update agent** to check the latest public
+`agents-v*` release and confirm before downloading it. The service is stopped
+and restarted if it was running; its saved enrollment and settings are kept.
+If the new service executable cannot start, the previous executable is
+restored.
+The update uses the HTTPS GitHub release asset. Unsigned releases can still
+trigger Windows SmartScreen.
 Leave the enrollment-token field blank to keep an existing enrollment while
 changing the device class or reporting interval. The reported computer name
 and API origin are not editable. Enter a new token to enroll again.

@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Net.Http.Headers;
+using System.Text.Json;
 using ChargePilotAgent.Core;
 
 namespace ChargePilotAgent;
@@ -20,8 +23,10 @@ internal sealed class SetupForm : Form
     private readonly NumericUpDown _interval = new() { Minimum = 1, Maximum = 60, Value = 5, Width = 180 };
     private readonly TextBox _enrollmentToken = new() { Dock = DockStyle.Fill, UseSystemPasswordChar = true };
     private readonly Label _serviceStatus = new() { AutoSize = true, Font = new Font("Segoe UI", 11, FontStyle.Bold), ForeColor = Forest };
+    private readonly Label _versionStatus = new() { AutoSize = true, ForeColor = ColorTranslator.FromHtml("#71827B") };
     private readonly Label _message = new() { AutoSize = true, MaximumSize = new Size(660, 0) };
     private readonly Button _saveButton = new() { Text = "Save and start service", AutoSize = true, BackColor = Leaf, ForeColor = Color.White, FlatStyle = FlatStyle.Flat };
+    private readonly Button _updateButton = new() { Text = "Update agent", AutoSize = true };
     private readonly Button _startButton = new() { Text = "Start", AutoSize = true };
     private readonly Button _stopButton = new() { Text = "Stop", AutoSize = true };
     private readonly Button _deregisterButton = new() { Text = "Deregister device", AutoSize = true };
@@ -90,6 +95,8 @@ internal sealed class SetupForm : Form
             Margin = new Padding(0, 4, 10, 0),
         });
         statusLine.Controls.Add(_serviceStatus);
+        _versionStatus.Margin = new Padding(18, 4, 0, 0);
+        statusLine.Controls.Add(_versionStatus);
         page.Controls.Add(statusLine, 0, 2);
 
         var fields = new TableLayoutPanel
@@ -146,11 +153,12 @@ internal sealed class SetupForm : Form
         _saveButton.FlatAppearance.BorderSize = 0;
         _saveButton.Padding = new Padding(12, 7, 12, 7);
         _saveButton.Click += async (_, _) => await SaveAndStartAsync();
+        _updateButton.Click += async (_, _) => await UpdateAgentAsync();
         _startButton.Click += (_, _) => RunServiceAction(ServiceManager.Start);
         _stopButton.Click += (_, _) => RunServiceAction(ServiceManager.Stop);
         _deregisterButton.Click += async (_, _) => await DeregisterAsync();
         _uninstallButton.Click += (_, _) => UninstallService();
-        actions.Controls.AddRange([_saveButton, _startButton, _stopButton, _deregisterButton, _uninstallButton]);
+        actions.Controls.AddRange([_saveButton, _updateButton, _startButton, _stopButton, _deregisterButton, _uninstallButton]);
         footer.Controls.Add(actions);
         _message.Margin = new Padding(0, 10, 0, 0);
         footer.Controls.Add(_message);
@@ -168,6 +176,8 @@ internal sealed class SetupForm : Form
         RefreshServiceStatus();
         var isAdmin = ServiceManager.IsAdministrator();
         _saveButton.Enabled = isAdmin;
+        _versionStatus.Text = $"Version {_agentVersion}";
+        _updateButton.Enabled = isAdmin && _existingOptions is not null && _serviceStatus.Text != "Not installed";
         _startButton.Enabled = isAdmin;
         _stopButton.Enabled = isAdmin;
         _deregisterButton.Enabled = isAdmin && _existingOptions is not null;
@@ -288,6 +298,151 @@ internal sealed class SetupForm : Form
         }
     }
 
+    private async Task UpdateAgentAsync()
+    {
+        if (_existingOptions is null || _serviceStatus.Text == "Not installed")
+        {
+            ShowMessage("Connect this device and install the service before updating.", isError: true);
+            return;
+        }
+
+        SetBusy(true);
+        ShowMessage("Checking the latest public agent release…", isError: false);
+        try
+        {
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+            httpClient.DefaultRequestHeaders.UserAgent.Add(
+                new ProductInfoHeaderValue("ChargePilotAgentUpdater", _agentVersion));
+            using var releaseResponse = await httpClient.GetAsync(
+                "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest",
+                HttpCompletionOption.ResponseHeadersRead);
+            releaseResponse.EnsureSuccessStatusCode();
+            await using var releaseStream = await releaseResponse.Content.ReadAsStreamAsync();
+            using var release = await JsonDocument.ParseAsync(releaseStream);
+
+            var tag = release.RootElement.GetProperty("tag_name").GetString();
+            if (tag is null || !tag.StartsWith("agents-v", StringComparison.Ordinal) ||
+                !Version.TryParse(tag["agents-v".Length..], out var latestVersion))
+            {
+                throw new InvalidDataException("GitHub returned an invalid ChargePilot agent release version.");
+            }
+
+            if (latestVersion <= Version.Parse(_agentVersion))
+            {
+                ShowMessage($"This agent is up to date (version {_agentVersion}).", isError: false);
+                return;
+            }
+
+            var asset = release.RootElement
+                .GetProperty("assets")
+                .EnumerateArray()
+                .FirstOrDefault(item =>
+                    item.TryGetProperty("name", out var name) &&
+                    name.GetString() == "ChargePilotAgent.exe");
+            if (asset.ValueKind == JsonValueKind.Undefined ||
+                !asset.TryGetProperty("browser_download_url", out var downloadUrlElement) ||
+                !Uri.TryCreate(downloadUrlElement.GetString(), UriKind.Absolute, out var downloadUrl) ||
+                downloadUrl.Scheme != Uri.UriSchemeHttps ||
+                downloadUrl.Host != "github.com")
+            {
+                throw new InvalidDataException("The latest release does not contain the expected Windows agent download.");
+            }
+
+            var confirmation = MessageBox.Show(
+                $"Update ChargePilot Agent from version {_agentVersion} to {latestVersion}?\n\nThe service will restart after the update.",
+                "Update ChargePilot Agent",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+            if (confirmation != DialogResult.Yes)
+            {
+                ShowMessage("The update was cancelled.", isError: false);
+                return;
+            }
+
+            ShowMessage($"Downloading version {latestVersion}…", isError: false);
+            var updateDirectory = Path.Combine(
+                Path.GetTempPath(),
+                $"ChargePilotAgent-update-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(updateDirectory);
+            var downloadedExecutable = Path.Combine(updateDirectory, "ChargePilotAgent.exe");
+            await using (var downloadStream = await httpClient.GetStreamAsync(downloadUrl))
+            await using (var fileStream = new FileStream(
+                downloadedExecutable,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 81920,
+                useAsync: true))
+            {
+                await downloadStream.CopyToAsync(fileStream);
+            }
+
+            ValidateDownloadedExecutable(downloadedExecutable, latestVersion);
+            var updater = new ProcessStartInfo
+            {
+                FileName = downloadedExecutable,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            updater.ArgumentList.Add("update");
+            updater.ArgumentList.Add("--wait-for-process");
+            updater.ArgumentList.Add(Environment.ProcessId.ToString());
+            if (Process.Start(updater) is null)
+            {
+                throw new InvalidOperationException("Could not start the Windows agent updater.");
+            }
+
+            ShowMessage($"Updating to version {latestVersion}. This window will close while the service restarts.", isError: false);
+            Close();
+        }
+        catch (Exception exception)
+        {
+            ShowMessage($"Could not update the agent: {exception.Message}", isError: true);
+        }
+        finally
+        {
+            if (!IsDisposed)
+            {
+                SetBusy(false);
+            }
+        }
+    }
+
+    private static void ValidateDownloadedExecutable(string path, Version expectedVersion)
+    {
+        using var stream = File.OpenRead(path);
+        Span<byte> header = stackalloc byte[64];
+        if (stream.Read(header) != header.Length ||
+            header[0] != (byte)'M' ||
+            header[1] != (byte)'Z')
+        {
+            throw new InvalidDataException("The downloaded agent is not a Windows executable.");
+        }
+
+        var peOffset = BitConverter.ToInt32(header[0x3C..0x40]);
+        if (peOffset < header.Length || peOffset > stream.Length - 4)
+        {
+            throw new InvalidDataException("The downloaded agent has an invalid executable header.");
+        }
+
+        stream.Position = peOffset;
+        Span<byte> signature = stackalloc byte[4];
+        if (stream.Read(signature) != signature.Length ||
+            !signature.SequenceEqual(new byte[] { (byte)'P', (byte)'E', 0, 0 }))
+        {
+            throw new InvalidDataException("The downloaded agent has an invalid executable signature.");
+        }
+
+        var fileVersion = FileVersionInfo.GetVersionInfo(path).ProductVersion;
+        var reportedVersion = fileVersion?.Split('+', 2)[0];
+        if (!Version.TryParse(reportedVersion, out var actualVersion) ||
+            new Version(actualVersion.Major, actualVersion.Minor, Math.Max(0, actualVersion.Build)) != expectedVersion)
+        {
+            throw new InvalidDataException(
+                $"The downloaded agent version did not match release {expectedVersion}.");
+        }
+    }
+
     private void RunServiceAction(Action action)
     {
         try
@@ -383,12 +538,18 @@ internal sealed class SetupForm : Form
     private void RefreshServiceStatus()
     {
         _serviceStatus.Text = ServiceManager.GetStatus();
-        _uninstallButton.Enabled = ServiceManager.IsAdministrator() && _serviceStatus.Text != "Not installed";
+        var isAdmin = ServiceManager.IsAdministrator();
+        _uninstallButton.Enabled = isAdmin && _serviceStatus.Text != "Not installed";
+        _updateButton.Enabled = isAdmin && _existingOptions is not null && _serviceStatus.Text != "Not installed";
     }
 
     private void SetBusy(bool busy)
     {
         _saveButton.Enabled = !busy && ServiceManager.IsAdministrator();
+        _updateButton.Enabled = !busy &&
+            ServiceManager.IsAdministrator() &&
+            _existingOptions is not null &&
+            _serviceStatus.Text != "Not installed";
         _startButton.Enabled = !busy && ServiceManager.IsAdministrator();
         _stopButton.Enabled = !busy && ServiceManager.IsAdministrator();
         _deregisterButton.Enabled = !busy && ServiceManager.IsAdministrator() && _existingOptions is not null;

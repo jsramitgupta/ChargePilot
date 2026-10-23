@@ -40,6 +40,14 @@ code from ChargePilot's **Set up a device** page and select **Connect this
 Mac**. The code is not saved; the per-install credential is stored in the
 user's macOS Keychain.
 
+The menu shows the installed app version and checks the latest public release.
+Select **Update to …** to download and install a newer release; the app quits
+and reopens when the update finishes. Updating an app in `/Applications` may
+ask for an administrator password. Install the app in **Applications** before
+using its update button; the button is unavailable while running directly from
+a mounted DMG. The release may be unsigned or unnotarized, and macOS security
+checks remain in effect.
+
 After enrollment, the app sends a report immediately and every five minutes.
 Its menu shows the latest accepted report and any upload errors. **Pause
 reports** stops collection; **Open when I sign in** registers the app as a

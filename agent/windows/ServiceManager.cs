@@ -80,6 +80,91 @@ internal static class ServiceManager
 
     }
 
+    public static void UpdateInstalledAgent(string sourceExecutable)
+    {
+        RequireAdministrator();
+        if (!File.Exists(sourceExecutable) || PathsEqual(sourceExecutable, InstalledExecutablePath))
+        {
+            throw new InvalidOperationException("The downloaded agent executable is missing or is already installed.");
+        }
+
+        using var service = RequireService();
+        var wasRunning = service.Status == ServiceControllerStatus.Running;
+        if (service.Status is not ServiceControllerStatus.Running and not ServiceControllerStatus.Stopped)
+        {
+            throw new InvalidOperationException(
+                $"The ChargePilot Agent service is {service.Status}; wait until it is running or stopped before updating.");
+        }
+
+        var directory = Path.GetDirectoryName(InstalledExecutablePath)
+            ?? throw new InvalidOperationException("Unable to determine the installation directory.");
+        var stagingPath = InstalledExecutablePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        var backupPath = InstalledExecutablePath + "." + Guid.NewGuid().ToString("N") + ".backup";
+        var originalMoved = false;
+        try
+        {
+            if (wasRunning)
+            {
+                Stop();
+            }
+
+            Directory.CreateDirectory(directory);
+            File.Copy(sourceExecutable, stagingPath, overwrite: false);
+            File.Move(InstalledExecutablePath, backupPath);
+            originalMoved = true;
+            File.Move(stagingPath, InstalledExecutablePath);
+            if (wasRunning)
+            {
+                Start();
+            }
+        }
+        catch (Exception updateException)
+        {
+            try
+            {
+                EnsureStopped();
+
+                if (originalMoved)
+                {
+                    if (File.Exists(InstalledExecutablePath))
+                    {
+                        File.Delete(InstalledExecutablePath);
+                    }
+
+                    File.Move(backupPath, InstalledExecutablePath);
+                }
+
+                if (wasRunning)
+                {
+                    Start();
+                }
+            }
+            catch (Exception rollbackException)
+            {
+                throw new AggregateException(
+                    "The agent update failed and the previous executable could not be fully restored.",
+                    updateException,
+                    rollbackException);
+            }
+
+            throw new InvalidOperationException(
+                "The agent update failed. The previous version was restored.",
+                updateException);
+        }
+        finally
+        {
+            if (File.Exists(stagingPath))
+            {
+                File.Delete(stagingPath);
+            }
+        }
+
+        if (File.Exists(backupPath))
+        {
+            File.Delete(backupPath);
+        }
+    }
+
     public static void Start()
     {
         RequireAdministrator();
@@ -154,6 +239,29 @@ internal static class ServiceManager
 
         RunSc("delete", ServiceName);
         WaitForServiceRemoval();
+    }
+
+    private static void EnsureStopped()
+    {
+        using var service = RequireService();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        service.Refresh();
+        while (service.Status is ServiceControllerStatus.StartPending or ServiceControllerStatus.StopPending)
+        {
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw new System.TimeoutException("The ChargePilot Agent service did not finish its transition during rollback.");
+            }
+
+            Thread.Sleep(250);
+            service.Refresh();
+        }
+
+        if (service.Status != ServiceControllerStatus.Stopped)
+        {
+            service.Stop();
+            service.WaitForStatus(ServiceControllerStatus.Stopped, deadline - DateTime.UtcNow);
+        }
     }
 
     private static void DeleteServiceIfPresent()

@@ -35,6 +35,7 @@ internal static class Program
                 "start" => RunServiceControl(ServiceManager.Start),
                 "stop" => RunServiceControl(ServiceManager.Stop),
                 "uninstall" => RunUninstall(commandArguments),
+                "update" => RunUpdate(commandArguments),
                 "deregister" => RunDeregisterAsync().GetAwaiter().GetResult(),
                 "send-once" => RunSendOnceAsync().GetAwaiter().GetResult(),
                 "help" or "--help" or "-h" => ShowHelp(),
@@ -44,7 +45,18 @@ internal static class Program
         catch (Exception exception)
         {
             AttachConsoleIfAvailable();
-            Console.Error.WriteLine(exception.Message);
+            if (args.FirstOrDefault()?.Equals("update", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                MessageBox.Show(
+                    exception.Message,
+                    "ChargePilot Agent update failed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            else
+            {
+                Console.Error.WriteLine(exception.Message);
+            }
             return 1;
         }
     }
@@ -175,6 +187,54 @@ internal static class Program
         Console.WriteLine(purgeConfiguration
             ? "ChargePilot Agent service removed. Local configuration and credentials were deleted."
             : "ChargePilot Agent service removed. Local configuration is retained; use --purge-config to delete it.");
+        return 0;
+    }
+
+    private static int RunUpdate(string[] arguments)
+    {
+        AttachConsoleIfAvailable();
+        var values = ParseOptions(arguments, "--wait-for-process");
+        if (!ServiceManager.IsAdministrator())
+        {
+            throw new UnauthorizedAccessException("Updating the Windows agent requires an elevated administrator process.");
+        }
+
+        if (values.TryGetValue("--wait-for-process", out var processIdText))
+        {
+            if (!int.TryParse(processIdText, out var processId) || processId <= 0)
+            {
+                throw new ArgumentException("The updater received an invalid parent process ID.");
+            }
+
+            try
+            {
+                using var parent = System.Diagnostics.Process.GetProcessById(processId);
+                if (!parent.WaitForExit(TimeSpan.FromMinutes(2)))
+                {
+                    throw new TimeoutException("The setup window did not close, so the update was cancelled.");
+                }
+            }
+            catch (ArgumentException)
+            {
+                // The setup window may already have exited.
+            }
+        }
+
+        _ = new ConfigurationStore().Load()
+            ?? throw new InvalidOperationException("The Windows agent has no saved enrollment to preserve.");
+        if (ServiceManager.GetStatus() == "Not installed")
+        {
+            throw new InvalidOperationException("The Windows agent service is not installed.");
+        }
+
+        ServiceManager.UpdateInstalledAgent(Environment.ProcessPath
+            ?? throw new InvalidOperationException("Unable to locate the downloaded agent executable."));
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = ServiceManager.InstalledExecutablePath,
+            UseShellExecute = false,
+            ArgumentList = { "ui" },
+        });
         return 0;
     }
 

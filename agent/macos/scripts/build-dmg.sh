@@ -11,7 +11,7 @@ ARM64_BUILD="$PROJECT_DIR/.build/dmg-arm64"
 X86_64_BUILD="$PROJECT_DIR/.build/dmg-x86_64"
 
 mkdir -p "$STAGING_DIR"
-rm -f "$STAGING_DIR/ChargePilotAgent"
+rm -rf "$APP_DIR" "$STAGING_DIR/Applications" "$STAGING_DIR/README.md"
 swift build \
     --package-path "$PROJECT_DIR" \
     --scratch-path "$ARM64_BUILD" \
@@ -57,7 +57,7 @@ if [ -n "${MACOS_DEVELOPER_ID_APPLICATION:-}" ]; then
     codesign --display --verbose=4 "$APP_DIR" 2> "$signature_file"
     grep -F "Authority=$MACOS_DEVELOPER_ID_APPLICATION" "$signature_file"
 fi
-cp "$PROJECT_DIR/DMG-README.md" "$STAGING_DIR/README.md"
+ln -s /Applications "$STAGING_DIR/Applications"
 hdiutil create \
     -volname ChargePilotAgent \
     -srcfolder "$STAGING_DIR" \

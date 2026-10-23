@@ -2,7 +2,8 @@
 
 ## Install and connect
 
-1. Drag `ChargePilotAgent.app` to **Applications**, then open it.
+1. Drag `ChargePilotAgent.app` onto the **Applications** shortcut in this
+   window, then open it from Applications.
 2. The API origin is fixed to
    `https://api-chargepilot.endusercompute.in`, and the Mac computer name is
    used automatically. Serial numbers are not collected. Paste an enrollment

@@ -90,6 +90,16 @@ struct ChargePilotAgent {
                 try await run()
             case "check":
                 try checkBattery()
+            case "update":
+                let updateArguments = Array(arguments.dropFirst())
+                do {
+                    try AgentUpdater.install(arguments: updateArguments)
+                } catch {
+                    AgentUpdater.showUpdateError(error, arguments: updateArguments)
+                    exit(EXIT_FAILURE)
+                }
+            case "cleanup":
+                try AgentUpdater.cleanup(arguments: Array(arguments.dropFirst()))
             default:
                 throw AgentError.usage
             }

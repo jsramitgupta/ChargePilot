@@ -31,11 +31,12 @@ private final class ChargePilotMenuBarDelegate: NSObject, NSApplicationDelegate 
         item.button?.toolTip = "ChargePilot battery telemetry"
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 360, height: 520)
+        popover.contentSize = NSSize(width: 360, height: 560)
         popover.contentViewController = NSHostingController(
             rootView: AgentMenuView(model: model)
         )
         model.startIfEnrolled()
+        model.checkForUpdates()
         if !model.isEnrolled {
             showPopover()
         }
@@ -67,12 +68,32 @@ private final class AgentStatusModel: ObservableObject {
     @Published private(set) var statusIsError = false
     @Published private(set) var launchesAtLogin = SMAppService.mainApp.status == .enabled
     @Published var showDeregisterConfirmation = false
+    @Published private(set) var latestReleaseVersion: String?
+    @Published private(set) var isCheckingForUpdates = false
+    @Published private(set) var updateMessage = "Checking for updates…"
+    @Published private(set) var updateMessageIsError = false
+    @Published private(set) var currentVersion =
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
 
     private var reportingTask: Task<Void, Never>?
 
     var isEnrolled: Bool { configuration != nil }
+    var updateAvailable: Bool {
+        guard let latestReleaseVersion else { return false }
+        return AgentUpdater.hasUpdate(current: currentVersion, latest: latestReleaseVersion)
+    }
+    var canUpdate: Bool {
+        Bundle.main.bundleURL.pathExtension == "app" &&
+            !Bundle.main.bundleURL.path.hasPrefix("/Volumes/")
+    }
+    var updateButtonTitle: String {
+        updateAvailable ? "Update to \(latestReleaseVersion ?? "")" : "Check for updates"
+    }
 
     init() {
+        if !canUpdate {
+            updateMessage = "Move the app to Applications before updating."
+        }
         do {
             guard let saved = try ChargePilotAgent.currentConfiguration() else { return }
             configuration = saved
@@ -86,6 +107,66 @@ private final class AgentStatusModel: ObservableObject {
     func startIfEnrolled() {
         guard configuration != nil else { return }
         startReporting()
+    }
+
+    func checkForUpdates() {
+        guard !isCheckingForUpdates else { return }
+        isCheckingForUpdates = true
+        updateMessage = "Checking for updates…"
+        updateMessageIsError = false
+        Task {
+            defer { isCheckingForUpdates = false }
+            do {
+                let release = try await AgentUpdater.latestRelease()
+                latestReleaseVersion = release.version
+                if !canUpdate {
+                    updateMessage = "Move the app to Applications before updating."
+                } else {
+                    updateMessage = updateAvailable
+                        ? "Version \(release.version) is available."
+                        : "You’re up to date."
+                }
+            } catch {
+                updateMessage = "Could not check for updates: \(error.localizedDescription)"
+                updateMessageIsError = true
+            }
+        }
+    }
+
+    func updateAgent() {
+        guard !isWorking, canUpdate else { return }
+        isWorking = true
+        Task {
+            defer { isWorking = false }
+            do {
+                let release = try await AgentUpdater.latestRelease()
+                latestReleaseVersion = release.version
+                guard AgentUpdater.hasUpdate(current: currentVersion, latest: release.version) else {
+                    updateMessage = "You’re up to date."
+                    updateMessageIsError = false
+                    return
+                }
+
+                let alert = NSAlert()
+                alert.messageText = "Update ChargePilot Agent?"
+                alert.informativeText =
+                    "Install version \(release.version). ChargePilot will quit and reopen after the update. The release may be unsigned; macOS security checks remain in effect."
+                alert.addButton(withTitle: "Update")
+                alert.addButton(withTitle: "Cancel")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+                updateMessage = "Downloading version \(release.version)…"
+                updateMessageIsError = false
+                try await AgentUpdater.downloadAndStartUpdate(
+                    release: release,
+                    targetApp: Bundle.main.bundleURL
+                )
+                NSApplication.shared.terminate(nil)
+            } catch {
+                updateMessage = "Could not update the app: \(error.localizedDescription)"
+                updateMessageIsError = true
+            }
+        }
     }
 
     func enroll() {
@@ -218,6 +299,7 @@ private struct AgentMenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            updateRow
             Divider().padding(.vertical, 16)
             if model.isEnrolled {
                 connectedContent
@@ -230,7 +312,7 @@ private struct AgentMenuView: View {
             footer
         }
         .padding(20)
-        .frame(width: 360, height: 520, alignment: .topLeading)
+        .frame(width: 360, height: 560, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
         .task { model.startIfEnrolled() }
         .confirmationDialog(
@@ -245,6 +327,28 @@ private struct AgentMenuView: View {
         } message: {
             Text("This revokes the installation and stops its reports. You can enroll again here with a new workspace token.")
         }
+    }
+
+    private var updateRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Version \(model.currentVersion)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(model.updateButtonTitle) {
+                    model.updateAgent()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(model.isWorking || model.isCheckingForUpdates || !model.canUpdate)
+            }
+            Text(model.updateMessage)
+                .font(.system(size: 10))
+                .foregroundStyle(model.updateMessageIsError ? Color.red : Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 12)
     }
 
     private var header: some View {
