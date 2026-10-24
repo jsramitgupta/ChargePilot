@@ -225,6 +225,25 @@ async def get_endpoint_details(
                 "off_threshold": mapping.off_threshold,
                 "minimum_state_change_interval": mapping.minimum_state_change_interval,
                 "switch_state": device.current_state,
+                "power_dp_id": device.power_dp_id,
+                "energy_dp_id": device.energy_dp_id,
+                "meter_power_watts": device.meter_power_watts,
+                "meter_power_sample_at": (
+                    _normalize_utc(device.meter_power_sample_at).isoformat()
+                    if device.meter_power_sample_at
+                    else None
+                ),
+                "meter_energy_month_kwh": (
+                    device.meter_energy_month_kwh
+                    if device.meter_month_key == datetime.now(UTC).strftime("%Y-%m")
+                    else None
+                ),
+                "meter_energy_sample_at": (
+                    _normalize_utc(device.meter_energy_sample_at).isoformat()
+                    if device.meter_energy_sample_at
+                    else None
+                ),
+                "meter_month_key": device.meter_month_key,
             }
             for mapping, device in mappings
         ],

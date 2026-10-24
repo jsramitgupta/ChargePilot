@@ -29,7 +29,7 @@ browser interactions:
 | `/register` | Create a tenant or complete legacy code-based standard-user signup |
 | `/verify-email` | Explain and complete email verification |
 | `/accept-invitation` | Review an emailed invitation and set the account password |
-| `/` | Endpoint, switch, and energy overview with live telemetry summary |
+| `/` | Endpoint and switch fleet overview with live telemetry summary |
 | `/endpoints` | Review enrolled devices, edit display labels, ownership, recent battery/resource readings, and endpoint assignment |
 | `/devices` | Review switches, channels, connector assignment, device state, and optional meter readings |
 | `/mappings` | Create, edit, and remove endpoint-to-switch battery rules |
@@ -55,8 +55,8 @@ for a per-install credential and persist it using platform-appropriate
 protected storage. Existing Windows agents using shared tenant tokens remain
 compatible during migration. The setup page lists only the latest Windows
 `.exe`, macOS `.dmg`, Android `.apk`, and iOS `.ipa` assets, resolving their
-current URLs from the public GitHub latest-release API. Source archives are not
-listed as installable agents. A top-right **Install instructions** action
+current URLs through the authenticated ChargePilot API. Source archives are
+not listed as installable agents. A top-right **Install instructions** action
 explains platform-specific installation and signing limits. The Windows
 executable opens a setup UI that installs/configures a Windows service and
 lets users deregister and re-enroll without reinstalling; it does not use Task
@@ -107,7 +107,8 @@ It shows setup readiness and current connector status, lets authorized
 administrators rename a connector without changing its credential or device
 assignments, and requires revoked connectors to be deleted explicitly.
 Connector and agent source downloads are public; code creation and credential
-management remain authenticated.
+management remain authenticated. Show the connector source archive link only
+for Python setup, not in the Docker Compose instructions.
 Mapping setup advances only on an explicit user action and saves only from its
 explicit create/save action.
 The mapping stepper places each label below its numbered marker; connector
@@ -124,7 +125,10 @@ tenant ownership, and battery rules.
 Endpoint details keep the recent-report table and add a graph view for battery,
 CPU, memory utilization, and GPU percentages. Missing platform readings are
 omitted from the graph rather than displayed as zero; the table remains
-available for exact timestamps and reported values.
+available for exact timestamps and reported values. The mapped-switch section
+shows each associated switch's recent power reading and current UTC-month
+energy alongside its automation state. Power older than five minutes is shown
+as waiting for a fresh reading; unconfigured meters remain explicit.
 
 ## Visual system
 
@@ -219,11 +223,11 @@ operational state colors for explicit status indicators.
   Never guess from device family or treat unsupported readings as zero. Show
   the sample time, connector requirement, and cumulative-counter
   partial-month behavior.
-- Overview energy totals include only power samples from the last five minutes
-  and energy recorded for the current UTC month. Show the number of contributing
-  switches and an explicit no-data state. Cumulative energy starts at its first
-  observation in each month; do not present a partial counter delta as a full
-  month total.
+- Keep switch consumption out of the Overview. Show live power and month-to-date
+  energy per switch in the switch inventory and alongside each mapped switch
+  in endpoint details. Label sample times and do not display stale power as
+  live. Cumulative energy starts at its first observation in each month; do
+  not present a partial counter delta as a full month total.
 - Use surface, muted-surface, and line tokens for hierarchy. Reserve the
   mineral-green hero and navigation surfaces for strong anchors; do not turn
   every content group into an identical raised card.

@@ -94,10 +94,13 @@ Android persists the target but WorkManager enforces a 15-minute minimum, and
 iOS shows the target without guaranteeing background execution. Telemetry
 optionally includes CPU/GPU utilization, used/total memory, and per-volume
 disk usage. Unsupported measurements remain unavailable, not zero. The API
-retains up to 30 days of metric history, exposed with endpoint details. Agent
-setup presents only the current EXE, DMG, IPA, and APK release assets and
-provides platform installation guidance from a top-right help action; source
-archives are not presented as installers.
+retains up to 30 days of metric history, exposed with endpoint details. macOS
+CPU telemetry represents whole-host utilization from Mach user/system/idle/nice
+counters, not the ChargePilot process. Agent setup presents only the current
+EXE, DMG, IPA, and APK release assets from the
+authenticated ChargePilot release-metadata API and provides platform
+installation guidance from a top-right help action; source archives are not
+presented as installers.
 The configured switch inventory loads independently of live connector status
 refreshes, so a failed device read does not block switch management.
 The Site connectors page guides deployment, summarizes enrollment/online
@@ -119,9 +122,11 @@ Configured meters are polled about once a minute and return normalized values.
 The guided discovery action requires connector version 0.1.4+; regular meter
 polling requires connector version 0.1.3+ and the explicit
 `20261022_tuya_energy_monitoring.sql` migration for existing PostgreSQL schemas.
-The Switches page shows per-device readings and guided meter setup; Overview
-aggregates fresh power readings (five-minute freshness window) and current
-UTC-month energy with explicit no-data and partial cumulative-month guidance.
+The Switches page shows per-device readings and guided meter setup; endpoint
+details show each mapped switch's power and energy readings. The Overview has
+no aggregate switch-energy section. Power readings older than five minutes are
+not presented as live; energy is scoped to the current UTC month with explicit
+no-data and partial cumulative-month guidance.
 Cumulative energy uses observed monthly deltas from the first sample of each
 month; monthly counters use the device's month-to-date value. Power and energy
 retain separate valid-sample timestamps so an unavailable datapoint cannot

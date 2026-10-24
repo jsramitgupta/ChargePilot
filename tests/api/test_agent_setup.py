@@ -64,6 +64,92 @@ def test_agent_setup_uses_configured_public_api_origin(monkeypatch):
     assert "-EndpointToken " not in install_command
 
 
+def test_latest_agent_release_assets_are_loaded_by_the_authenticated_api(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "tag_name": "agents-v0.1.6",
+                "assets": [
+                    {
+                        "name": "ChargePilotAgent-0.1.6.dmg",
+                        "browser_download_url": (
+                            "https://github.com/jsramitgupta/ChargePilot/releases/"
+                            "download/agents-v0.1.6/ChargePilotAgent-0.1.6.dmg"
+                        ),
+                    },
+                    {
+                        "name": "chargepilot-macos-agent-source.zip",
+                        "browser_download_url": "https://github.com/example/source.zip",
+                    },
+                    {
+                        "name": "unexpected.apk",
+                        "browser_download_url": "https://example.com/unexpected.apk",
+                    },
+                ],
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def get(self, url, headers):
+            assert url == (
+                "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest"
+            )
+            assert headers["User-Agent"] == "ChargePilotAgentSetup"
+            return FakeResponse()
+
+    monkeypatch.setattr("app.main.httpx.AsyncClient", lambda timeout: FakeClient())
+    client = TestClient(app)
+    assert client.get("/api/v1/agent/releases/latest").status_code == 401
+    register_tenant_admin(client, "agent_release_assets", "tenant-agent-password")
+
+    response = client.get("/api/v1/agent/releases/latest")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "private, max-age=300"
+    assert response.json() == {
+        "tag": "agents-v0.1.6",
+        "assets": [{
+            "name": "ChargePilotAgent-0.1.6.dmg",
+            "url": (
+                "https://github.com/jsramitgupta/ChargePilot/releases/"
+                "download/agents-v0.1.6/ChargePilotAgent-0.1.6.dmg"
+            ),
+        }],
+    }
+
+
+def test_latest_agent_release_api_reports_github_errors(monkeypatch):
+    class FakeResponse:
+        status_code = 403
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.main.httpx.AsyncClient", lambda timeout: FakeClient())
+    client = TestClient(app)
+    register_tenant_admin(client, "agent_release_error", "tenant-agent-password")
+
+    response = client.get("/api/v1/agent/releases/latest")
+
+    assert response.status_code == 502
+    assert "GitHub could not provide the latest agent packages" in response.json()["detail"]
+
+
 def test_windows_installer_passes_configured_server_to_executable():
     installer = (
         Path(__file__).resolve().parents[2] / "agent" / "windows" / "install.ps1"

@@ -70,7 +70,6 @@ const queryClient = new QueryClient({
 })
 
 const AGENT_RELEASE_URL = 'https://github.com/jsramitgupta/ChargePilot/releases/latest'
-const AGENT_RELEASE_API_URL = 'https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest'
 
 type User = {
   id: string
@@ -150,8 +149,20 @@ type EndpointDetails = {
     off_threshold: number
     minimum_state_change_interval: number
     switch_state: boolean
+    power_dp_id: string | null
+    energy_dp_id: string | null
+    meter_power_watts: number | null
+    meter_power_sample_at: string | null
+    meter_energy_month_kwh: number | null
+    meter_energy_sample_at: string | null
+    meter_month_key: string | null
   }>
   readings: EndpointReading[]
+}
+
+type AgentReleaseAssets = {
+  tag: string
+  assets: Array<{ name: string; url: string }>
 }
 
 type EndpointPageSize = 50 | 100
@@ -1370,7 +1381,7 @@ function DashboardPage() {
   })
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 1_000)
+    const interval = window.setInterval(() => setNow(Date.now()), ENDPOINTS_REFRESH_INTERVAL)
     return () => window.clearInterval(interval)
   }, [])
 
@@ -1381,19 +1392,6 @@ function DashboardPage() {
   const { endpoints, devices } = data
   const onlineCount = endpoints.filter((endpoint) => endpoint.status === 'online').length
   const recentEndpoints = sortEndpointsByLastSeen(endpoints).slice(0, OVERVIEW_ENDPOINT_LIMIT)
-  const currentMonth = new Date(now).toISOString().slice(0, 7)
-  const powerDevices = devices.filter((device) => (
-    device.meter_power_watts != null
-    && device.meter_power_sample_at
-    && now - Date.parse(device.meter_power_sample_at) <= 5 * 60 * 1000
-  ))
-  const monthEnergyDevices = devices.filter((device) => (
-    device.meter_month_key === currentMonth
-    && device.meter_energy_month_kwh != null
-    && device.meter_energy_sample_at != null
-  ))
-  const totalPowerWatts = powerDevices.reduce((total, device) => total + (device.meter_power_watts ?? 0), 0)
-  const totalEnergyKwh = monthEnergyDevices.reduce((total, device) => total + (device.meter_energy_month_kwh ?? 0), 0)
 
   return (
     <div className="dashboard-page">
@@ -1414,28 +1412,6 @@ function DashboardPage() {
         <MetricCard label="Online endpoints" value={String(onlineCount)} hint="seen in the last 10 minutes" icon={CheckCircle2} />
         <MetricCard label="Offline endpoints" value={String(endpoints.length - onlineCount)} hint="not recently reporting" icon={CircleDashed} />
         <MetricCard label="Smart switches" value={String(devices.length)} hint="configured devices" icon={PlugZap} />
-      </section>
-
-      <section className="energy-summary" aria-labelledby="energy-summary-title">
-        <div className="energy-summary-heading">
-          <div>
-            <h2 id="energy-summary-title">Switch energy</h2>
-            <p>Readings are shown only for switches with compatible meter datapoints.</p>
-          </div>
-          <NavLink to="/devices" className="secondary-btn">Configure switch meters</NavLink>
-        </div>
-        <div className="energy-summary-values">
-          <div className="energy-summary-reading">
-            <span>Live power</span>
-            <strong>{powerDevices.length ? formatPower(totalPowerWatts) : 'No meter data'}</strong>
-            <small>{powerDevices.length ? `From ${powerDevices.length} reporting switch${powerDevices.length === 1 ? '' : 'es'} · updated within 5 minutes` : 'Set up a power datapoint on a compatible switch.'}</small>
-          </div>
-          <div className="energy-summary-reading">
-            <span>Energy this month (UTC)</span>
-            <strong>{monthEnergyDevices.length ? `${totalEnergyKwh.toFixed(2)} kWh` : 'No meter data'}</strong>
-            <small>{monthEnergyDevices.length ? `From ${monthEnergyDevices.length} switch meter${monthEnergyDevices.length === 1 ? '' : 's'} · cumulative meters start with their first reading` : 'Set up an energy datapoint on a compatible switch.'}</small>
-          </div>
-        </div>
       </section>
 
       <section className="panel table-panel">
@@ -1480,11 +1456,13 @@ function DeviceMeterPanel({
   device,
   isSaving,
   currentMonth,
+  now,
   onSave,
 }: {
   device: Device
   isSaving: boolean
   currentMonth: string
+  now: number
   onSave: (settings: DeviceMeterSettings) => void
 }) {
   const [powerDpId, setPowerDpId] = useState(device.power_dp_id ?? '')
@@ -1545,17 +1523,32 @@ function DeviceMeterPanel({
   const cumulativePartialMonth = device.energy_counter_type === 'cumulative'
     && device.meter_tracking_since
     && device.meter_tracking_since.slice(0, 7) === device.meter_month_key
+  const powerAge = device.meter_power_sample_at
+    ? now - Date.parse(device.meter_power_sample_at)
+    : Number.POSITIVE_INFINITY
+  const hasCurrentPower = device.meter_power_watts != null
+    && powerAge >= 0
+    && powerAge <= 5 * 60 * 1000
+  const powerReading = hasCurrentPower && device.meter_power_watts != null
+    ? formatPower(device.meter_power_watts)
+    : device.power_dp_id ? 'Waiting for a fresh reading' : 'Not configured'
+  const hasCurrentMonthEnergy = device.meter_energy_month_kwh != null
+    && device.meter_energy_sample_at != null
+    && device.meter_month_key === currentMonth
+  const energyReading = hasCurrentMonthEnergy && device.meter_energy_month_kwh != null
+    ? `${device.meter_energy_month_kwh.toFixed(2)} kWh`
+    : device.energy_dp_id ? 'No current-month reading' : 'Not configured'
 
   return (
     <section className="switch-meter-panel" aria-label={`Energy readings for ${device.name}`}>
       <div className="switch-meter-readings">
         <div>
           <span>Live power</span>
-          <strong>{device.meter_power_watts == null ? '—' : formatPower(device.meter_power_watts)}</strong>
+          <strong>{powerReading}</strong>
         </div>
         <div>
           <span>Energy this month (UTC)</span>
-          <strong>{device.meter_energy_month_kwh == null || device.meter_energy_sample_at == null || device.meter_month_key !== currentMonth ? '—' : `${device.meter_energy_month_kwh.toFixed(2)} kWh`}</strong>
+          <strong>{energyReading}</strong>
         </div>
       </div>
       <p className="switch-meter-status">
@@ -1655,6 +1648,7 @@ function DevicesPage() {
   const queryClient = useQueryClient()
   const { data: user } = useSession()
   const [currentMonth, setCurrentMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [meterNow, setMeterNow] = useState(() => Date.now())
   const [manualOpen, setManualOpen] = useState(false)
   const [switchView, setSwitchView] = useState<'cards' | 'list'>('cards')
   const [switchFilter, setSwitchFilter] = useState<'all' | 'on' | 'off' | 'unassigned'>('all')
@@ -1672,6 +1666,7 @@ function DevicesPage() {
   useEffect(() => {
     const interval = window.setInterval(() => {
       setCurrentMonth(new Date().toISOString().slice(0, 7))
+      setMeterNow(Date.now())
     }, 60_000)
     return () => window.clearInterval(interval)
   }, [])
@@ -2087,6 +2082,7 @@ function DevicesPage() {
                 device={device}
                 isSaving={meterMutation.isPending}
                 currentMonth={currentMonth}
+                now={meterNow}
                 onSave={(settings) => meterMutation.mutate({ deviceId: device.id, settings })}
               />
               {canManageConnectors && <form className="switch-route-editor" onSubmit={(event) => { event.preventDefault(); const body = new FormData(event.currentTarget); connectorMutation.mutate({ deviceId: device.id, connectorId: String(body.get('connector_id') ?? '') }) }}>
@@ -2800,6 +2796,8 @@ function EndpointDetailsPanel({
   error: Error | null
   onClose: () => void
 }) {
+  const [now, setNow] = useState(() => Date.now())
+
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -2808,9 +2806,15 @@ function EndpointDetailsPanel({
     return () => document.removeEventListener('keydown', closeOnEscape)
   }, [onClose])
 
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), ENDPOINTS_REFRESH_INTERVAL)
+    return () => window.clearInterval(interval)
+  }, [])
+
   const latestReading = details?.readings.at(-1)
   const metrics = latestReading?.system_metrics
   const [readingView, setReadingView] = useState<'table' | 'chart'>('table')
+  const currentMonth = new Date(now).toISOString().slice(0, 7)
   const memoryPercent = metrics?.memory_used_bytes !== null && metrics?.memory_used_bytes !== undefined &&
     metrics.memory_total_bytes !== null && metrics.memory_total_bytes !== undefined && metrics.memory_total_bytes > 0
     ? metrics.memory_used_bytes / metrics.memory_total_bytes * 100
@@ -2891,10 +2895,41 @@ function EndpointDetailsPanel({
       <section aria-labelledby="mapped-switches-title">
         <h3 id="mapped-switches-title" className="mb-3 font-semibold text-[var(--ink)]">Mapped switches</h3>
         {details.mappings.length ? <ul className="grid gap-2 sm:grid-cols-2">
-          {details.mappings.map((mapping) => <li key={mapping.id} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--line)] px-3 py-3">
-            <div><p className="font-medium text-[var(--ink)]">{mapping.name}</p><p className="mt-1 text-xs text-[var(--muted)]">{mapping.enabled ? 'Mapping active' : 'Mapping paused'} · Switch {mapping.switch_state ? 'on' : 'off'}</p></div>
-            <span className="shrink-0 text-right text-xs text-[var(--muted)]">On ≤ {mapping.on_threshold}%<br />Off ≥ {mapping.off_threshold}%</span>
-          </li>)}
+          {details.mappings.map((mapping) => {
+            const powerAge = mapping.meter_power_sample_at
+              ? now - Date.parse(mapping.meter_power_sample_at)
+              : Number.POSITIVE_INFINITY
+            const hasCurrentPower = mapping.meter_power_watts != null
+              && powerAge >= 0
+              && powerAge <= 5 * 60 * 1000
+            const hasCurrentMonthEnergy = mapping.meter_month_key === currentMonth
+              && mapping.meter_energy_month_kwh != null
+              && mapping.meter_energy_sample_at != null
+            const powerReading = hasCurrentPower && mapping.meter_power_watts != null
+              ? formatPower(mapping.meter_power_watts)
+              : mapping.power_dp_id ? 'Waiting for a fresh reading' : 'Not configured'
+            const energyReading = hasCurrentMonthEnergy && mapping.meter_energy_month_kwh != null
+              ? `${mapping.meter_energy_month_kwh.toFixed(2)} kWh`
+              : mapping.energy_dp_id ? 'No current-month reading' : 'Not configured'
+            return <li key={mapping.id} className="rounded-lg border border-[var(--line)] px-3 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div><p className="font-medium text-[var(--ink)]">{mapping.name}</p><p className="mt-1 text-xs text-[var(--muted)]">{mapping.enabled ? 'Mapping active' : 'Mapping paused'} · Switch {mapping.switch_state ? 'on' : 'off'}</p></div>
+                <span className="shrink-0 text-right text-xs text-[var(--muted)]">On ≤ {mapping.on_threshold}%<br />Off ≥ {mapping.off_threshold}%</span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-[var(--line)] pt-3">
+                <div>
+                  <dt className="text-xs text-[var(--muted)]">Live power</dt>
+                  <dd className="mt-1 font-semibold text-[var(--ink)]">{powerReading}</dd>
+                  <dd className="mt-1 text-xs text-[var(--muted)]">Sampled {formatTimestamp(mapping.meter_power_sample_at)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-[var(--muted)]">Energy this month (UTC)</dt>
+                  <dd className="mt-1 font-semibold text-[var(--ink)]">{energyReading}</dd>
+                  <dd className="mt-1 text-xs text-[var(--muted)]">Sampled {formatTimestamp(mapping.meter_energy_sample_at)}</dd>
+                </div>
+              </dl>
+            </li>
+          })}
         </ul> : <p className="text-sm text-[var(--muted)]">No switch mappings are assigned to this device.</p>}
       </section>
 
@@ -3228,7 +3263,7 @@ volumes:
         <div className="connector-deploy-steps" aria-live="polite">
           <article className="connector-deploy-step">
             <span className="connector-step-number">1</span>
-            <div><h3>Prepare the connector host</h3><p>Use an always-on computer on the switch LAN. Python installs directly from ChargePilot; Docker pulls the published image.</p><a href={backendUrl('/connectors/download')} className="connector-download-link">Download source package (optional)</a></div>
+            <div><h3>Prepare the connector host</h3><p>Use an always-on computer on the switch LAN. Python installs directly from ChargePilot; Docker pulls the published image.</p>{deploymentMethod === 'python' && <a href={backendUrl('/connectors/download')} className="connector-download-link">Download source package (optional)</a>}</div>
           </article>
           <article className="connector-deploy-step">
             <span className="connector-step-number">2</span>
@@ -3713,27 +3748,7 @@ function AgentSetupPage() {
   })
   const releaseAssetsQuery = useQuery({
     queryKey: ['latest-agent-release-assets'],
-    queryFn: async () => {
-      const response = await fetch(AGENT_RELEASE_API_URL, {
-        headers: { Accept: 'application/vnd.github+json' },
-      })
-      if (!response.ok) throw new Error(`Could not load the latest agent release (GitHub returned ${response.status}).`)
-      const payload: unknown = await response.json()
-      if (typeof payload !== 'object' || payload === null) throw new Error('GitHub returned an invalid agent release.')
-      const release = payload as { tag_name?: unknown; assets?: unknown }
-      if (typeof release.tag_name !== 'string' || !Array.isArray(release.assets)) {
-        throw new Error('GitHub returned an incomplete agent release.')
-      }
-      const assets = release.assets.flatMap((asset) => {
-        if (typeof asset !== 'object' || asset === null || !('name' in asset) || !('browser_download_url' in asset)) return []
-        const { name, browser_download_url } = asset
-        if (typeof name !== 'string' || typeof browser_download_url !== 'string') return []
-        const url = new URL(browser_download_url)
-        if (url.protocol !== 'https:' || url.hostname !== 'github.com') return []
-        return [{ name, url: url.toString() }]
-      })
-      return { tag: release.tag_name, assets }
-    },
+    queryFn: () => apiFetch<AgentReleaseAssets>('/api/v1/agent/releases/latest'),
     staleTime: 60 * 60 * 1000,
   })
   const reportingSettingsQuery = useQuery({
@@ -3984,6 +3999,9 @@ function AgentSetupPage() {
       {releaseAssetsQuery.error && <div className="agent-package-error" role="alert">
         <p>{releaseAssetsQuery.error.message}</p>
         <a href={AGENT_RELEASE_URL} target="_blank" rel="noreferrer">Open the latest agent release</a>
+        <button type="button" className="agent-release-retry" disabled={releaseAssetsQuery.isFetching} onClick={() => { void releaseAssetsQuery.refetch() }}>
+          {releaseAssetsQuery.isFetching ? 'Retrying…' : 'Retry package lookup'}
+        </button>
       </div>}
       {releaseAssetsQuery.data && <div className="agent-package-grid">
         {agentPackages.map((agentPackage) => {

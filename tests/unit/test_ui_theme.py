@@ -94,7 +94,8 @@ def test_device_setup_links_to_published_builds_and_explains_installation():
     packages = app.split('className="agent-package-section"', 1)[1].split("</section>", 1)[0]
 
     assert "https://github.com/jsramitgupta/ChargePilot/releases/latest" in app
-    assert "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest" in app
+    assert "apiFetch<AgentReleaseAssets>('/api/v1/agent/releases/latest')" in app
+    assert "Retry package lookup" in app
     assert "Install instructions" in app
     assert "Download ${agentPackage.format}" in packages
     assert "name.toLowerCase() === 'chargepilotagent.exe'" in app
@@ -152,18 +153,22 @@ def test_switch_energy_readings_and_datapoint_settings_use_theme_aware_ui():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     light = LIGHT_THEME.read_text(encoding="utf-8")
     dark = DARK_THEME.read_text(encoding="utf-8")
+    overview = app.split("function DashboardPage()", 1)[1].split("\nfunction ", 1)[0]
+    endpoint_details = app.split("function EndpointDetailsPanel(", 1)[1].split("\nfunction ", 1)[0]
 
-    assert "Switch energy" in app
-    assert "Configure switch meters" in app
+    assert "Switch energy" not in overview
+    assert "energy-summary" not in light
+    assert "energy-summary" not in dark
     assert "meter-settings" in app
     assert "Total since the meter was installed" in app
     assert "This month’s total" in app
     assert "Find readings from switch" in app
     assert "Advanced setup" in app
-    assert ".energy-summary" in light
     assert ".switch-meter-panel" in light
-    assert "body.theme-dark .energy-summary" in dark
     assert "body.theme-dark .switch-meter-readings strong" in dark
+    assert "Live power" in endpoint_details
+    assert "Energy this month (UTC)" in endpoint_details
+    assert "Waiting for a fresh reading" in endpoint_details
 
 
 def test_mapping_threshold_preview_keeps_labels_clear_when_thresholds_coincide():
@@ -439,6 +444,7 @@ def test_connector_page_explains_supported_deployments_and_local_network_needs()
     assert "endusercompute/chargepilot-connector:sha-" in connectors_page
     assert "curl -fsSL" in connectors_page
     assert "/connectors/install.sh | sh" in connectors_page
+    assert "deploymentMethod === 'python' && <a href={backendUrl('/connectors/download')}" in connectors_page
     assert "switch LAN" in connectors_page
     assert "Graph" in endpoint_details
     assert "EndpointReadingChart" in endpoint_details

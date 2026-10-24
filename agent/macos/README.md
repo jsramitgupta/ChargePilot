@@ -97,11 +97,13 @@ in this app.
 
 The agent sends the chosen computer-name label, battery percentage, charging
 and AC state, observation timestamp, platform, installation ID, device class,
-and agent version. It also reports CPU utilization, used/total memory, and
-system-volume usage when available. GPU utilization is currently unavailable
-on macOS. These optional resource samples are retained by the server for 30
-days and do not affect automation. It does not send a serial number, hardware
-UUID, or IP address.
+and agent version. It also reports whole-Mac CPU utilization from Mach
+user/system/idle/nice counters, used/total memory, and system-volume usage
+when available. CPU is sampled for 100 milliseconds only when a report is
+sent; it is not the ChargePilot process's CPU usage. GPU utilization is
+currently unavailable on macOS. These optional resource samples are retained
+by the server for 30 days and do not affect automation. It does not send a
+serial number, hardware UUID, or IP address.
 If Apple does not provide a usable battery reading, no sample is sent.
 
 ## Stop or revoke

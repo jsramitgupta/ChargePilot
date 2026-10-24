@@ -339,6 +339,26 @@ def test_reporting_schedule_and_endpoint_details_are_tenant_scoped():
             last_seen_at=datetime.now(UTC),
         )
         db.add(endpoint)
+        device = Device(
+            tenant_id=tenant_a.id,
+            name="schedule-switch",
+            device_id=f"schedule-switch-{uuid4().hex}",
+            encrypted_local_key="encrypted-key",
+            power_dp_id="cur_power",
+            energy_dp_id="add_ele",
+            meter_power_watts=84.5,
+            meter_power_sample_at=datetime.now(UTC),
+            meter_energy_month_kwh=2.75,
+            meter_energy_sample_at=datetime.now(UTC),
+            meter_month_key=datetime.now(UTC).strftime("%Y-%m"),
+        )
+        db.add(device)
+        db.flush()
+        db.add(Mapping(
+            tenant_id=tenant_a.id,
+            endpoint_id=endpoint.id,
+            device_id=device.id,
+        ))
         db.commit()
         endpoint_id = endpoint.id
         tenant_a_id = tenant_a.id
@@ -362,6 +382,12 @@ def test_reporting_schedule_and_endpoint_details_are_tenant_scoped():
     assert response.status_code == 200, response.text
     assert response.json()["reporting_interval_minutes"] == 30
     assert response.json()["display_name"] == "schedule-device"
+    mapped_switch = response.json()["mappings"][0]
+    assert mapped_switch["name"] == "schedule-switch"
+    assert mapped_switch["meter_power_watts"] == 84.5
+    assert mapped_switch["meter_energy_month_kwh"] == 2.75
+    assert mapped_switch["power_dp_id"] == "cur_power"
+    assert mapped_switch["energy_dp_id"] == "add_ele"
 
     forbidden_read = tenant_client.get(
         "/api/v1/admin/tenant-settings",

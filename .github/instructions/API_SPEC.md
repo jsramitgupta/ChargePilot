@@ -213,6 +213,14 @@ a credential and is not a device label. Native agent device names continue to
 be derived from non-serial platform metadata. Enrollment uses the
 server-generated high-entropy token.
 
+### 2.8 GET /api/v1/agent/releases/latest
+
+Returns the latest `agents-v*` release tag and supported `.exe`, `.dmg`,
+`.ipa`, and `.apk` asset names and URLs for the authenticated setup page. The
+API fetches release metadata server-side so browser access to GitHub's API is
+not required. The response is cached privately for five minutes. GitHub
+network, status, or payload errors return an explicit `502` response.
+
 The following agent source downloads do not require a browser session and
 contain no credentials. They issue a `302` redirect to the corresponding asset
 on the latest stable `agents-v*` GitHub Release. The agent workflow publishes
@@ -557,8 +565,11 @@ automation eligibility, mappings, and recent battery/resource history. The
 optional `limit` query parameter defaults to 100 and is limited to 1–100.
 Each history entry includes battery/charging state and `system_metrics` when
 the agent supplied it. Results are ordered oldest-to-newest for charting;
-the API returns the newest samples within the requested limit. A missing or
-out-of-tenant endpoint returns 404.
+the API returns the newest samples within the requested limit. Each mapped
+switch includes configured meter datapoints, its latest power value and sample
+time, and current UTC-month energy and sample time. These readings remain
+tenant-scoped through the endpoint's mappings. A missing or out-of-tenant
+endpoint returns 404.
 
 ### 3.9 Tenant reporting schedule
 

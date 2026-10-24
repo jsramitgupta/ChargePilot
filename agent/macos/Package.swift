@@ -9,5 +9,6 @@ let package = Package(
     ],
     targets: [
         .executableTarget(name: "ChargePilotAgent"),
+        .testTarget(name: "ChargePilotAgentTests", dependencies: ["ChargePilotAgent"]),
     ]
 )

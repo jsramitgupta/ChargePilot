@@ -1750,75 +1750,12 @@ button, a {
   gap: 12px;
 }
 
-.energy-summary {
-  display: grid;
-  gap: 14px;
-  padding: 18px 20px;
-  border: 1px solid var(--line);
-  border-inline-start: 3px solid var(--copper);
-  border-radius: 14px;
-  background: var(--surface);
-}
-
-.energy-summary-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.energy-summary-heading h2 {
-  margin: 0;
-  color: var(--ink);
-  font-size: 18px;
-  font-weight: 750;
-  letter-spacing: -.02em;
-}
-
-.energy-summary-heading p {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.energy-summary-values {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
-}
-
-.energy-summary-reading {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.energy-summary-reading + .energy-summary-reading {
-  padding-left: 20px;
-  border-left: 1px solid var(--line);
-}
-
-.energy-summary-reading span,
 .switch-meter-readings span {
   color: var(--muted);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .045em;
   text-transform: uppercase;
-}
-
-.energy-summary-reading strong {
-  color: var(--ink);
-  font-size: clamp(20px, 2.2vw, 26px);
-  font-weight: 750;
-  letter-spacing: -.04em;
-  line-height: 1.15;
-}
-
-.energy-summary-reading small {
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1.5;
 }
 
 .metric-card {
@@ -2448,6 +2385,25 @@ button, a {
 .agent-package-error a {
   color: inherit;
   font-weight: 650;
+}
+
+.agent-package-error button {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.agent-package-error button:hover {
+  text-decoration: underline;
+}
+
+.agent-package-error button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
 }
 
 .agent-enrollment-note a {
@@ -5177,21 +5133,8 @@ button, a {
 }
 
 @media (max-width: 600px) {
-  .energy-summary-heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .energy-summary-values,
   .switch-meter-form {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .energy-summary-reading + .energy-summary-reading {
-    padding-top: 11px;
-    padding-left: 0;
-    border-top: 1px solid var(--line);
-    border-left: 0;
   }
 
   .dashboard-page-header {

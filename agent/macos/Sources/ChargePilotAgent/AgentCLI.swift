@@ -112,7 +112,29 @@ private struct TelemetryResponse: Decodable {
     }
 }
 
-private enum SystemMetricsReader {
+struct CPUTickSnapshot {
+    let user: UInt64
+    let system: UInt64
+    let idle: UInt64
+    let nice: UInt64
+
+    static func fromMachTicks(_ values: [UInt64]) -> Self? {
+        guard values.count == 4 else { return nil }
+        return Self(user: values[0], system: values[1], idle: values[2], nice: values[3])
+    }
+
+    func utilization(since previous: Self) -> Double? {
+        let total = (user &- previous.user)
+            &+ (system &- previous.system)
+            &+ (idle &- previous.idle)
+            &+ (nice &- previous.nice)
+        guard total > 0 else { return nil }
+        let idleDelta = idle &- previous.idle
+        return min(100, max(0, Double(total &- idleDelta) / Double(total) * 100))
+    }
+}
+
+enum SystemMetricsReader {
     static func read() -> SystemMetrics {
         let memory = readMemory()
         return SystemMetrics(
@@ -128,13 +150,10 @@ private enum SystemMetricsReader {
         guard let first = cpuTicks() else { return nil }
         usleep(100_000)
         guard let second = cpuTicks() else { return nil }
-        let total = second.total &- first.total
-        guard total > 0 else { return nil }
-        let idle = second.idle &- first.idle
-        return min(100, max(0, Double(total &- idle) / Double(total) * 100))
+        return second.utilization(since: first)
     }
 
-    private static func cpuTicks() -> (total: UInt64, idle: UInt64)? {
+    private static func cpuTicks() -> CPUTickSnapshot? {
         var load = host_cpu_load_info_data_t()
         var count = mach_msg_type_number_t(
             MemoryLayout<host_cpu_load_info_data_t>.stride / MemoryLayout<integer_t>.stride
@@ -146,11 +165,12 @@ private enum SystemMetricsReader {
         }
         guard result == KERN_SUCCESS else { return nil }
         let values = load.cpu_ticks
-        let user = UInt64(values.0)
-        let system = UInt64(values.1)
-        let nice = UInt64(values.2)
-        let idle = UInt64(values.3)
-        return (user + system + nice + idle, idle)
+        return CPUTickSnapshot.fromMachTicks([
+            UInt64(values.0),
+            UInt64(values.1),
+            UInt64(values.2),
+            UInt64(values.3),
+        ])
     }
 
     private static func readMemory() -> (used: UInt64?, total: UInt64?) {

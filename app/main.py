@@ -1,6 +1,7 @@
 import asyncio
 import io
 import logging
+import re
 import secrets
 import string
 import zipfile
@@ -10,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
@@ -41,6 +43,9 @@ from app.services.event_retention import purge_expired_events, purge_expired_tel
 BASE_DIR = Path(__file__).resolve().parent
 AGENT_RELEASE_DOWNLOAD_BASE = (
     "https://github.com/jsramitgupta/ChargePilot/releases/latest/download"
+)
+AGENT_RELEASE_API_URL = (
+    "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest"
 )
 logger = logging.getLogger("chargepilot.main")
 
@@ -231,6 +236,78 @@ async def get_agent_setup(
         "install_command": install_command,
         "is_super_admin": is_super_admin,
     }
+
+
+@app.get(f"{settings.api_v1_prefix}/agent/releases/latest")
+async def get_latest_agent_release(
+    response: Response,
+    user: User = Depends(get_authenticated_user),
+):
+    response.headers["Cache-Control"] = "private, max-age=300"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            release_response = await client.get(
+                AGENT_RELEASE_API_URL,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "ChargePilotAgentSetup",
+                },
+            )
+    except httpx.RequestError as error:
+        logger.warning("Could not reach GitHub while loading agent release assets: %s", error)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach GitHub to load the latest agent packages. Try again or open the release page.",
+        ) from error
+
+    if release_response.status_code != 200:
+        logger.warning(
+            "GitHub returned HTTP %s while loading agent release assets",
+            release_response.status_code,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="GitHub could not provide the latest agent packages. Try again or open the release page.",
+        )
+
+    try:
+        release = release_response.json()
+    except ValueError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="GitHub returned an unreadable agent release response.",
+        ) from error
+
+    if (
+        not isinstance(release, dict)
+        or not isinstance(release.get("tag_name"), str)
+        or re.fullmatch(r"agents-v\d+\.\d+\.\d+", release["tag_name"]) is None
+        or not isinstance(release.get("assets"), list)
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail="GitHub returned an incomplete latest agent release.",
+        )
+
+    assets = []
+    for asset in release["assets"]:
+        if not isinstance(asset, dict):
+            continue
+        name = asset.get("name")
+        download_url = asset.get("browser_download_url")
+        if not isinstance(name, str) or not name.lower().endswith((".exe", ".dmg", ".ipa", ".apk")):
+            continue
+        if not isinstance(download_url, str):
+            continue
+        try:
+            parsed_url = httpx.URL(download_url)
+        except httpx.InvalidURL:
+            continue
+        if parsed_url.scheme != "https" or parsed_url.host != "github.com":
+            continue
+        assets.append({"name": name, "url": download_url})
+
+    return {"tag": release["tag_name"], "assets": assets}
 
 
 @app.get("/agent/download")

@@ -20,6 +20,10 @@ and the per-install credential is stored in Keychain.
 - Menu-bar UI: configures enrollment and reporting, and displays last
   upload success/failure
 
+CPU telemetry is host-wide utilization, calculated from Mach counters in
+user/system/idle/nice order over a short sampling window. It describes the Mac,
+not the ChargePilot process, and is sampled only when a report is sent.
+
 ## 3. Key design decisions
 
 - battery checks should be opportunistic rather than a guaranteed real-time loop
