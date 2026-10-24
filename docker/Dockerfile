@@ -16,6 +16,7 @@ RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir -r /tmp/chargepilot-build-requirements.txt
 
 COPY app ./app
+COPY connector ./connector
 COPY agent/windows/install.ps1 ./agent/windows/install.ps1
 
 RUN /opt/venv/bin/pip install --no-cache-dir --no-deps --no-build-isolation . \
@@ -34,6 +35,7 @@ RUN groupadd --system --gid 10001 chargepilot \
 
 COPY --from=build /opt/venv /opt/venv
 COPY app ./app
+COPY connector ./connector
 COPY --from=build /app/agent/windows/install.ps1 ./agent/windows/install.ps1
 
 RUN /opt/venv/bin/python -m pip uninstall --yes pip setuptools \
