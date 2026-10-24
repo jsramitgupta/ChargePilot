@@ -43,6 +43,7 @@ See `.github/instructions/DEPLOYMENT.md` for safe remote validation scope.
 - PostgreSQL for transactional state and outbox
 - Apache Kafka for durable telemetry event transport
 - React, TypeScript, Tailwind CSS, and Vite for the interactive frontend
+- Node.js 24.22.1 (current LTS patch) for frontend development, CI, and the Docker build stage
 - TinyTuya
 - HTTPS-polling site connector with PostgreSQL-backed durable commands
 - tuya-device-sharing-sdk

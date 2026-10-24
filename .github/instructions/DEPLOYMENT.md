@@ -47,15 +47,15 @@ mutations.
 
 - Python 3.12+ for local installs; production images use Python 3.15, the latest
   stable release (Python does not designate formal LTS releases)
-- The frontend image build uses Node.js 24.22.0, the latest LTS release, pinned
-  by the official image digest
+- The frontend image build and CI use Node.js 24.22.1, the latest patch of the
+  current LTS line, pinned to the official multi-architecture image digest
 - Docker Desktop or Docker Engine with Compose
 - local network access from the site connector to the Tuya device
 - outbound HTTPS access from each site connector to ChargePilot
 - Windows device with a battery capable of running the currently supported
   `agent/BatteryAgent.ps1` agent
 - macOS 13+ with Swift 5.9+ for the `agent/macos` menu-bar app and CLI
-- Node.js 24 LTS for frontend local development
+- Node.js 24.22.1 for frontend local development (see `frontend/.nvmrc`)
 
 ## 3. Environment variables
 
