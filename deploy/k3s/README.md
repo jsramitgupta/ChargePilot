@@ -17,10 +17,9 @@ copy credentials from the live cluster into this document or Git.
   amd64, k3s/Kubernetes `v1.36.4+k3s1`, containerd `2.3.4-k3s1.36`.
 - Argo CD Application: `argocd/chargepilot`; at inspection it used
   `https://github.com/jsramitgupta/ChargePilot.git`, branch `main`, path
-  `deploy/k3s`; live status `Synced` / `Healthy`. The observed synced Git
-  revision was `fc9eabe75338a35ab0e2270135cdbc324b825d34`. The checked-in
-  Application now uses SSH; provision a read-only Argo CD deploy key before
-  making the repository private. See the deployment guide.
+  `deploy/k3s`; live status `Synced` / `Healthy` at the current `main`
+  revision. The checked-in Application uses SSH; provision a read-only Argo CD
+  deploy key before making the repository private. See the deployment guide.
 - Istio ingress Service: `istio-system/istio-ingressgateway`, type
   `LoadBalancer`, LAN address `192.168.1.21`, ports 80 and 443 (plus status
   port 15021).
