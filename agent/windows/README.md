@@ -24,11 +24,14 @@ the Windows install command. On the Windows device, run the command in
 PowerShell and approve the administrator prompt. The bootstrap downloads the
 latest executable over HTTPS and opens its setup UI.
 
+The installer downloads the executable from the same public API origin that
+served the install command and passes that origin to the setup application.
+This also works for self-hosted deployments that set `CHARGEPILOT_API_URL`.
+
 In the setup window:
 
-1. The ChargePilot API origin is fixed to
-   `https://api-chargepilot.endusercompute.in`. The Windows computer name is
-   used automatically; serial numbers are not collected.
+1. The ChargePilot API origin is shown for confirmation. The Windows computer
+   name is used automatically; serial numbers are not collected.
 2. Select **Laptop** or **Desktop**, then choose the reporting interval.
 3. Enter the enrollment token and choose **Save and start service**.
 
@@ -94,8 +97,11 @@ Open an elevated PowerShell window in the executable directory:
 ```
 
 `install` and `configure` prompt for the enrollment token without displaying
-its characters. Do not pass tokens as CLI options; command-line arguments may
-be exposed in process listings or shell history. The `status` and `send-once` commands can be run without elevation. Service
+its characters. They accept an optional `--server-url https://api.example.test`
+for a self-hosted API; if omitted, the saved server URL is reused, or the
+ChargePilot public API is used for a new install. `ui` also accepts this option.
+Do not pass tokens as CLI options; command-line arguments may be exposed in
+process listings or shell history. The `status` and `send-once` commands can be run without elevation. Service
 installation, configuration, deregistration, start, stop, and uninstall
 require an elevated administrator terminal.
 

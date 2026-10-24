@@ -1,13 +1,12 @@
 [CmdletBinding()]
 param(
+    [string]$ServerUrl = "https://api-chargepilot.endusercompute.in",
     [string]$AgentVersion = ""
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
-$serverUrl = "https://api-chargepilot.endusercompute.in"
 
 $temporaryExecutable = Join-Path `
     ([System.IO.Path]::GetTempPath()) `
@@ -47,7 +46,7 @@ try {
         $stream.Dispose()
     }
 
-    $arguments = 'ui --agent-version "{0}"' -f $AgentVersion
+    $arguments = 'ui --agent-version "{0}" --server-url "{1}"' -f $AgentVersion, $ServerUrl
     Start-Process `
         -FilePath $temporaryExecutable `
         -ArgumentList $arguments `

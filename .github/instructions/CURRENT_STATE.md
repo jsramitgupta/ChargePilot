@@ -24,10 +24,12 @@ Physical-device validation and signed store distribution remain outstanding. New
 installs use a tenant-scoped, reusable 24-hour
 enrollment token to obtain a revocable per-install credential; existing
 Windows agents remain compatible with tenant-wide tokens during migration.
-All four native enrollment clients use the fixed
-`https://api-chargepilot.endusercompute.in` origin and derive non-serial device
-labels from approved platform metadata; only the enrollment token is entered
-as a credential.
+Native enrollment clients default to
+`https://api-chargepilot.endusercompute.in` and derive non-serial device
+labels from approved platform metadata. The Windows installer uses the public
+API origin from the setup command, supporting self-hosted deployments; Android,
+iOS, and macOS use the fixed default origin. Only the enrollment token is
+entered as a credential.
 The backend monitors endpoint battery state and controls local Tuya switches
 through an outbound-HTTPS site connector on each device LAN.
 

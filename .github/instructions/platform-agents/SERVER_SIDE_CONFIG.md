@@ -21,13 +21,15 @@ background reporting, and optional launch-at-login behavior; further
 distribution QA remains. The live `POST /api/v1/telemetry` schema is
 `app/schemas/telemetry.py`:
 
-All four shipped native clients use the fixed API origin
+Native clients default to the API origin
 `https://api-chargepilot.endusercompute.in`; enrollment screens do not accept
-a custom server URL or user-entered device label. Windows and macOS identify
-the computer by its OS computer name, Android uses its non-unique model name,
-and iOS uses a generic device type. Device serial numbers are not collected.
-The enrollment token remains the server-generated, high-entropy, reusable
-24-hour bearer token described below.
+a custom server URL or user-entered device label. The Windows bootstrap passes
+the public API origin from the setup command to the installer and setup UI, so
+self-hosted deployments can use their configured origin. Windows and macOS
+identify the computer by its OS computer name, Android uses its non-unique
+model name, and iOS uses a generic device type. Device serial numbers are not
+collected. The enrollment token remains the server-generated, high-entropy,
+reusable 24-hour bearer token described below.
 
 - required: `hostname`, `battery_percentage` (0–100), `charging`, `timestamp`,
   and `agent_version`
