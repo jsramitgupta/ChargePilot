@@ -222,6 +222,10 @@ Gateway accepts HTTP on port 80; public TLS must be terminated by the existing
 edge proxy or explicitly configured at the ingress before HTTPS traffic reaches
 the cluster. Keep the browser-facing origins HTTPS.
 
+For the dated live-cluster snapshot, workload details, Secret key names
+(values excluded), persistence limitations, and an AI-agent rebuild checklist,
+see [the k3s live setup and rebuild notes](../../deploy/k3s/README.md).
+
 The checked-in k3s topology is sized for a single-node installation: one API,
 one frontend, relay, automation consumer, PostgreSQL StatefulSet, and
 single-node Kafka StatefulSet. PostgreSQL and Kafka use private cluster services and
@@ -668,6 +672,28 @@ but it does not replace this reviewed migration on an existing PostgreSQL
 schema. The rollback script drops all meter settings and collected samples;
 first stop the new feature version and preserve any needed data from backup.
 Test both migration scripts against a restored backup before production.
+
+Tenant-configured agent reporting and system-resource history add
+`tenants.telemetry_interval_minutes`, `battery_readings.system_metrics_json`,
+and an endpoint/timestamp history index. For an existing PostgreSQL deployment:
+
+1. Take and verify a database backup.
+2. Stop API, outbox-relay, and automation-consumer processes.
+3. Apply `deploy/migrations/20261024_tenant_reporting_and_system_metrics.sql`
+   through the private database service. The migration is safe to re-run for
+   its added columns, index, and named check constraint.
+4. Deploy the backend and frontend, then verify tenant schedule reads/writes,
+   accepted telemetry responses, endpoint detail history, and the 30-day
+   retention job.
+5. Update platform agents. Windows and macOS adopt the server interval after
+   an accepted report; Android remains subject to WorkManager's 15-minute
+   minimum, and iOS reporting remains best-effort.
+
+Do not rely on startup `create_all()` to update an existing production schema.
+The rollback migration drops the configured tenant cadence and all stored
+system metrics; take a backup and confirm that data loss is acceptable before
+using it. Test upgrade and rollback against a restored backup before
+production.
 
 Legacy Windows endpoints are identified by the
 `Win32_ComputerSystemProduct.UUID`; hostname remains mutable display and

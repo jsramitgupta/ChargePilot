@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AppIntents
 import Security
+import Darwin
 
 private let chargePilotAPIOrigin = "https://api-chargepilot.endusercompute.in"
 import SwiftUI
@@ -71,6 +72,7 @@ final class AgentModel: ObservableObject {
     @Published private(set) var endpointID: String?
     @Published private(set) var batteryReading: BatteryReading?
     @Published private(set) var lastSuccessfulReport: Date?
+    @Published private(set) var reportingIntervalMinutes = 5
     @Published private(set) var lastError: String?
     @Published private(set) var statusMessage: String?
     @Published private(set) var isWorking = false
@@ -86,6 +88,7 @@ final class AgentModel: ObservableObject {
             installationID = UUID(uuidString: value)
         }
         lastSuccessfulReport = defaults.object(forKey: "lastSuccessfulReport") as? Date
+        reportingIntervalMinutes = max(5, defaults.integer(forKey: "reportingIntervalMinutes"))
         lastError = defaults.string(forKey: "lastError")
         refreshBatteryReading()
     }
@@ -156,7 +159,7 @@ final class AgentModel: ObservableObject {
             isWorking = true
             statusMessage = "Sending a fresh battery reading…"
             lastError = nil
-            try await AgentAPI.sendTelemetry(
+            let intervalSeconds = try await AgentAPI.sendTelemetry(
                 origin: origin,
                 credential: credential,
                 installationID: installationID,
@@ -164,6 +167,8 @@ final class AgentModel: ObservableObject {
                 deviceClass: UIDevice.current.userInterfaceIdiom == .pad ? "tablet" : "phone",
                 reading: batteryReading
             )
+            reportingIntervalMinutes = intervalSeconds / 60
+            defaults.set(reportingIntervalMinutes, forKey: "reportingIntervalMinutes")
             let now = Date()
             lastSuccessfulReport = now
             statusMessage = "Reading sent to ChargePilot."
@@ -319,6 +324,15 @@ private struct AgentHomeView: View {
                             .font(.system(size: 12))
                             .foregroundStyle(muted)
                     }
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Workspace reporting target")
+                            .font(.system(size: 13))
+                            .foregroundStyle(muted)
+                        Text("Every \(model.reportingIntervalMinutes) minutes")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(ink)
+                    }
                     Text("iOS · enrolled")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(leaf)
@@ -381,7 +395,7 @@ private struct AgentHomeView: View {
             }
             .disabled(model.isWorking)
 
-            Text("Shortcuts can request a fresh report on battery-level or charger events. iOS may delay or skip background actions, so switch control is not guaranteed at an exact percentage.")
+            Text("Shortcuts can report on battery-level or charger events. iOS controls when shortcuts run, so the workspace target is informational on iPhone and switch control is not guaranteed at an exact time.")
                 .font(.system(size: 13))
                 .foregroundStyle(muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -471,6 +485,7 @@ private struct TelemetryRequest: Encodable {
     let batteryPercentage: Int
     let charging: Bool
     let timestamp: String
+    let systemMetrics: SystemMetrics
     let agentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.2"
 
     enum CodingKeys: String, CodingKey {
@@ -482,6 +497,116 @@ private struct TelemetryRequest: Encodable {
         case charging
         case timestamp
         case agentVersion = "agent_version"
+        case systemMetrics = "system_metrics"
+    }
+}
+
+private struct SystemMetrics: Encodable {
+    let cpuUsagePercent: Double?
+    let gpuUsagePercent: Double?
+    let memoryUsedBytes: UInt64?
+    let memoryTotalBytes: UInt64?
+    let disks: [DiskUsage]
+
+    enum CodingKeys: String, CodingKey {
+        case cpuUsagePercent = "cpu_usage_percent"
+        case gpuUsagePercent = "gpu_usage_percent"
+        case memoryUsedBytes = "memory_used_bytes"
+        case memoryTotalBytes = "memory_total_bytes"
+        case disks
+    }
+}
+
+private struct DiskUsage: Encodable {
+    let name: String
+    let usedBytes: UInt64
+    let totalBytes: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case usedBytes = "used_bytes"
+        case totalBytes = "total_bytes"
+    }
+}
+
+private struct TelemetryResponse: Decodable {
+    let reportingIntervalSeconds: Int
+
+    enum CodingKeys: String, CodingKey {
+        case reportingIntervalSeconds = "reporting_interval_seconds"
+    }
+}
+
+private enum SystemMetricsReader {
+    static func read() -> SystemMetrics {
+        let memory = readMemory()
+        return SystemMetrics(
+            cpuUsagePercent: readCPUUsage(),
+            gpuUsagePercent: nil,
+            memoryUsedBytes: memory.used,
+            memoryTotalBytes: memory.total,
+            disks: readDiskUsage()
+        )
+    }
+
+    private static func readCPUUsage() -> Double? {
+        guard let first = cpuTicks() else { return nil }
+        usleep(100_000)
+        guard let second = cpuTicks() else { return nil }
+        let total = second.total &- first.total
+        guard total > 0 else { return nil }
+        let idle = second.idle &- first.idle
+        return min(100, max(0, Double(total &- idle) / Double(total) * 100))
+    }
+
+    private static func cpuTicks() -> (total: UInt64, idle: UInt64)? {
+        var load = host_cpu_load_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<host_cpu_load_info_data_t>.stride / MemoryLayout<integer_t>.stride
+        )
+        let result = withUnsafeMutablePointer(to: &load) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+        let values = load.cpu_ticks
+        let user = UInt64(values.0)
+        let system = UInt64(values.1)
+        let nice = UInt64(values.2)
+        let idle = UInt64(values.3)
+        return (user + system + nice + idle, idle)
+    }
+
+    private static func readMemory() -> (used: UInt64?, total: UInt64?) {
+        var statistics = vm_statistics64()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride
+        )
+        let result = withUnsafeMutablePointer(to: &statistics) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return (nil, nil) }
+        let total = ProcessInfo.processInfo.physicalMemory
+        let available = (
+            UInt64(statistics.free_count) + UInt64(statistics.inactive_count)
+        ) * UInt64(vm_page_size)
+        return (total > available ? total - available : 0, total)
+    }
+
+    private static func readDiskUsage() -> [DiskUsage] {
+        guard let attributes = try? FileManager.default.attributesOfFileSystem(
+            forPath: NSHomeDirectory()
+        ),
+        let total = (attributes[.systemSize] as? NSNumber)?.uint64Value,
+        let free = (attributes[.systemFreeSize] as? NSNumber)?.uint64Value,
+        total > 0
+        else {
+            return []
+        }
+        return [DiskUsage(name: "Device storage", usedBytes: total > free ? total - free : 0, totalBytes: total)]
     }
 }
 
@@ -503,7 +628,7 @@ private enum ShortcutTelemetryReporter {
         let credential = try KeychainCredentialStore().load(account: installationID.uuidString)
         let deviceClass = UIDevice.current.userInterfaceIdiom == .pad ? "tablet" : "phone"
         let label = UIDevice.current.model
-        try await AgentAPI.sendTelemetry(
+        let intervalSeconds = try await AgentAPI.sendTelemetry(
             origin: origin,
             credential: credential,
             installationID: installationID,
@@ -511,6 +636,7 @@ private enum ShortcutTelemetryReporter {
             deviceClass: deviceClass,
             reading: reading
         )
+        defaults.set(intervalSeconds / 60, forKey: "reportingIntervalMinutes")
 
         let now = Date()
         defaults.set(now, forKey: "lastSuccessfulReport")
@@ -547,7 +673,7 @@ private enum AgentAPI {
         label: String,
         deviceClass: String,
         reading: BatteryReading
-    ) async throws {
+    ) async throws -> Int {
         let formatter = ISO8601DateFormatter()
         let body = TelemetryRequest(
             hostname: label,
@@ -555,7 +681,8 @@ private enum AgentAPI {
             deviceClass: deviceClass,
             batteryPercentage: reading.percentage,
             charging: reading.charging,
-            timestamp: formatter.string(from: Date())
+            timestamp: formatter.string(from: Date()),
+            systemMetrics: SystemMetricsReader.read()
         )
         var request = try makeRequest(
             origin: origin,
@@ -563,7 +690,12 @@ private enum AgentAPI {
             body: body
         )
         request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
-        try await send(request)
+        let data = try await send(request)
+        let response = try JSONDecoder().decode(TelemetryResponse.self, from: data)
+        guard (300...86_400).contains(response.reportingIntervalSeconds) else {
+            throw AgentError.invalidResponse
+        }
+        return response.reportingIntervalSeconds
     }
 
     static func deregister(origin: URL, credential: String) async throws {
@@ -612,14 +744,15 @@ private enum AgentAPI {
         return request
     }
 
-    private static func send(_ request: URLRequest) async throws {
-        let (_, response) = try await URLSession.shared.data(for: request)
+    private static func send(_ request: URLRequest) async throws -> Data {
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw AgentError.invalidResponse
         }
         guard (200..<300).contains(http.statusCode) else {
             throw AgentError.requestRejected(http.statusCode)
         }
+        return data
     }
 }
 

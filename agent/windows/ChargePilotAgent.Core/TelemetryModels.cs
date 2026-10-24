@@ -8,7 +8,20 @@ public sealed record TelemetryReading(
     int BatteryPercentage,
     bool Charging,
     bool AcConnected,
-    DateTimeOffset Timestamp);
+    DateTimeOffset Timestamp,
+    SystemMetrics? SystemMetrics = null);
+
+public sealed record DiskUsage(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("used_bytes")] long UsedBytes,
+    [property: JsonPropertyName("total_bytes")] long TotalBytes);
+
+public sealed record SystemMetrics(
+    [property: JsonPropertyName("cpu_usage_percent")] double? CpuUsagePercent,
+    [property: JsonPropertyName("gpu_usage_percent")] double? GpuUsagePercent,
+    [property: JsonPropertyName("memory_used_bytes")] long? MemoryUsedBytes,
+    [property: JsonPropertyName("memory_total_bytes")] long? MemoryTotalBytes,
+    [property: JsonPropertyName("disks")] IReadOnlyList<DiskUsage> Disks);
 
 public sealed record TelemetryRequest(
     [property: JsonPropertyName("hostname")] string Hostname,
@@ -21,7 +34,8 @@ public sealed record TelemetryRequest(
     [property: JsonPropertyName("agent_version")] string AgentVersion,
     [property: JsonPropertyName("installation_id")] Guid InstallationId,
     [property: JsonPropertyName("platform")] string Platform,
-    [property: JsonPropertyName("device_class")] string DeviceClass)
+    [property: JsonPropertyName("device_class")] string DeviceClass,
+    [property: JsonPropertyName("system_metrics")] SystemMetrics? SystemMetrics)
 {
     public static TelemetryRequest From(AgentOptions options, TelemetryReading reading) =>
         new(
@@ -35,7 +49,8 @@ public sealed record TelemetryRequest(
             options.AgentVersion,
             options.InstallationId,
             "windows",
-            options.DeviceClass);
+            options.DeviceClass,
+            reading.SystemMetrics);
 }
 
 public sealed record EnrollmentRequest(
@@ -53,4 +68,5 @@ public sealed record EnrollmentResponse(
 
 public sealed record TelemetryResponse(
     [property: JsonPropertyName("status")] string Status,
-    [property: JsonPropertyName("message")] string Message);
+    [property: JsonPropertyName("message")] string Message,
+    [property: JsonPropertyName("reporting_interval_seconds")] int ReportingIntervalSeconds = 300);

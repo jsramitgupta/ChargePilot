@@ -61,13 +61,21 @@ not guarantee a switch action exactly at 90%. The app also sends a reading
 after enrollment, when it returns to the foreground, and when **Send reading
 now** is tapped.
 
+Each report also includes CPU utilization, used/total memory, and system
+storage usage when available. GPU utilization is unavailable on iOS. The
+server-configured tenant cadence (5 minutes to 24 hours) is shown in the app;
+iOS has no guaranteed repeating background schedule, so foreground and
+Shortcuts reports remain best-effort regardless of that target. Tenant admins
+and managers set the cadence from ChargePilot's Agent setup page. Resource
+history is retained for 30 days and does not affect automation.
+
 ## Reporting and privacy
 
 The app sends a generic device-type label, battery percentage, charging state,
-observation timestamp, platform, random installation ID, device class, and
-agent version. It does not send an IP address, hardware identifier, location,
-phone number, or the system device name. If iOS reports an unknown battery
-level or state, the app sends no sample.
+observation timestamp, platform, random installation ID, device class, agent
+version, and available system resource metrics. It does not send an IP address,
+hardware identifier, location, phone number, or the system device name. If iOS
+reports an unknown battery level or state, the app sends no sample.
 
 The Shortcuts action is permitted to run without opening the app or requiring
 device authentication so it can attempt a report while the phone is locked.

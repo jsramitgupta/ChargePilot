@@ -10,6 +10,8 @@ from app.core.authorization import get_authenticated_user, is_super_admin_user
 from app.core.config import settings
 from app.models.endpoint import Endpoint
 from app.models.messaging import TelemetryOutbox
+from app.models.telemetry import BatteryReading
+from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.telemetry import TelemetryPayload, TelemetryResponse
 from app.services.endpoint_service import (
@@ -180,7 +182,25 @@ async def receive_telemetry(
 
     if is_newer_snapshot:
         endpoint.updated_at = datetime.now(UTC)
+        endpoint.battery_percentage = payload.battery_percentage
+        endpoint.charging = payload.charging
+        endpoint.ac_connected = payload.ac_connected
     db.flush()
+    metrics_json = (
+        payload.system_metrics.model_dump_json()
+        if payload.system_metrics is not None
+        else None
+    )
+    db.add(
+        BatteryReading(
+            endpoint_id=endpoint.id,
+            battery_percentage=payload.battery_percentage,
+            charging=payload.charging,
+            ac_connected=payload.ac_connected or False,
+            timestamp=timestamp,
+            system_metrics_json=metrics_json,
+        )
+    )
     event_id = str(uuid4())
     event_payload = payload.model_dump(mode="json")
     event_payload["endpoint_id"] = endpoint.id
@@ -194,6 +214,13 @@ async def receive_telemetry(
     )
     db.commit()
 
+    tenant_interval = (
+        db.query(Tenant.telemetry_interval_minutes)
+        .filter(Tenant.id == endpoint.tenant_id)
+        .scalar()
+        if endpoint.tenant_id
+        else None
+    )
     return TelemetryResponse(
         status="accepted",
         hostname=payload.hostname,
@@ -201,4 +228,5 @@ async def receive_telemetry(
         platform=payload.platform,
         battery_percentage=payload.battery_percentage,
         message="Telemetry accepted for asynchronous automation processing.",
+        reporting_interval_seconds=(tenant_interval or 5) * 60,
     )

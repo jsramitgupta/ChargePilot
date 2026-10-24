@@ -13,6 +13,10 @@ from app.schemas.telemetry import TelemetryPayload
 from app.services.broadcaster import publish_event
 from app.services.connector_service import queue_device_command
 from app.services.rule_engine import evaluate_battery_action
+from app.services.telemetry_policy import (
+    telemetry_freshness_limit_seconds,
+    tenant_reporting_interval_minutes,
+)
 from app.services.tuya_service import TuyaService
 
 logger = logging.getLogger("chargepilot.automation")
@@ -50,12 +54,13 @@ async def process_telemetry_event(
 
     now = datetime.now(UTC)
     sample_age_seconds = (now - event_timestamp).total_seconds()
+    reporting_interval_minutes = tenant_reporting_interval_minutes(db, endpoint.tenant_id)
     automation_eligible = (
         endpoint.automation_enabled
         and endpoint.platform in settings.automation_telemetry_platforms
         and -settings.telemetry_max_future_skew_seconds
         <= sample_age_seconds
-        <= settings.telemetry_automation_max_age_seconds
+        <= telemetry_freshness_limit_seconds(reporting_interval_minutes)
     )
 
     state_changes = []

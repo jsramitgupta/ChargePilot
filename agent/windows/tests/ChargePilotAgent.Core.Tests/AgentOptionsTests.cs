@@ -78,7 +78,7 @@ public sealed class AgentOptionsTests
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(TelemetryRequest.From(options, reading)));
         var payload = document.RootElement;
 
-        Assert.Equal(11, payload.EnumerateObject().Count());
+        Assert.Equal(12, payload.EnumerateObject().Count());
         Assert.Equal("WORKSTATION-7", payload.GetProperty("hostname").GetString());
         Assert.Equal("192.168.1.7", payload.GetProperty("ip_address").GetString());
         Assert.Equal(73, payload.GetProperty("battery_percentage").GetInt32());
@@ -89,6 +89,7 @@ public sealed class AgentOptionsTests
         Assert.Equal("windows", payload.GetProperty("platform").GetString());
         Assert.Equal("laptop", payload.GetProperty("device_class").GetString());
         Assert.Equal("1.0.0", payload.GetProperty("agent_version").GetString());
+        Assert.Equal(JsonValueKind.Null, payload.GetProperty("system_metrics").ValueKind);
     }
 
     private static AgentOptions Create(

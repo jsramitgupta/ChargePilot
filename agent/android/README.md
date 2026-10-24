@@ -33,7 +33,8 @@ Latest APK and source downloads: [ChargePilot GitHub Releases](https://github.co
 5. The app stores a random installation ID and encrypts its per-install
    credential with an AES key held by Android Keystore.
 6. Use **Send reading now** for an immediate sample. WorkManager also schedules
-   fresh reports at an inexact interval of at least 15 minutes.
+   fresh reports using the tenant cadence returned by the API, clamped to its
+   inexact 15-minute minimum.
 
 The **Build endpoint agent artifacts** GitHub Actions workflow builds a
 debug APK for development and publishes an APK on `agents-v*` releases.
@@ -60,6 +61,13 @@ WorkManager respects network availability, Doze, and system scheduling. Its
 control switches. New endpoints default to automation enabled, but the
 backend requires a fresh report, an allow-listed platform, and a
 tenant-matching enabled mapping before creating switch commands.
+
+Reports include CPU utilization, total/available memory usage, and Android
+data-storage usage where the platform exposes them. GPU utilization is
+unavailable. Tenant admins and managers set the desired report interval from
+5 minutes to 24 hours in Agent setup; WorkManager cannot run more frequently
+than every 15 minutes. Optional resource samples are retained for 30 days and
+are informational only.
 
 ## Deregister and re-enroll
 

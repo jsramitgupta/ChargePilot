@@ -80,6 +80,12 @@ def _ensure_table_columns() -> None:
             "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
             "automation_enabled": "BOOLEAN NOT NULL DEFAULT TRUE",
         },
+        "tenants": {
+            "telemetry_interval_minutes": "INTEGER NOT NULL DEFAULT 5",
+        },
+        "battery_readings": {
+            "system_metrics_json": "TEXT",
+        },
         "mappings": {
             "owner_id": "VARCHAR(36)",
             "tenant_id": "VARCHAR(36)",
@@ -131,6 +137,12 @@ def _ensure_table_columns() -> None:
             conn.execute(text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_endpoints_installation_id "
                 "ON endpoints (installation_id) WHERE installation_id IS NOT NULL"
+            ))
+    if inspector.has_table("battery_readings"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_battery_readings_endpoint_timestamp "
+                "ON battery_readings (endpoint_id, timestamp)"
             ))
 
 

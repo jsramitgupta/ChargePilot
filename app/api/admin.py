@@ -75,6 +75,11 @@ class TenantCreateRequest(BaseModel):
         return value
 
 
+class TenantTelemetrySettingsUpdate(BaseModel):
+    telemetry_interval_minutes: int = Field(ge=5, le=1440)
+    tenant_id: UUID | None = None
+
+
 class InviteCreateRequest(BaseModel):
     tenant_id: str | None = None
 
@@ -431,6 +436,76 @@ async def list_tenants(
         }
         for tenant in tenants
     ]
+
+
+@router.get("/tenant-settings")
+async def get_tenant_telemetry_settings(
+    response: Response,
+    tenant_id: UUID | None = None,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    _require_user_admin(user)
+    if is_super_admin_user(user):
+        selected_tenant_id = str(tenant_id) if tenant_id else None
+        if selected_tenant_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Select a tenant to view its reporting schedule.",
+            )
+    else:
+        if tenant_id is not None and str(tenant_id) != user.tenant_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant access denied.")
+        selected_tenant_id = user.tenant_id
+
+    tenant = db.query(Tenant).filter(Tenant.id == selected_tenant_id).first()
+    if tenant is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found.")
+    response.headers["Cache-Control"] = "private, no-store"
+    return {
+        "tenant_id": tenant.id,
+        "tenant_name": tenant.name,
+        "telemetry_interval_minutes": tenant.telemetry_interval_minutes,
+    }
+
+
+@router.put("/tenant-settings")
+async def update_tenant_telemetry_settings(
+    payload: TenantTelemetrySettingsUpdate,
+    response: Response,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    _require_user_admin(user)
+    if is_super_admin_user(user):
+        selected_tenant_id = str(payload.tenant_id) if payload.tenant_id else None
+        if selected_tenant_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Select a tenant before saving its reporting schedule.",
+            )
+    else:
+        if payload.tenant_id is not None and str(payload.tenant_id) != user.tenant_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant access denied.")
+        selected_tenant_id = user.tenant_id
+
+    tenant = (
+        db.query(Tenant)
+        .filter(Tenant.id == selected_tenant_id)
+        .with_for_update()
+        .first()
+    )
+    if tenant is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found.")
+    tenant.telemetry_interval_minutes = payload.telemetry_interval_minutes
+    tenant.updated_at = datetime.now(UTC)
+    db.commit()
+    response.headers["Cache-Control"] = "private, no-store"
+    return {
+        "tenant_id": tenant.id,
+        "tenant_name": tenant.name,
+        "telemetry_interval_minutes": tenant.telemetry_interval_minutes,
+    }
 
 
 @router.post("/tenants", status_code=status.HTTP_201_CREATED)

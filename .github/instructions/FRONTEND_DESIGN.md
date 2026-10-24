@@ -30,7 +30,7 @@ browser interactions:
 | `/verify-email` | Explain and complete email verification |
 | `/accept-invitation` | Review an emailed invitation and set the account password |
 | `/` | Endpoint, switch, and energy overview with live telemetry summary |
-| `/endpoints` | Review enrolled devices, edit display labels, ownership, readings, and endpoint assignment |
+| `/endpoints` | Review enrolled devices, edit display labels, ownership, recent battery/resource readings, and endpoint assignment |
 | `/devices` | Review switches, channels, connector assignment, device state, and optional meter readings |
 | `/mappings` | Create, edit, and remove endpoint-to-switch battery rules |
 | `/events` | Review automation activity and outcomes |
@@ -80,6 +80,17 @@ exposing token values unless its creator explicitly reveals one. Revoking a
 token prevents new exchanges; admins separately revoke already-issued endpoint
 credentials. The Endpoints page shows platform, enrollment state, and last-seen time to
 the second; it does not include a separate endpoint automation column.
+Selecting **View details** opens a tenant-scoped endpoint panel with identity,
+current online/report state, configured cadence, automation eligibility,
+device mappings, and up to 100 historical battery and system-resource samples.
+Show CPU, memory, disk, and GPU values only when supplied; unsupported or
+unavailable values remain explicitly unavailable rather than appearing as
+zero. The Agent setup page lets tenant admins and managers choose a tenant-wide
+reporting cadence from 5 minutes to 24 hours; Super Admins select the tenant.
+The Windows and macOS agents apply the server's returned cadence. Android's
+WorkManager cannot run more often than every 15 minutes, and iOS background
+reporting remains best-effort, so explain these platform limits instead of
+promising an exact schedule.
 Endpoint automation is enabled by default for all four platforms, subject to
 server-side platform and freshness checks. The Overview shows last-seen age as
 a live relative time. The Connectors page supports a published

@@ -63,6 +63,7 @@ private final class AgentStatusModel: ObservableObject {
     @Published private(set) var isReporting = false
     @Published private(set) var isWorking = false
     @Published private(set) var batteryPercentage: Int?
+    @Published private(set) var reportingIntervalSeconds = 300
     @Published private(set) var lastReport: Date?
     @Published private(set) var statusMessage = "Connect this Mac to begin."
     @Published private(set) var statusIsError = false
@@ -199,7 +200,7 @@ private final class AgentStatusModel: ObservableObject {
             while !Task.isCancelled {
                 await sendReport(configuration: configuration)
                 do {
-                    try await Task.sleep(for: .seconds(300))
+                    try await Task.sleep(for: .seconds(reportingIntervalSeconds))
                 } catch {
                     break
                 }
@@ -282,6 +283,7 @@ private final class AgentStatusModel: ObservableObject {
         do {
             let reading = try await ChargePilotAgent.sendTelemetry(configuration: configuration)
             batteryPercentage = reading.percentage
+            reportingIntervalSeconds = reading.reportingIntervalSeconds
             lastReport = Date()
             statusMessage = "Last report accepted by ChargePilot."
             statusIsError = false

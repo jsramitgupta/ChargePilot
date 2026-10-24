@@ -107,7 +107,7 @@ private fun AgentScreen(store: AgentStore) {
 
     LaunchedEffect(Unit) {
         reading = runCatching { BatteryReader.read(context) }.getOrNull()
-        if (configuration != null) TelemetryWorker.schedulePeriodic(context)
+        if (configuration != null) TelemetryWorker.schedulePeriodic(context, store.reportingIntervalMinutes())
     }
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -171,7 +171,7 @@ private fun AgentScreen(store: AgentStore) {
                                 }
                                 forceUnenrolled = false
                                 revision += 1
-                                TelemetryWorker.schedulePeriodic(context)
+                                TelemetryWorker.schedulePeriodic(context, store.reportingIntervalMinutes())
                                 TelemetryWorker.sendNow(context)
                                 statusMessage = "This device is enrolled. Its first report is being sent."
                                 statusIsError = false

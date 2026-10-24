@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
+import json
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from fastapi import Header
@@ -13,6 +14,7 @@ from app.models.device import Device
 from app.models.endpoint import Endpoint
 from app.models.mapping import Mapping
 from app.models.tenant import Tenant
+from app.models.telemetry import BatteryReading
 from app.models.user import User
 from app.schemas.endpoint import (
     EndpointAutomationUpdate,
@@ -27,6 +29,12 @@ from app.services.endpoint_service import (
     authenticate_endpoint_token,
     authenticate_installed_endpoint,
 )
+from app.services.telemetry_policy import (
+    DEFAULT_REPORTING_INTERVAL_MINUTES,
+    endpoint_offline_limit_seconds,
+    telemetry_freshness_limit_seconds,
+    tenant_reporting_interval_minutes,
+)
 
 router = APIRouter(prefix="/endpoints", tags=["endpoints"])
 
@@ -39,6 +47,21 @@ def _normalize_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(UTC)
 
 
+def _serialize_reading(reading: BatteryReading) -> dict[str, object]:
+    timestamp = reading.timestamp
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    return {
+        "timestamp": timestamp.astimezone(UTC).isoformat(),
+        "battery_percentage": reading.battery_percentage,
+        "charging": reading.charging,
+        "ac_connected": reading.ac_connected,
+        "system_metrics": json.loads(reading.system_metrics_json)
+        if reading.system_metrics_json
+        else None,
+    }
+
+
 @router.get("")
 async def list_endpoints(
     user: User = Depends(get_authenticated_user),
@@ -48,10 +71,12 @@ async def list_endpoints(
         Endpoint.last_seen_at.desc().nullslast()
     ).all()
     tenant_ids = {endpoint.tenant_id for endpoint in endpoints if endpoint.tenant_id is not None}
-    tenant_names = {
-        tenant.id: tenant.name
-        for tenant in db.query(Tenant).filter(Tenant.id.in_(tenant_ids)).all()
-    } if tenant_ids else {}
+    tenants = db.query(Tenant).filter(Tenant.id.in_(tenant_ids)).all() if tenant_ids else []
+    tenant_names = {tenant.id: tenant.name for tenant in tenants}
+    tenant_intervals = {
+        tenant.id: tenant.telemetry_interval_minutes
+        for tenant in tenants
+    }
     rows: list[dict[str, object]] = []
     mapped_names: dict[str, str] = {}
     mapped_states: dict[str, bool] = {}
@@ -75,6 +100,10 @@ async def list_endpoints(
             mapped_states.setdefault(endpoint_id, current_state)
             mapped_tenant_names.setdefault(endpoint_id, tenant_names.get(device_tenant_id, "Unassigned"))
     for endpoint in endpoints:
+        interval_minutes = tenant_intervals.get(
+            endpoint.tenant_id,
+            DEFAULT_REPORTING_INTERVAL_MINUTES,
+        )
         last_seen = _normalize_utc(endpoint.last_seen_at)
         sample_age = (
             (datetime.now(UTC) - last_seen).total_seconds()
@@ -97,7 +126,14 @@ async def list_endpoints(
                 "charging": endpoint.charging,
                 "ac_connected": endpoint.ac_connected,
                 "last_seen_at": last_seen.isoformat() if last_seen else None,
-                "status": "online" if last_seen and (datetime.now(UTC) - last_seen).total_seconds() <= 600 else "offline",
+                "status": (
+                    "online"
+                    if last_seen
+                    and (datetime.now(UTC) - last_seen).total_seconds()
+                    <= endpoint_offline_limit_seconds(interval_minutes)
+                    else "offline"
+                ),
+                "reporting_interval_minutes": interval_minutes,
                 "credential_enrolled": endpoint.token_hash is not None,
                 "automation_enabled": endpoint.automation_enabled,
                 "automation_available": (
@@ -105,7 +141,7 @@ async def list_endpoints(
                     and sample_age is not None
                     and -settings.telemetry_max_future_skew_seconds
                     <= sample_age
-                    <= settings.telemetry_automation_max_age_seconds
+                    <= telemetry_freshness_limit_seconds(interval_minutes)
                 ),
                 "mapped_device": mapped_names.get(endpoint.id, "No mapped switch"),
                 "mapped_device_tenant": mapped_tenant_names.get(endpoint.id),
@@ -113,6 +149,87 @@ async def list_endpoints(
             }
         )
     return rows
+
+
+@router.get("/{endpoint_id}/details")
+async def get_endpoint_details(
+    endpoint_id: UUID,
+    limit: int = Query(default=100, ge=1, le=100),
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    endpoint = tenant_scoped_query(db.query(Endpoint), Endpoint, user).filter(
+        Endpoint.id == str(endpoint_id)
+    ).first()
+    if endpoint is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Endpoint not found.")
+
+    readings = (
+        db.query(BatteryReading)
+        .filter(BatteryReading.endpoint_id == endpoint.id)
+        .order_by(BatteryReading.timestamp.desc())
+        .limit(limit)
+        .all()
+    )
+    mappings = (
+        db.query(Mapping, Device)
+        .join(Device, Device.id == Mapping.device_id)
+        .filter(
+            Mapping.endpoint_id == endpoint.id,
+            Mapping.tenant_id == endpoint.tenant_id,
+            Device.tenant_id == endpoint.tenant_id,
+        )
+        .order_by(Mapping.created_at.desc())
+        .all()
+    )
+    interval_minutes = tenant_reporting_interval_minutes(db, endpoint.tenant_id)
+    last_seen = _normalize_utc(endpoint.last_seen_at)
+    sample_age = (datetime.now(UTC) - last_seen).total_seconds() if last_seen else None
+    return {
+        "id": endpoint.id,
+        "tenant_id": endpoint.tenant_id,
+        "display_name": endpoint.name or endpoint.hostname,
+        "hostname": endpoint.hostname,
+        "hardware_uuid": endpoint.hardware_uuid,
+        "installation_id": endpoint.installation_id,
+        "platform": endpoint.platform,
+        "device_class": endpoint.device_class,
+        "ip_address": endpoint.ip_address,
+        "battery": endpoint.battery_percentage,
+        "charging": endpoint.charging,
+        "ac_connected": endpoint.ac_connected,
+        "last_seen_at": last_seen.isoformat() if last_seen else None,
+        "status": (
+            "online"
+            if sample_age is not None and sample_age <= endpoint_offline_limit_seconds(interval_minutes)
+            else "offline"
+        ),
+        "agent_version": endpoint.agent_version,
+        "enabled": endpoint.enabled,
+        "automation_enabled": endpoint.automation_enabled,
+        "automation_available": (
+            endpoint.automation_enabled
+            and endpoint.platform in settings.automation_telemetry_platforms
+            and sample_age is not None
+            and -settings.telemetry_max_future_skew_seconds
+            <= sample_age
+            <= telemetry_freshness_limit_seconds(interval_minutes)
+        ),
+        "reporting_interval_minutes": interval_minutes,
+        "mappings": [
+            {
+                "id": mapping.id,
+                "name": device.name,
+                "enabled": mapping.enabled,
+                "on_threshold": mapping.on_threshold,
+                "off_threshold": mapping.off_threshold,
+                "minimum_state_change_interval": mapping.minimum_state_change_interval,
+                "switch_state": device.current_state,
+            }
+            for mapping, device in mappings
+        ],
+        "readings": [_serialize_reading(reading) for reading in reversed(readings)],
+    }
 
 
 @router.patch("/{endpoint_id}/label")
@@ -188,7 +305,9 @@ async def update_endpoint_automation(
         if not (
             -settings.telemetry_max_future_skew_seconds
             <= age_seconds
-            <= settings.telemetry_automation_max_age_seconds
+            <= telemetry_freshness_limit_seconds(
+                tenant_reporting_interval_minutes(db, endpoint.tenant_id)
+            )
         ):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

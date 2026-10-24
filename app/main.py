@@ -36,7 +36,7 @@ from app.models.system_setting import SystemSetting
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.connector_service import expire_overdue_commands
-from app.services.event_retention import purge_expired_events
+from app.services.event_retention import purge_expired_events, purge_expired_telemetry
 
 BASE_DIR = Path(__file__).resolve().parent
 AGENT_RELEASE_DOWNLOAD_BASE = (
@@ -164,6 +164,9 @@ async def event_retention_loop() -> None:
                 deleted = purge_expired_events(db)
                 if deleted:
                     logger.info("Purged %s automation events older than 30 days.", deleted)
+                deleted_readings = purge_expired_telemetry(db)
+                if deleted_readings:
+                    logger.info("Purged %s telemetry readings older than 30 days.", deleted_readings)
         except SQLAlchemyError:
             logger.exception("Could not purge expired automation events.")
         await asyncio.sleep(24 * 60 * 60)

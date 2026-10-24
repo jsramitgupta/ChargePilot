@@ -324,3 +324,73 @@ def test_existing_owned_rows_are_backfilled_to_their_tenant():
         assert db.query(Device).filter(Device.id == device_id).one().tenant_id == tenant_id
         assert db.query(Mapping).filter(Mapping.id == mapping_id).one().tenant_id == tenant_id
         assert db.query(AutomationEvent).filter(AutomationEvent.id == event_id).one().tenant_id == tenant_id
+
+
+def test_reporting_schedule_and_endpoint_details_are_tenant_scoped():
+    with SessionLocal() as db:
+        tenant_a, user_a = _create_tenant_account(db, "schedule-a")
+        tenant_b, user_b = _create_tenant_account(db, "schedule-b")
+        endpoint = Endpoint(
+            hostname="schedule-device",
+            tenant_id=tenant_a.id,
+            platform="windows",
+            hardware_uuid=str(uuid4()),
+            battery_percentage=63,
+            last_seen_at=datetime.now(UTC),
+        )
+        db.add(endpoint)
+        db.commit()
+        endpoint_id = endpoint.id
+        tenant_a_id = tenant_a.id
+        tenant_b_id = tenant_b.id
+        username_a = user_a.username
+        username_b = user_b.username
+
+    tenant_client = _login(username_a)
+    initial = tenant_client.get("/api/v1/admin/tenant-settings")
+    assert initial.status_code == 200, initial.text
+    assert initial.json()["telemetry_interval_minutes"] == 5
+
+    changed = tenant_client.put(
+        "/api/v1/admin/tenant-settings",
+        json={"telemetry_interval_minutes": 30},
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["telemetry_interval_minutes"] == 30
+
+    response = tenant_client.get(f"/api/v1/endpoints/{endpoint_id}/details")
+    assert response.status_code == 200, response.text
+    assert response.json()["reporting_interval_minutes"] == 30
+    assert response.json()["display_name"] == "schedule-device"
+
+    forbidden_read = tenant_client.get(
+        "/api/v1/admin/tenant-settings",
+        params={"tenant_id": tenant_b_id},
+    )
+    forbidden_write = tenant_client.put(
+        "/api/v1/admin/tenant-settings",
+        json={"tenant_id": tenant_b_id, "telemetry_interval_minutes": 60},
+    )
+    forbidden_detail = _login(username_b).get(
+        f"/api/v1/endpoints/{endpoint_id}/details"
+    )
+    assert forbidden_read.status_code == 403
+    assert forbidden_write.status_code == 403
+    assert forbidden_detail.status_code == 404
+
+    with SessionLocal() as db:
+        assert db.get(Tenant, tenant_a_id).telemetry_interval_minutes == 30
+        assert db.get(Tenant, tenant_b_id).telemetry_interval_minutes == 5
+
+
+def test_reporting_schedule_rejects_out_of_range_values():
+    with SessionLocal() as db:
+        _, user = _create_tenant_account(db, "schedule-range")
+        username = user.username
+        db.commit()
+
+    response = _login(username).put(
+        "/api/v1/admin/tenant-settings",
+        json={"telemetry_interval_minutes": 1441},
+    )
+    assert response.status_code == 422

@@ -80,6 +80,16 @@ display label remains stable when telemetry hostnames update. ChargePilot does
 not collect device serial numbers. The Smart switches page groups LAN
 discovery, manual setup, and the searchable/filterable inventory into clear
 work areas; card and list views remain available on small screens.
+Tenant admins and managers can set their tenant's telemetry reporting cadence
+from 5 minutes through 24 hours in Agent setup; Super Admins select a tenant.
+Five minutes is the default. The accepted telemetry response supplies the
+current interval to agents, and endpoint online/freshness windows account for
+the configured cadence. Windows and macOS schedule from the server response;
+Android persists the target but WorkManager enforces a 15-minute minimum, and
+iOS shows the target without guaranteeing background execution. Telemetry
+optionally includes CPU/GPU utilization, used/total memory, and per-volume
+disk usage. Unsupported measurements remain unavailable, not zero. The API
+retains up to 30 days of metric history, exposed with endpoint details.
 The configured switch inventory loads independently of live connector status
 refreshes, so a failed device read does not block switch management.
 Switch onboarding separates device identity, local access, and command routing.

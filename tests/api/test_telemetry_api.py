@@ -56,6 +56,78 @@ def test_telemetry_is_durably_queued_with_endpoint_snapshot():
         assert '"hardware_uuid":"b19f1d84-0a2c-4a34-bf95-a61ff3231c47"' in event.payload_json
 
 
+def test_telemetry_accepts_system_metrics_and_returns_workspace_interval():
+    from app.models.telemetry import BatteryReading
+    from app.models.tenant import Tenant
+
+    with SessionLocal() as db:
+        tenant = Tenant(name="Metrics tenant", slug="metrics-tenant", agent_token="metrics-test-token")
+        db.add(tenant)
+        db.commit()
+        tenant.telemetry_interval_minutes = 30
+        db.commit()
+        tenant_id = tenant.id
+
+    hardware_uuid = "b19f1d84-0a2c-4a34-bf95-a61ff3231c72"
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/telemetry",
+        json={
+            "hostname": "METRICS-LAPTOP",
+            "hardware_uuid": hardware_uuid,
+            "battery_percentage": 71,
+            "charging": False,
+            "ac_connected": False,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent_version": "2.0.0",
+            "system_metrics": {
+                "cpu_usage_percent": 42.5,
+                "gpu_usage_percent": 21.0,
+                "memory_used_bytes": 4_000_000_000,
+                "memory_total_bytes": 8_000_000_000,
+                "disks": [{"name": "C:", "used_bytes": 20_000, "total_bytes": 40_000}],
+            },
+        },
+        headers={"Authorization": "Bearer metrics-test-token"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["reporting_interval_seconds"] == 1800
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter_by(hardware_uuid=hardware_uuid).one()
+        assert endpoint.tenant_id == tenant_id
+        reading = db.query(BatteryReading).filter_by(endpoint_id=endpoint.id).one()
+        assert '"cpu_usage_percent":42.5' in reading.system_metrics_json
+        assert '"name":"C:"' in reading.system_metrics_json
+
+
+def test_telemetry_rejects_invalid_system_metric_ranges():
+    client = TestClient(app)
+    headers = {"Authorization": "******"}
+    metrics_samples = [
+        {"cpu_usage_percent": 101},
+        {"memory_used_bytes": 2_000, "memory_total_bytes": 1_000},
+        {"disks": [{"name": "C:", "used_bytes": 2_000, "total_bytes": 1_000}]},
+    ]
+
+    for index, system_metrics in enumerate(metrics_samples):
+        response = client.post(
+            "/api/v1/telemetry",
+            json={
+                "hostname": f"INVALID-METRICS-{index}",
+                "hardware_uuid": f"b19f1d84-0a2c-4a34-bf95-a61ff3231c{80 + index}",
+                "battery_percentage": 50,
+                "charging": False,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "agent_version": "2.0.0",
+                "system_metrics": system_metrics,
+            },
+            headers=headers,
+        )
+
+        assert response.status_code == 422, response.text
+
+
 def test_telemetry_rejects_new_endpoint_without_hardware_uuid():
     client = TestClient(app)
     response = client.post(

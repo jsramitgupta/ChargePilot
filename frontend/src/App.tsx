@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient
 import { zodResolver } from '@hookform/resolvers/zod'
 import {
   BatteryCharging,
+  Activity,
   Bell,
   Building2,
   Cable,
@@ -9,12 +10,15 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDashed,
+  Cpu,
   List,
   KeyRound,
   LayoutGrid,
+  HardDrive,
   LogIn,
   LogOut,
   Mail,
+  MemoryStick,
   Menu,
   Moon,
   MonitorSmartphone,
@@ -27,6 +31,7 @@ import {
   ShieldCheck,
   Sun,
   Users,
+  X,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
@@ -98,9 +103,63 @@ type Endpoint = {
   mapped_device: string
   mapped_device_tenant?: string | null
   switch_state: boolean | null
+  reporting_interval_minutes: number
+}
+
+type SystemMetrics = {
+  cpu_usage_percent: number | null
+  gpu_usage_percent: number | null
+  memory_used_bytes: number | null
+  memory_total_bytes: number | null
+  disks: Array<{ name: string; used_bytes: number; total_bytes: number }>
+}
+
+type EndpointReading = {
+  timestamp: string
+  battery_percentage: number
+  charging: boolean
+  ac_connected: boolean
+  system_metrics: SystemMetrics | null
+}
+
+type EndpointDetails = {
+  id: string
+  display_name: string
+  hostname: string
+  platform: Endpoint['platform']
+  device_class: Endpoint['device_class']
+  hardware_uuid: string | null
+  installation_id: string | null
+  ip_address: string | null
+  battery: number
+  charging: boolean
+  ac_connected: boolean | null
+  last_seen_at: string | null
+  status: 'online' | 'offline'
+  agent_version: string | null
+  enabled: boolean
+  automation_enabled: boolean
+  automation_available: boolean
+  reporting_interval_minutes: number
+  mappings: Array<{
+    id: string
+    name: string
+    enabled: boolean
+    on_threshold: number
+    off_threshold: number
+    minimum_state_change_interval: number
+    switch_state: boolean
+  }>
+  readings: EndpointReading[]
 }
 
 type EndpointPageSize = 50 | 100
+
+type TenantReportingSettings = {
+  tenant_id: string
+  tenant_name: string
+  telemetry_interval_minutes: number
+}
 
 type Device = {
   id: string
@@ -2451,6 +2510,7 @@ function EndpointsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [assignedTenantId, setAssignedTenantId] = useState('')
   const [editingEndpointId, setEditingEndpointId] = useState<string | null>(null)
+  const [selectedEndpointId, setSelectedEndpointId] = useState<string | null>(null)
   const [labelDraft, setLabelDraft] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
   const canManageEndpoints = user?.role === 'super_admin' || user?.is_admin || user?.role === 'manager'
@@ -2463,6 +2523,13 @@ function EndpointsPage() {
     queryKey: ['endpoints'],
     queryFn: async () => apiFetch<Endpoint[]>('/api/v1/endpoints'),
     refetchInterval: ENDPOINTS_REFRESH_INTERVAL,
+    refetchIntervalInBackground: false,
+  })
+  const endpointDetailsQuery = useQuery({
+    queryKey: ['endpoint-details', selectedEndpointId],
+    queryFn: () => apiFetch<EndpointDetails>(`/api/v1/endpoints/${selectedEndpointId}/details?limit=100`),
+    enabled: Boolean(selectedEndpointId),
+    refetchInterval: selectedEndpointId ? ENDPOINTS_REFRESH_INTERVAL : false,
     refetchIntervalInBackground: false,
   })
   const assignTenantMutation = useMutation({
@@ -2548,6 +2615,12 @@ function EndpointsPage() {
       {deleteMutation.isError && <ErrorCard message={deleteMutation.error.message} />}
       {revokeCredentialMutation.error && <ErrorCard message={revokeCredentialMutation.error.message} />}
       {error && <ErrorCard message={`Could not refresh endpoints: ${error.message}. Showing the last successful data.`} />}
+      {selectedEndpointId && <EndpointDetailsPanel
+        details={endpointDetailsQuery.data}
+        isLoading={endpointDetailsQuery.isLoading}
+        error={endpointDetailsQuery.error}
+        onClose={() => setSelectedEndpointId(null)}
+      />}
       <section className="panel table-panel">
         <div className="panel-header endpoint-panel-header">
           <div className="endpoint-panel-title">
@@ -2583,6 +2656,14 @@ function EndpointsPage() {
                 <td>
                   <div className="flex min-w-44 flex-col items-start gap-2">
                     <EndpointIdentity endpoint={endpoint} />
+                    <button
+                      type="button"
+                      className="secondary-btn px-3 py-1.5"
+                      aria-expanded={selectedEndpointId === endpoint.id}
+                      onClick={() => setSelectedEndpointId(endpoint.id)}
+                    >
+                      {selectedEndpointId === endpoint.id ? 'Refresh details' : 'View details'}
+                    </button>
                     {canManageEndpoints && editingEndpointId === endpoint.id ? (
                       <form className="flex w-full flex-wrap items-center gap-2" onSubmit={(event) => {
                         event.preventDefault()
@@ -2647,6 +2728,139 @@ function EndpointsPage() {
       </section>
     </div>
   )
+}
+
+function EndpointDetailsPanel({
+  details,
+  isLoading,
+  error,
+  onClose,
+}: {
+  details: EndpointDetails | undefined
+  isLoading: boolean
+  error: Error | null
+  onClose: () => void
+}) {
+  if (isLoading) return <LoadingCard />
+  if (error) return <ErrorCard message={`Could not load device details: ${error.message}`} />
+  if (!details) return <ErrorCard message="The device detail request returned no data." />
+
+  const latestReading = details.readings.at(-1)
+  const metrics = latestReading?.system_metrics
+  const memoryPercent = metrics?.memory_used_bytes !== null && metrics?.memory_used_bytes !== undefined &&
+    metrics.memory_total_bytes !== null && metrics.memory_total_bytes !== undefined && metrics.memory_total_bytes > 0
+    ? metrics.memory_used_bytes / metrics.memory_total_bytes * 100
+    : null
+
+  return (
+    <section className="panel space-y-6 p-5 sm:p-6" aria-labelledby="endpoint-details-title">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="page-context">Device profile</p>
+          <h2 id="endpoint-details-title" className="text-xl font-bold text-[var(--ink)]">{details.display_name}</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">{details.hostname} · {PLATFORM_NAMES[details.platform]}{details.device_class ? ` · ${details.device_class}` : ''}</p>
+        </div>
+        <button type="button" className="secondary-btn" onClick={onClose}><X size={16} aria-hidden="true" />Close details</button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <DeviceMetricCard icon={BatteryCharging} label="Battery" value={`${details.battery}%`} hint={details.charging ? 'Charging' : details.ac_connected ? 'Connected to power' : 'On battery'} />
+        <DeviceMetricCard icon={Activity} label="CPU" value={formatPercent(metrics?.cpu_usage_percent)} hint="System utilization at last report" />
+        <DeviceMetricCard icon={MemoryStick} label="Memory" value={memoryPercent === null ? 'Not reported' : `${Math.round(memoryPercent)}%`} hint={metrics?.memory_used_bytes != null && metrics.memory_total_bytes != null ? `${formatBytes(metrics.memory_used_bytes)} of ${formatBytes(metrics.memory_total_bytes)}` : 'Unavailable on this platform'} />
+        <DeviceMetricCard icon={Cpu} label="GPU" value={formatPercent(metrics?.gpu_usage_percent)} hint={metrics?.gpu_usage_percent == null ? 'Not available from this platform' : 'System utilization at last report'} />
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
+        <section className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-4" aria-labelledby="storage-title">
+          <div className="mb-4 flex items-center gap-2 text-[var(--ink)]">
+            <HardDrive size={17} aria-hidden="true" />
+            <h3 id="storage-title" className="font-semibold">Storage</h3>
+          </div>
+          {metrics?.disks.length ? <ul className="space-y-4">
+            {metrics.disks.map((disk) => {
+              const usage = Math.min(100, disk.used_bytes / disk.total_bytes * 100)
+              return <li key={disk.name}>
+                <div className="mb-1 flex items-baseline justify-between gap-2 text-sm">
+                  <strong className="truncate text-[var(--ink)]">{disk.name}</strong>
+                  <span className="shrink-0 text-[var(--muted)]">{formatBytes(disk.used_bytes)} / {formatBytes(disk.total_bytes)}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-[var(--line)]" role="meter" aria-label={`${disk.name} used`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(usage)}>
+                  <div className="h-full rounded-full bg-[var(--leaf)]" style={{ width: `${usage}%` }} />
+                </div>
+              </li>
+            })}
+          </ul> : <p className="text-sm text-[var(--muted)]">Storage details are not available yet. Confirm the agent is updated and has sent a new report.</p>}
+          {memoryPercent !== null && <div className="mt-5">
+            <div className="mb-1 flex items-baseline justify-between gap-2 text-sm"><strong className="text-[var(--ink)]">Memory in use</strong><span className="text-[var(--muted)]">{Math.round(memoryPercent)}%</span></div>
+            <div className="h-2 overflow-hidden rounded-full bg-[var(--line)]" role="meter" aria-label="Memory used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(memoryPercent)}>
+              <div className="h-full rounded-full bg-[var(--copper)]" style={{ width: `${Math.min(100, memoryPercent)}%` }} />
+            </div>
+          </div>}
+          <p className="mt-4 text-xs text-[var(--muted)]">Snapshot from {formatTimestamp(latestReading?.timestamp ?? null)}. GPU readings depend on operating-system support.</p>
+        </section>
+
+        <section className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-4" aria-labelledby="identity-title">
+          <h3 id="identity-title" className="mb-3 font-semibold text-[var(--ink)]">Identity and connection</h3>
+          <dl className="grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-3 gap-y-2 text-sm">
+            <dt className="text-[var(--muted)]">Status</dt><dd className="text-[var(--ink)]">{details.status}</dd>
+            <dt className="text-[var(--muted)]">Last report</dt><dd className="text-[var(--ink)]">{formatTimestampWithSeconds(details.last_seen_at)}</dd>
+            <dt className="text-[var(--muted)]">Report target</dt><dd className="text-[var(--ink)]">Every {details.reporting_interval_minutes} minutes</dd>
+            <dt className="text-[var(--muted)]">Agent version</dt><dd className="text-[var(--ink)]">{details.agent_version ?? 'Unknown'}</dd>
+            <dt className="text-[var(--muted)]">Network address</dt><dd className="break-all text-[var(--ink)]">{details.ip_address ?? 'Not reported'}</dd>
+            <dt className="text-[var(--muted)]">Installation ID</dt><dd className="break-all font-mono text-xs text-[var(--ink)]">{details.installation_id ?? details.hardware_uuid ?? 'Pending agent update'}</dd>
+            <dt className="text-[var(--muted)]">Automation</dt><dd className="text-[var(--ink)]">{details.automation_enabled ? details.automation_available ? 'Enabled · fresh report' : 'Enabled · waiting for a fresh report' : 'Paused'}</dd>
+          </dl>
+        </section>
+      </div>
+
+      <section aria-labelledby="mapped-switches-title">
+        <h3 id="mapped-switches-title" className="mb-3 font-semibold text-[var(--ink)]">Mapped switches</h3>
+        {details.mappings.length ? <ul className="grid gap-2 sm:grid-cols-2">
+          {details.mappings.map((mapping) => <li key={mapping.id} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--line)] px-3 py-3">
+            <div><p className="font-medium text-[var(--ink)]">{mapping.name}</p><p className="mt-1 text-xs text-[var(--muted)]">{mapping.enabled ? 'Mapping active' : 'Mapping paused'} · Switch {mapping.switch_state ? 'on' : 'off'}</p></div>
+            <span className="shrink-0 text-right text-xs text-[var(--muted)]">On ≤ {mapping.on_threshold}%<br />Off ≥ {mapping.off_threshold}%</span>
+          </li>)}
+        </ul> : <p className="text-sm text-[var(--muted)]">No switch mappings are assigned to this device.</p>}
+      </section>
+
+      <section aria-labelledby="report-history-title">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 id="report-history-title" className="font-semibold text-[var(--ink)]">Recent reports</h3>
+          <span className="text-xs text-[var(--muted)]">Up to 100 reports · retained for 30 days</span>
+        </div>
+        {details.readings.length ? <div className="max-h-72 overflow-auto rounded-lg border border-[var(--line)]">
+          <table className="w-full text-left text-sm">
+            <thead className="sticky top-0 bg-[var(--surface-muted)] text-xs text-[var(--muted)]"><tr><th className="px-3 py-2">Time</th><th className="px-3 py-2">Battery</th><th className="px-3 py-2">CPU</th><th className="px-3 py-2">Memory</th><th className="px-3 py-2">GPU</th></tr></thead>
+            <tbody>{[...details.readings].reverse().map((reading) => <tr key={reading.timestamp} className="border-t border-[var(--line)]">
+              <td className="whitespace-nowrap px-3 py-2 text-[var(--ink)]">{formatTimestampWithSeconds(reading.timestamp)}</td>
+              <td className="px-3 py-2 text-[var(--ink)]">{reading.battery_percentage}%{reading.charging ? ' · charging' : ''}</td>
+              <td className="px-3 py-2 text-[var(--ink)]">{formatPercent(reading.system_metrics?.cpu_usage_percent)}</td>
+              <td className="px-3 py-2 text-[var(--ink)]">{reading.system_metrics?.memory_used_bytes != null && reading.system_metrics.memory_total_bytes != null ? `${formatBytes(reading.system_metrics.memory_used_bytes)} / ${formatBytes(reading.system_metrics.memory_total_bytes)}` : 'Not reported'}</td>
+              <td className="px-3 py-2 text-[var(--ink)]">{formatPercent(reading.system_metrics?.gpu_usage_percent)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div> : <p className="rounded-lg border border-dashed border-[var(--line)] p-4 text-sm text-[var(--muted)]">No report history is available yet. Updated agents include CPU, memory, and storage details with each report.</p>}
+      </section>
+    </section>
+  )
+}
+
+function DeviceMetricCard({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: typeof BatteryCharging
+  label: string
+  value: string
+  hint: string
+}) {
+  return <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
+    <div className="flex items-center gap-2 text-[var(--muted)]"><Icon size={16} aria-hidden="true" /><span className="text-sm font-medium">{label}</span></div>
+    <p className="mt-3 text-xl font-semibold text-[var(--ink)]">{value}</p>
+    <p className="mt-1 text-xs text-[var(--muted)]">{hint}</p>
+  </div>
 }
 
 function EventsPage() {
@@ -3276,6 +3490,30 @@ function AgentSetupPage() {
     queryKey: ['agent-setup', tenantId],
     queryFn: () => apiFetch<AgentSetup>(`/api/v1/agent/setup${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''}`),
   })
+  const reportingSettingsQuery = useQuery({
+    queryKey: ['tenant-reporting-settings', isSuperAdmin ? tenantId : user?.tenant_id],
+    queryFn: () => apiFetch<TenantReportingSettings>(
+      `/api/v1/admin/tenant-settings${isSuperAdmin ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''}`,
+    ),
+    enabled: Boolean(canManageEnrollments && (!isSuperAdmin || tenantId)),
+  })
+  const [reportingScheduleDirty, setReportingScheduleDirty] = useState(false)
+  const updateReportingSettingsMutation = useMutation({
+    mutationFn: (telemetryIntervalMinutes: number) =>
+      apiFetch<TenantReportingSettings>('/api/v1/admin/tenant-settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          telemetry_interval_minutes: telemetryIntervalMinutes,
+          ...(isSuperAdmin ? { tenant_id: tenantId } : {}),
+        }),
+      }),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(['tenant-reporting-settings', isSuperAdmin ? tenantId : user?.tenant_id], settings)
+      queryClient.invalidateQueries({ queryKey: ['endpoints'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      setReportingScheduleDirty(false)
+    },
+  })
   const [copyStatus, setCopyStatus] = useState('')
   const [revealedEnrollment, setRevealedEnrollment] = useState<RevealedEndpointEnrollment | null>(null)
   const [clockNow, setClockNow] = useState(Date.now)
@@ -3354,6 +3592,45 @@ function AgentSetupPage() {
           {(tenantsQuery.data ?? []).map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
         </select>
       </label>
+    </section>}
+    {canManageEnrollments && <section className="panel max-w-3xl p-5 sm:p-6" aria-labelledby="reporting-schedule-title">
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-[var(--surface-muted)] p-2 text-[var(--leaf)]"><Activity size={18} aria-hidden="true" /></div>
+        <div>
+          <h2 id="reporting-schedule-title" className="text-lg font-bold text-[var(--ink)]">Workspace reporting schedule</h2>
+          <p className="mt-1 max-w-xl text-sm leading-6 text-[var(--muted)]">Set how often supported agents should send a battery and system-health report. The backend applies the new target when each agent next checks in.</p>
+        </div>
+      </div>
+      {reportingSettingsQuery.error && <div className="mt-4"><ErrorCard message={reportingSettingsQuery.error.message} /></div>}
+      {updateReportingSettingsMutation.error && <div className="mt-4"><ErrorCard message={updateReportingSettingsMutation.error.message} /></div>}
+      {isSuperAdmin && !tenantId
+        ? <p className="mt-4 text-sm text-[var(--muted)]">Select a workspace above to review its reporting target.</p>
+        : reportingSettingsQuery.isLoading
+          ? <p className="mt-4 text-sm text-[var(--muted)]">Loading reporting schedule…</p>
+          : reportingSettingsQuery.data && <form className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={(event) => {
+            event.preventDefault()
+            const interval = Number(new FormData(event.currentTarget).get('telemetry_interval_minutes'))
+            updateReportingSettingsMutation.mutate(interval)
+          }}>
+            <label className="field-group min-w-0 flex-1" htmlFor="reporting-interval">
+              <span>Send a report every</span>
+              <select
+                id="reporting-interval"
+                name="telemetry_interval_minutes"
+                className="field"
+                key={`${reportingSettingsQuery.data.tenant_id}-${reportingSettingsQuery.data.telemetry_interval_minutes}`}
+                defaultValue={reportingSettingsQuery.data.telemetry_interval_minutes}
+                onChange={() => setReportingScheduleDirty(true)}
+              >
+                {[5, 10, 15, 30, 60, 120, 360, 720, 1440].map((minutes) => <option key={minutes} value={minutes}>{minutes < 60 ? `${minutes} minutes` : minutes % 60 === 0 ? `${minutes / 60} hour${minutes === 60 ? '' : 's'}` : `${minutes} minutes`}</option>)}
+              </select>
+            </label>
+            <button type="submit" className="btn-primary" disabled={updateReportingSettingsMutation.isPending || !reportingScheduleDirty}>
+              {updateReportingSettingsMutation.isPending ? 'Saving schedule…' : 'Save schedule'}
+            </button>
+          </form>}
+      <p className="mt-3 text-xs leading-5 text-[var(--muted)]">Windows and macOS follow the target after a successful report. Android background work has a 15-minute operating-system minimum. iOS reports when opened or triggered by Shortcuts; iOS does not allow ChargePilot to guarantee a recurring background interval. Mobile reports can be delayed.</p>
+      {updateReportingSettingsMutation.isSuccess && <p className="mt-3 text-sm text-[var(--leaf)]" role="status">Schedule saved. Enrolled agents will adopt it after their next accepted report.</p>}
     </section>}
     {createEnrollmentMutation.error && <ErrorCard message={createEnrollmentMutation.error.message} />}
     {revealEnrollmentMutation.error && <ErrorCard message={revealEnrollmentMutation.error.message} />}
@@ -3503,6 +3780,25 @@ function formatPower(watts: number) {
   return watts >= 1000
     ? `${(watts / 1000).toFixed(2)} kW`
     : `${watts.toFixed(1)} W`
+}
+
+function formatPercent(value: number | null | undefined) {
+  return value === null || value === undefined || !Number.isFinite(value)
+    ? 'Not reported'
+    : `${Math.round(value)}%`
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value < 0) return 'Unknown'
+  if (value < 1_000) return `${value} B`
+  const units = ['KB', 'MB', 'GB', 'TB', 'PB']
+  let scaled = value
+  let unitIndex = -1
+  do {
+    scaled /= 1_000
+    unitIndex += 1
+  } while (scaled >= 1_000 && unitIndex < units.length - 1)
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(scaled)} ${units[unitIndex]}`
 }
 
 function formatTimestamp(value: string | null) {

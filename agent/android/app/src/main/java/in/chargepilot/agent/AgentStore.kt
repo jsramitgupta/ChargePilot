@@ -83,11 +83,19 @@ class AgentStore(context: Context) {
 
     fun lastError(): String? = preferences.getString(KEY_LAST_ERROR, null)
 
+    fun reportingIntervalMinutes(): Int =
+        preferences.getInt(KEY_REPORTING_INTERVAL_MINUTES, 15).coerceIn(15, 1440)
+
     fun recordSuccess(timestamp: String) {
         preferences.edit()
             .putString(KEY_LAST_SUCCESS, timestamp)
             .remove(KEY_LAST_ERROR)
             .apply()
+    }
+
+    fun recordReportingInterval(minutes: Int) {
+        check(minutes in 5..1440) { "The server returned an unsupported reporting interval." }
+        preferences.edit().putInt(KEY_REPORTING_INTERVAL_MINUTES, minutes).apply()
     }
 
     fun recordError(message: String) {
@@ -125,5 +133,6 @@ class AgentStore(context: Context) {
         const val KEY_IV = "credential-iv"
         const val KEY_LAST_SUCCESS = "last-success"
         const val KEY_LAST_ERROR = "last-error"
+        const val KEY_REPORTING_INTERVAL_MINUTES = "reporting-interval-minutes"
     }
 }

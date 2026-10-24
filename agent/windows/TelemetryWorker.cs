@@ -28,7 +28,8 @@ internal sealed class TelemetryWorker(
                 {
                     nextInterval = TimeSpan.FromMinutes(options.IntervalMinutes);
                     var reading = telemetryReader.Read(options.DeviceName);
-                    await apiClient.SendTelemetryAsync(options, reading, stoppingToken);
+                    var reportingIntervalSeconds = await apiClient.SendTelemetryAsync(options, reading, stoppingToken);
+                    nextInterval = TimeSpan.FromSeconds(reportingIntervalSeconds);
                     logger.LogInformation(
                         "Telemetry accepted for endpoint {EndpointId} at {Timestamp}.",
                         options.EndpointId,

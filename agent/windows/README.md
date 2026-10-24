@@ -64,9 +64,19 @@ Deregistration revokes this installation's
 credential on the server, stops reporting, and returns the window to an
 unenrolled state; the Windows app does not need to be reinstalled.
 
-Reporting defaults to every five minutes and can be set from 1 to 60 minutes.
-The backend remains authoritative for freshness, automation eligibility,
-hysteresis, cooldowns, and switch commands.
+The local reporting interval defaults to five minutes and can be set from 1
+to 60 minutes as a fallback. After each accepted report, the service follows
+the tenant's server-configured cadence (5 minutes to 24 hours) for its next
+report. Tenant admins and managers configure this value from ChargePilot's
+Agent setup page; a change takes effect when the service receives the next
+successful response. The backend remains authoritative for freshness,
+automation eligibility, hysteresis, cooldowns, and switch commands.
+
+Every report also includes the resource values Windows can read: CPU and
+available GPU utilization, used/total physical memory, and fixed local-disk
+usage. GPU readings remain unavailable when Windows WMI does not expose them.
+The server stores this optional history for 30 days; it does not affect
+automation decisions.
 
 ## Configure and manage from the CLI
 

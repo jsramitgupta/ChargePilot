@@ -291,6 +291,15 @@ Request schema (`app/schemas/telemetry.py`):
   "charging": false,
   "ac_connected": true,
   "switch_state": null,
+  "system_metrics": {
+    "cpu_usage_percent": 12.5,
+    "gpu_usage_percent": null,
+    "memory_used_bytes": 4294967296,
+    "memory_total_bytes": 17179869184,
+    "disks": [
+      {"name": "System", "used_bytes": 128849018880, "total_bytes": 256060514304}
+    ]
+  },
   "timestamp": "2026-10-19T11:00:00Z",
   "agent_version": "1.0.0"
 }
@@ -314,6 +323,11 @@ Validation rules:
   must not be sent.
 - `ac_connected`: optional boolean; `null` represents unavailable/unknown
   rather than a synthetic false value.
+- `system_metrics`: optional resource snapshot. CPU/GPU utilization is a
+  percentage in the range 0–100; memory and disk capacities are byte counts;
+  each disk has a platform-provided name and used/total capacity. Individual
+  unsupported or unavailable metrics are `null` or omitted; clients must not
+  report zero as a substitute for unknown. At most 16 disks are accepted.
 - `timestamp`: valid datetime; samples older than seven days or more than five
   minutes in the future are rejected by default.
 - `agent_version`: 1-50 chars
@@ -327,7 +341,8 @@ Success response:
   "hardware_uuid": "4b4b2b91-6c32-4d5b-8a9f-2a73b8e94d11",
   "platform": "windows",
   "battery_percentage": 82,
-  "message": "Telemetry accepted for asynchronous automation processing."
+  "message": "Telemetry accepted for asynchronous automation processing.",
+  "reporting_interval_seconds": 1800
 }
 ```
 
@@ -341,6 +356,10 @@ Behavior:
   minutes ahead; both limits are configurable
 - atomically updates or creates the endpoint snapshot and `TelemetryOutbox`
   record; a successful response means this transaction committed
+- stores each accepted sample in battery-reading history, including optional
+  system metrics; historical metrics are retained for 30 days
+- returns the tenant's configured reporting interval in seconds so agents
+  that support dynamic scheduling can update their next-report cadence
 - delayed telemetry can be retained in the outbox for diagnostics but cannot
   overwrite a newer endpoint snapshot or `last_seen_at`
 - identifies an endpoint by `hardware_uuid`, while capturing the current
@@ -357,7 +376,10 @@ Behavior:
   tenant/endpoint ordering key
 - new enrolled endpoints default to automation enabled on all four platforms.
   Workers independently check endpoint enablement, platform allow-list, and
-  sample age (600 seconds by default) before evaluating mappings
+  sample age before evaluating mappings. The effective freshness limit is at
+  least the configured automation age (600 seconds by default) or twice the
+  tenant reporting interval, whichever is larger, capped by the ingress-age
+  limit.
 - `switch_state` remains in the wire schema for agent compatibility and does
   not override backend rules
 - creates a durable desired-state connector command for connector-assigned
@@ -442,12 +464,13 @@ Super Admin can customize the separate display label from the Endpoints page.
 - New enrolled endpoints have automation enabled by default. The platform
   allow-list also defaults to Windows, macOS, Android, and iOS; an operator can
   narrow it with `CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS`.
-  Workers still require a fresh sample (600 seconds by default), a
-  tenant-matching enabled mapping, and the server-side battery rules before
-  creating a command. The endpoint automation API remains available for
-  authorized administrators to pause or restore endpoint eligibility.
-  Automation max age defaults to 600 seconds, ingress max age to seven days,
-  and future skew to 300 seconds.
+  Workers still require a fresh sample, a tenant-matching enabled mapping,
+  and the server-side battery rules before creating a command. The effective
+  freshness limit is `min(ingress_max_age, max(automation_max_age,
+  reporting_interval_minutes * 120))`; defaults are 600 seconds for
+  `automation_max_age`, seven days for ingress max age, and 300 seconds for
+  future skew. The endpoint automation API remains available for authorized
+  administrators to pause or restore endpoint eligibility.
 
 ### 3.4 GET /api/v1/endpoints
 
@@ -520,6 +543,34 @@ and tenant; a mismatched endpoint ID is not disclosed. Legacy Windows agents
 may continue authenticating with their tenant/global token and identifying the
 endpoint by `hardware_uuid` or hostname during migration. This route never
 returns an endpoint credential.
+
+### 3.8 GET /api/v1/endpoints/{endpoint_id}/details
+
+Returns tenant-scoped endpoint identity and status, current reporting cadence,
+automation eligibility, mappings, and recent battery/resource history. The
+optional `limit` query parameter defaults to 100 and is limited to 1–100.
+Each history entry includes battery/charging state and `system_metrics` when
+the agent supplied it. Results are ordered oldest-to-newest for charting;
+the API returns the newest samples within the requested limit. A missing or
+out-of-tenant endpoint returns 404.
+
+### 3.9 Tenant reporting schedule
+
+`GET /api/v1/admin/tenant-settings` returns
+`tenant_id`, `tenant_name`, and `telemetry_interval_minutes`. `PUT` accepts
+`telemetry_interval_minutes` from 5 through 1440 inclusive. Tenant admins and
+managers can read or update their own tenant's value. Super Admins must specify
+the target tenant using `tenant_id` on both operations. Attempts to access a
+different tenant are forbidden.
+
+The default is five minutes. Accepted telemetry returns the configured value
+as `reporting_interval_seconds`; clients apply it after the next successful
+report. Windows and macOS use that server response for their next interval.
+Android persists the value but WorkManager clamps repeating work to its
+15-minute minimum. iOS displays the target cadence but only reports on
+foreground/Shortcuts triggers; it cannot guarantee a repeating background
+schedule. The API scales endpoint online and automation freshness windows to
+at least twice the configured interval, bounded by configured server limits.
 
 ## 4. Device API
 

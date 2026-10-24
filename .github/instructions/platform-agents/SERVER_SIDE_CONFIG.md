@@ -32,12 +32,13 @@ The enrollment token remains the server-generated, high-entropy, reusable
 - required: `hostname`, `battery_percentage` (0–100), `charging`, `timestamp`,
   and `agent_version`
 - optional: `hardware_uuid`, `installation_id`, `platform` (defaults to
-  `windows`), `device_class`, `ip_address`, and `ac_connected`
+  `windows`), `device_class`, `ip_address`, `ac_connected`, and `system_metrics`
 - Existing Windows installations retain the `hardware_uuid` and shared-token
   behavior during migration; new installations on all four platforms exchange
   a reusable enrollment token for a backend endpoint ID and installation UUID
 - the default ingress age limit is seven days, future skew is five minutes,
-  and automation freshness is ten minutes
+  and the automation freshness base is ten minutes before tenant-cadence
+  scaling
 - legacy shared-token auth remains accepted only for Windows during migration;
   new installations use tenant-bound, hash-only, revocable per-install
   credentials
@@ -46,6 +47,29 @@ The enrollment token remains the server-generated, high-entropy, reusable
   asynchronously for endpoint state, platform eligibility, and freshness
 
 See [API_SPEC.md](../API_SPEC.md) for the authoritative current contract.
+
+## Tenant reporting cadence and resource samples
+
+Tenant admins and managers configure one reporting interval for their tenant
+through `GET`/`PUT /api/v1/admin/tenant-settings`; the supported range is 5 to
+1440 minutes and the default is 5. Super Admins must explicitly select a
+tenant. The telemetry response includes `reporting_interval_seconds`, which
+Windows and macOS use to set their next report. Android stores the server
+target but WorkManager repeats no more frequently than its 15-minute minimum.
+iOS surfaces the configured target but has no guaranteed repeating background
+schedule; reports remain foreground- and Shortcuts-triggered best-effort.
+Freshness and online thresholds scale with the configured cadence while
+remaining bounded by server settings.
+
+The optional `system_metrics` object supports CPU/GPU utilization percentages,
+used/total memory bytes, and up to 16 disks with a display name and used/total
+bytes. Agents collect what their platform exposes. GPU utilization is
+explicitly unavailable on macOS, Android, and iOS; other unsupported values
+remain null/omitted rather than being reported as zero. These snapshots are
+stored with battery readings for 30 days. Tenant-scoped
+`GET /api/v1/endpoints/{endpoint_id}/details` returns endpoint identity,
+status, cadence, mappings, and up to 100 recent samples for the React details
+panel.
 
 ## Goals and guardrails
 
@@ -125,7 +149,9 @@ automate on:
 - The seven-day ingress age remains configurable; timestamps over five minutes
   in the future are rejected by default.
 - Old queued samples may be stored for diagnostics but cannot trigger
-  automation after the configured 600-second processing age.
+  automation after the effective processing age: the larger of the configured
+  automation age (600 seconds by default) and twice the tenant reporting
+  interval, capped by the ingress maximum age.
 - Delayed telemetry does not regress the current snapshot or `last_seen_at`;
   its original timestamp is retained in the outbox payload.
 - new enrolled endpoints have `automation_enabled=true` for all platforms.
@@ -138,8 +164,9 @@ automate on:
   automation default/freshness gates.
 
 Do not set fixed per-platform "freshness" promises based on an OS scheduler.
-Measure real devices and use a conservative, server-side maximum sample age
-for automation, distinct from UI online/offline presentation.
+The server scales its freshness and online windows with the tenant's
+configured reporting interval; platform scheduling limits still apply and
+these policy windows do not promise when the next sample will arrive.
 
 ### 4. Configuration (implemented)
 
@@ -161,19 +188,23 @@ Android secret group is configured; otherwise the published APK is unsigned.
 The iOS release IPA uses ad-hoc signing when its complete signing group and
 `APPLE_TEAM_ID` are configured, and is installable only on devices in its
 provisioning profile; it is not an App Store distribution. Without those
-secrets, the IPA is unsigned. Use the 600-second sample-age gate rather than
-assuming OS schedulers guarantee a reporting interval.
+secrets, the IPA is unsigned. The 600-second automation-age default is scaled
+to the tenant's reporting interval; neither it nor the configured interval
+means an OS scheduler guarantees report timing.
 
 ### 5. API, event, and operator surfaces
 
-- Update `/api/v1/telemetry` docs and tests for old and new payload versions.
+- `/api/v1/telemetry` accepts optional resource metrics and returns the
+  tenant's interval in `reporting_interval_seconds`; focused tests cover
+  validation, persistence, retention, and cadence behavior.
 - Ensure the outbox contains the normalized platform and endpoint identity;
   retain the existing endpoint aggregate key, ordering, and event idempotency.
 - Keep the existing Kafka topic and consumers backward-compatible; add
   platform metadata as optional fields rather than introducing a second topic
   without measured need.
-- Expose platform and last-seen/report quality in endpoint list/detail APIs
-  before adding frontend filters.
+- Expose platform and last-seen/report quality in endpoint list/detail APIs.
+- Expose tenant cadence configuration to authorized administrators and
+  tenant-scoped endpoint history through the React Endpoints details panel.
 - Admins can see endpoint platform and enrollment state in the React Endpoints
   page and revoke endpoint credentials; a separate automation column is not
   shown. Automation defaults on and the backend continues to enforce
@@ -186,12 +217,14 @@ assuming OS schedulers guarantee a reporting interval.
 
 1. Back up an existing production database and apply the cross-platform SQL
    migration before deployment.
-2. Deploy the backend and verify legacy Windows telemetry/automation.
-3. Verify all-platform automation defaults and the 600-second freshness gate
-   with fresh test telemetry before creating mappings.
-4. Review report age, rejected samples, outbox age, Kafka lag, endpoint
+2. Apply `deploy/migrations/20261024_tenant_reporting_and_system_metrics.sql`
+   before deploying the tenant cadence and resource-history behavior.
+3. Deploy the backend and verify legacy Windows telemetry/automation.
+4. Verify all-platform automation defaults and the cadence-scaled freshness
+   policy with fresh test telemetry before creating mappings.
+5. Review report age, rejected samples, outbox age, Kafka lag, endpoint
    ownership, and command results.
-5. Complete Android and iOS acceptance testing and validate real-device
+6. Complete Android and iOS acceptance testing and validate real-device
    behavior and privacy disclosures; mobile reports may be delayed or skipped.
 
 Mobile HTTPS telemetry does not require local-network permission. If a future

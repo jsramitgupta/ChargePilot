@@ -14,6 +14,8 @@ for an existing API or runtime feature.
 - [TLD.md](TLD.md) — technical design for service roles, event flows, data, and scale-test boundaries.
 - [API_SPEC.md](API_SPEC.md) — the current API surface and payload contracts.
 - [DEPLOYMENT.md](DEPLOYMENT.md) — environment, Docker, and runtime setup notes.
+- [k3s live setup and rebuild notes](../../deploy/k3s/README.md) — dated live
+  ChargePilot cluster snapshot, Kubernetes topology, and AI-agent recovery guide.
 - [RUNBOOK.md](RUNBOOK.md) — debugging, validation, and operational checklist.
 - [platform-agents/README.md](platform-agents/README.md) — cross-platform
   telemetry status and remaining native client streams.
@@ -28,8 +30,9 @@ and iOS source projects are implemented. The artifact workflow builds a
 self-contained .NET Windows service executable with setup UI/CLI, Android
 APK, iOS IPA, and macOS DMG. An `agents-v*` tag publishes the builds to a
 GitHub Release; each platform is signed when its complete signing-secret group
-is configured, and is identified as unsigned otherwise. The Windows
-service executable build and runtime validation are pending.
+is configured, and is identified as unsigned otherwise. The Windows executable
+supports cross-publishing from macOS; Windows service runtime validation
+remains pending.
 Android has an emulator smoke test; iOS has a simulator smoke test. Physical-device
 validation and signed distribution remain pending. The current product
 includes:

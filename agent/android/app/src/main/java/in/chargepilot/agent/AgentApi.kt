@@ -3,8 +3,11 @@ package `in`.chargepilot.agent
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.app.ActivityManager
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Environment
+import android.os.StatFs
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -16,6 +19,7 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import org.json.JSONObject
 import java.io.IOException
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
@@ -27,6 +31,63 @@ data class BatteryReading(
     val charging: Boolean,
     val acConnected: Boolean?,
 )
+
+data class DiskUsage(val name: String, val usedBytes: Long, val totalBytes: Long)
+
+data class SystemMetrics(
+    val cpuUsagePercent: Double?,
+    val gpuUsagePercent: Double?,
+    val memoryUsedBytes: Long?,
+    val memoryTotalBytes: Long?,
+    val disks: List<DiskUsage>,
+)
+
+object SystemMetricsReader {
+    fun read(context: Context): SystemMetrics {
+        val memory = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val memoryInfo = ActivityManager.MemoryInfo().also(memory::getMemoryInfo)
+        val storage = StatFs(Environment.getDataDirectory().path)
+        val storageTotal = storage.blockSizeLong * storage.blockCountLong
+        val storageFree = storage.blockSizeLong * storage.availableBlocksLong
+        return SystemMetrics(
+            cpuUsagePercent = readCpuUsage(),
+            gpuUsagePercent = null,
+            memoryUsedBytes = (memoryInfo.totalMem - memoryInfo.availMem).coerceAtLeast(0),
+            memoryTotalBytes = memoryInfo.totalMem.takeIf { it > 0 },
+            disks = listOf(
+                DiskUsage(
+                    name = "Device storage",
+                    usedBytes = (storageTotal - storageFree).coerceAtLeast(0),
+                    totalBytes = storageTotal,
+                ),
+            ).filter { it.totalBytes > 0 },
+        )
+    }
+
+    private fun readCpuUsage(): Double? {
+        return try {
+            val first = readCpuCounters()
+            Thread.sleep(100)
+            val second = readCpuCounters()
+            val total = second.first - first.first
+            val idle = second.second - first.second
+            if (total <= 0) null else ((total - idle).toDouble() / total * 100).coerceIn(0.0, 100.0)
+        } catch (error: IOException) {
+            null
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            null
+        }
+    }
+
+    private fun readCpuCounters(): Pair<Long, Long> {
+        val line = File("/proc/stat").useLines { lines -> lines.firstOrNull() }
+            ?: throw IOException("CPU counters are unavailable.")
+        val values = line.trim().split(Regex("\\s+")).drop(1).map(String::toLong)
+        if (values.size < 5) throw IOException("CPU counters are incomplete.")
+        return values.sum() to (values[3] + values[4])
+    }
+}
 
 object BatteryReader {
     fun read(context: Context): BatteryReading {
@@ -95,7 +156,8 @@ object AgentApi {
         configuration: AgentConfiguration,
         credential: String,
         reading: BatteryReading,
-    ) {
+    ): Int {
+        val metrics = SystemMetricsReader.read(context)
         val body = JSONObject()
             .put("hostname", configuration.label)
             .put("installation_id", configuration.installationId)
@@ -108,13 +170,37 @@ object AgentApi {
             .put("charging", reading.charging)
             .put("timestamp", Instant.now().toString())
             .put("agent_version", BuildConfig.VERSION_NAME)
+            .put(
+                "system_metrics",
+                JSONObject()
+                    .put("cpu_usage_percent", metrics.cpuUsagePercent ?: JSONObject.NULL)
+                    .put("gpu_usage_percent", metrics.gpuUsagePercent ?: JSONObject.NULL)
+                    .put("memory_used_bytes", metrics.memoryUsedBytes ?: JSONObject.NULL)
+                    .put("memory_total_bytes", metrics.memoryTotalBytes ?: JSONObject.NULL)
+                    .put(
+                        "disks",
+                        org.json.JSONArray().apply {
+                            metrics.disks.forEach { disk ->
+                                put(
+                                    JSONObject()
+                                        .put("name", disk.name)
+                                        .put("used_bytes", disk.usedBytes)
+                                        .put("total_bytes", disk.totalBytes),
+                                )
+                            }
+                        },
+                    ),
+            )
         reading.acConnected?.let { body.put("ac_connected", it) }
-        request(
+        val response = request(
             origin = SERVER_ORIGIN,
             path = "/api/v1/telemetry",
             body = body,
             credential = credential,
         )
+        return response.optInt("reporting_interval_seconds", DEFAULT_REPORTING_INTERVAL_SECONDS)
+            .takeIf { it in MIN_REPORTING_INTERVAL_SECONDS..MAX_REPORTING_INTERVAL_SECONDS }
+            ?: DEFAULT_REPORTING_INTERVAL_SECONDS
     }
 
     fun deregister(credential: String) {
@@ -154,6 +240,9 @@ object AgentApi {
         }
     }
 
+    private const val DEFAULT_REPORTING_INTERVAL_SECONDS = 300
+    private const val MIN_REPORTING_INTERVAL_SECONDS = 300
+    private const val MAX_REPORTING_INTERVAL_SECONDS = 86_400
 }
 
 class TelemetryWorker(context: Context, parameters: WorkerParameters) : Worker(context, parameters) {
@@ -164,8 +253,10 @@ class TelemetryWorker(context: Context, parameters: WorkerParameters) : Worker(c
             ?: return fail("Enroll this device before sending telemetry.")
         return try {
             val reading = BatteryReader.read(applicationContext)
-            AgentApi.sendTelemetry(applicationContext, configuration, store.credential(), reading)
+            val intervalSeconds = AgentApi.sendTelemetry(applicationContext, configuration, store.credential(), reading)
             store.recordSuccess(Instant.now().toString())
+            store.recordReportingInterval(intervalSeconds / 60)
+            schedulePeriodic(applicationContext, intervalSeconds / 60)
             Result.success()
         } catch (error: ApiRejectedException) {
             val message = "ChargePilot rejected the report (HTTP ${error.statusCode})."
@@ -191,11 +282,12 @@ class TelemetryWorker(context: Context, parameters: WorkerParameters) : Worker(c
         private const val MAX_RETRIES = 3
         private const val PERIODIC_REPORT = "chargepilot-periodic-telemetry"
 
-        fun schedulePeriodic(context: Context) {
+        fun schedulePeriodic(context: Context, reportingIntervalMinutes: Int = 15) {
+            val effectiveIntervalMinutes = reportingIntervalMinutes.coerceIn(15, 1440)
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
-            val request = PeriodicWorkRequestBuilder<TelemetryWorker>(15, TimeUnit.MINUTES)
+            val request = PeriodicWorkRequestBuilder<TelemetryWorker>(effectiveIntervalMinutes.toLong(), TimeUnit.MINUTES)
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .addTag(TELEMETRY_WORK_TAG)

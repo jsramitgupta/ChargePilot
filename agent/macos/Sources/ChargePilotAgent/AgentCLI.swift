@@ -4,7 +4,6 @@ import IOKit.ps
 import Security
 
 private let agentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.2"
-private let reportingInterval = Duration.seconds(300)
 private let keychainService = "in.chargepilot.telemetry"
 private let chargePilotAPIOrigin = "https://api-chargepilot.endusercompute.in"
 
@@ -54,6 +53,7 @@ private struct TelemetryRequest: Encodable {
     let acConnected: Bool?
     let timestamp: String
     let agentVersion: String
+    let systemMetrics: SystemMetrics
 
     enum CodingKeys: String, CodingKey {
         case hostname
@@ -65,6 +65,7 @@ private struct TelemetryRequest: Encodable {
         case acConnected = "ac_connected"
         case timestamp
         case agentVersion = "agent_version"
+        case systemMetrics = "system_metrics"
     }
 }
 
@@ -72,6 +73,115 @@ struct BatteryReading {
     let percentage: Int
     let charging: Bool
     let acConnected: Bool?
+    let reportingIntervalSeconds: Int
+}
+
+struct SystemMetrics: Encodable {
+    let cpuUsagePercent: Double?
+    let gpuUsagePercent: Double?
+    let memoryUsedBytes: UInt64?
+    let memoryTotalBytes: UInt64?
+    let disks: [DiskUsage]
+
+    enum CodingKeys: String, CodingKey {
+        case cpuUsagePercent = "cpu_usage_percent"
+        case gpuUsagePercent = "gpu_usage_percent"
+        case memoryUsedBytes = "memory_used_bytes"
+        case memoryTotalBytes = "memory_total_bytes"
+        case disks
+    }
+}
+
+struct DiskUsage: Encodable {
+    let name: String
+    let usedBytes: UInt64
+    let totalBytes: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case usedBytes = "used_bytes"
+        case totalBytes = "total_bytes"
+    }
+}
+
+private struct TelemetryResponse: Decodable {
+    let reportingIntervalSeconds: Int
+
+    enum CodingKeys: String, CodingKey {
+        case reportingIntervalSeconds = "reporting_interval_seconds"
+    }
+}
+
+private enum SystemMetricsReader {
+    static func read() -> SystemMetrics {
+        let memory = readMemory()
+        return SystemMetrics(
+            cpuUsagePercent: readCPUUsage(),
+            gpuUsagePercent: nil,
+            memoryUsedBytes: memory.used,
+            memoryTotalBytes: memory.total,
+            disks: readDiskUsage()
+        )
+    }
+
+    private static func readCPUUsage() -> Double? {
+        guard let first = cpuTicks() else { return nil }
+        usleep(100_000)
+        guard let second = cpuTicks() else { return nil }
+        let total = second.total &- first.total
+        guard total > 0 else { return nil }
+        let idle = second.idle &- first.idle
+        return min(100, max(0, Double(total &- idle) / Double(total) * 100))
+    }
+
+    private static func cpuTicks() -> (total: UInt64, idle: UInt64)? {
+        var load = host_cpu_load_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<host_cpu_load_info_data_t>.stride / MemoryLayout<integer_t>.stride
+        )
+        let result = withUnsafeMutablePointer(to: &load) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+        let values = load.cpu_ticks
+        let user = UInt64(values.0)
+        let system = UInt64(values.1)
+        let nice = UInt64(values.2)
+        let idle = UInt64(values.3)
+        return (user + system + nice + idle, idle)
+    }
+
+    private static func readMemory() -> (used: UInt64?, total: UInt64?) {
+        var statistics = vm_statistics64()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride
+        )
+        let result = withUnsafeMutablePointer(to: &statistics) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return (nil, nil) }
+        let total = ProcessInfo.processInfo.physicalMemory
+        let pageSize = UInt64(vm_page_size)
+        let available = (UInt64(statistics.free_count) + UInt64(statistics.inactive_count)) * pageSize
+        return (total > available ? total - available : 0, total)
+    }
+
+    private static func readDiskUsage() -> [DiskUsage] {
+        guard let attributes = try? FileManager.default.attributesOfFileSystem(
+            forPath: NSHomeDirectory()
+        ),
+        let total = (attributes[.systemSize] as? NSNumber)?.uint64Value,
+        let free = (attributes[.systemFreeSize] as? NSNumber)?.uint64Value,
+        total > 0
+        else {
+            return []
+        }
+        return [DiskUsage(name: "System volume", usedBytes: total > free ? total - free : 0, totalBytes: total)]
+    }
 }
 
 @main
@@ -167,20 +277,30 @@ struct ChargePilotAgent {
             charging: reading.charging,
             acConnected: reading.acConnected,
             timestamp: ISO8601DateFormatter().string(from: Date()),
-            agentVersion: agentVersion
+            agentVersion: agentVersion,
+            systemMetrics: SystemMetricsReader.read()
         )
-        try await postAccepted(
+        let responseData = try await postAccepted(
             to: serverURL.appendingPathComponent("api/v1/telemetry"),
             body: body,
             credential: credential
         )
-        return reading
+        let response = try JSONDecoder().decode(TelemetryResponse.self, from: responseData)
+        guard (300...86_400).contains(response.reportingIntervalSeconds) else {
+            throw AgentError.invalidServerResponse
+        }
+        return BatteryReading(
+            percentage: reading.percentage,
+            charging: reading.charging,
+            acConnected: reading.acConnected,
+            reportingIntervalSeconds: response.reportingIntervalSeconds
+        )
     }
 
     static func deregisterFromServer(configuration: LocalConfiguration) async throws {
         let credential = try loadCredential(installationID: configuration.installationID)
         let serverURL = try validatedServerURL(configuration.serverURL)
-        try await postAccepted(
+        _ = try await postAccepted(
             to: serverURL.appendingPathComponent("api/v1/endpoint-enrollment/deregister"),
             body: EmptyRequest(),
             credential: credential
@@ -243,13 +363,15 @@ struct ChargePilotAgent {
     private static func run() async throws {
         let configuration = try loadConfiguration()
         while true {
+            var intervalSeconds = 300
             do {
                 let reading = try await sendTelemetry(configuration: configuration)
+                intervalSeconds = reading.reportingIntervalSeconds
                 print("Reported battery at \(reading.percentage)% (\(Date())).")
             } catch {
                 fputs("Telemetry was not accepted: \(error.localizedDescription)\n", stderr)
             }
-            try await Task.sleep(for: reportingInterval)
+            try await Task.sleep(for: .seconds(intervalSeconds))
         }
     }
 
@@ -277,7 +399,8 @@ struct ChargePilotAgent {
             return BatteryReading(
                 percentage: min(100, max(0, percentage)),
                 charging: charging,
-                acConnected: acConnected
+                acConnected: acConnected,
+                reportingIntervalSeconds: 300
             )
         }
         throw AgentError.batteryUnavailable
@@ -308,18 +431,19 @@ struct ChargePilotAgent {
         to url: URL,
         body: Body,
         credential: String
-    ) async throws {
+    ) async throws -> Data {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONEncoder().encode(body)
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode)
         else {
             throw AgentError.httpRejected((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
+        return data
     }
 
     private static func validatedServerURL(_ value: String) throws -> URL {

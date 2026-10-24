@@ -74,7 +74,7 @@ public sealed class ChargePilotApiClient(HttpClient httpClient)
         return result;
     }
 
-    public async Task SendTelemetryAsync(
+    public async Task<int> SendTelemetryAsync(
         AgentOptions options,
         TelemetryReading reading,
         CancellationToken cancellationToken = default)
@@ -95,6 +95,11 @@ public sealed class ChargePilotApiClient(HttpClient httpClient)
                 null,
                 response.StatusCode);
         }
+        var result = await response.Content.ReadFromJsonAsync<TelemetryResponse>(
+            cancellationToken: cancellationToken);
+        return result?.ReportingIntervalSeconds is >= 300 and <= 86400
+            ? result.ReportingIntervalSeconds
+            : options.IntervalMinutes * 60;
     }
 
     private static void EnsureSecureOrigin(Uri serverUri)

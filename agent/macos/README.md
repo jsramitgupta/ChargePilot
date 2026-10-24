@@ -48,12 +48,15 @@ using its update button; the button is unavailable while running directly from
 a mounted DMG. The release may be unsigned or unnotarized, and macOS security
 checks remain in effect.
 
-After enrollment, the app sends a report immediately and every five minutes.
-Its menu shows the latest accepted report and any upload errors. **Pause
-reports** stops collection; **Open when I sign in** registers the app as a
-macOS login item. Both are user-controlled. The app is a menu-bar process, not
-a system daemon. Sleep and logout interrupt reporting, and macOS scheduling
-does not provide a real-time guarantee.
+After enrollment, the app sends a report immediately and uses the tenant's
+server-configured cadence (5 minutes to 24 hours) after each accepted report.
+Tenant admins and managers set the cadence from ChargePilot's Agent setup
+page; a change takes effect after the next successful response. Its menu shows
+the latest accepted report and any upload errors. **Pause reports** stops
+collection; **Open when I sign in** registers the app as a macOS login item.
+Both are user-controlled. The app is a menu-bar process, not a system daemon.
+Sleep and logout interrupt reporting, and macOS scheduling does not provide a
+real-time guarantee.
 
 The development DMG is universal for Apple Silicon and Intel and may be
 unsigned. Tagged release DMGs are Developer ID-signed and notarized when the
@@ -92,9 +95,13 @@ in this app.
 
 ## Data and privacy
 
-The agent sends the chosen computer-name label, battery percentage, charging and AC
-state, observation timestamp, platform, installation ID, device class, and
-agent version. It does not send a serial number, hardware UUID, or IP address.
+The agent sends the chosen computer-name label, battery percentage, charging
+and AC state, observation timestamp, platform, installation ID, device class,
+and agent version. It also reports CPU utilization, used/total memory, and
+system-volume usage when available. GPU utilization is currently unavailable
+on macOS. These optional resource samples are retained by the server for 30
+days and do not affect automation. It does not send a serial number, hardware
+UUID, or IP address.
 If Apple does not provide a usable battery reading, no sample is sent.
 
 ## Stop or revoke
