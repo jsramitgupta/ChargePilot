@@ -20,7 +20,9 @@ ENV DATABASE_CLIENT=postgres \
     JWT_SECRET=build-only-not-a-secret
 COPY --from=dependencies /opt/app/node_modules ./node_modules
 COPY . .
-RUN npm run build && npm prune --omit=dev
+RUN npm run build \
+    && npm prune --omit=dev \
+    && rm -rf node_modules/vite
 
 FROM node:24.22.1-bookworm-slim AS runner
 WORKDIR /opt/app

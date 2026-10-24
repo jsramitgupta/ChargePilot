@@ -34,11 +34,12 @@
   },
   "overrides": {
     "dompurify": "3.4.17",
+    "esbuild": "0.28.2",
     "markdown-it": "14.3.3",
     "nodemailer": "10.2.1",
     "undici": "8.12.3",
     "vite": "6.4.5",
-    "webpack-dev-middleware": "7.4.5",
+    "webpack-dev-middleware": "7.4.6",
     "zod": "4.6.7"
   },
   "engines": {
