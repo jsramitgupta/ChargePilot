@@ -45,7 +45,6 @@ packages = [
   "app.models",
   "app.schemas",
   "app.services",
-  "connector",
 ]
 
 [tool.pytest.ini_options]
