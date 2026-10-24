@@ -29,8 +29,9 @@ ENV NODE_ENV=production \
     PORT=1337 \
     STRAPI_TELEMETRY_DISABLED=true
 RUN groupadd --system --gid 10001 strapi \
-    && useradd --system --uid 10001 --gid strapi strapi
+    && useradd --system --uid 10001 --gid strapi strapi \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 COPY --from=builder --chown=strapi:strapi /opt/app ./
 USER 10001:10001
 EXPOSE 1337
-CMD ["npm", "run", "start"]
+CMD ["node", "./node_modules/@strapi/strapi/bin/strapi.js", "start"]

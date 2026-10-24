@@ -17,7 +17,8 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=3000
 RUN groupadd --system --gid 10001 nextjs \
-    && useradd --system --uid 10001 --gid nextjs nextjs
+    && useradd --system --uid 10001 --gid nextjs nextjs \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 USER 10001:10001
