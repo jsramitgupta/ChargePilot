@@ -33,7 +33,8 @@ def test_dockerfiles_use_pinned_images_and_unprivileged_runtime():
         assert "pip install --upgrade pip" not in dockerfile
 
     assert "USER 10001:10001" in app_dockerfile
-    assert "pip install --no-cache-dir ." in app_dockerfile
+    assert "pip install --no-cache-dir -r /tmp/chargepilot-build-requirements.txt" in app_dockerfile
+    assert "pip install --no-cache-dir --no-deps --no-build-isolation ." in app_dockerfile
     assert "pip install --no-cache-dir -e ." not in app_dockerfile
 
 
@@ -121,6 +122,17 @@ def test_container_workflows_scan_built_images_and_scope_publishing():
     assert "Compare components with their deployed source revisions" in publish_workflow
     assert "API_CHANGED" in publish_workflow
     assert "FRONTEND_CHANGED" in publish_workflow
+    assert "Build, scan, and publish ${{ matrix.component }}" in publish_workflow
+    assert "dockerfile: ./docker/Dockerfile" in publish_workflow
+    assert "dockerfile: ./frontend/Dockerfile" in publish_workflow
+    assert "Build and push multi-arch image" in publish_workflow
+    assert "Scan published AMD64 image for vulnerabilities and secrets" in publish_workflow
+    assert "Update GitOps image tags" in publish_workflow
+    assert "needs.publish.result == 'success'" in publish_workflow
+    publish_job = publish_workflow.split("  publish:\n", 1)[1].split("\n  promote:\n", 1)[0]
+    promote_job = publish_workflow.split("  promote:\n", 1)[1]
+    assert "contents: read" in publish_job
+    assert "contents: write" in promote_job
 
     for workflow, build_marker, scan_marker in (
         (
@@ -140,13 +152,8 @@ def test_container_workflows_scan_built_images_and_scope_publishing():
         ),
         (
             publish_workflow,
-            "Build and push API image",
-            "Scan published API image for vulnerabilities and secrets",
-        ),
-        (
-            publish_workflow,
-            "Build and push frontend image",
-            "Scan published frontend image for vulnerabilities and secrets",
+            "Build and push multi-arch image",
+            "Scan published AMD64 image for vulnerabilities and secrets",
         ),
         (
             connector_workflow,
