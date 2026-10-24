@@ -420,6 +420,7 @@ def test_dark_tables_and_mapping_number_inputs_have_readable_theme_colors():
 def test_connector_page_explains_supported_deployments_and_local_network_needs():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     connectors_page = app.split("function ConnectorsPage()", 1)[1].split("\nfunction ", 1)[0]
+    endpoint_details = app.split("function EndpointDetailsPanel(", 1)[1].split("\nfunction ", 1)[0]
     light = LIGHT_THEME.read_text(encoding="utf-8")
     dark = DARK_THEME.read_text(encoding="utf-8")
     connector_readme = (PROJECT_ROOT / "connector" / "README.md").read_text(encoding="utf-8")
@@ -429,11 +430,23 @@ def test_connector_page_explains_supported_deployments_and_local_network_needs()
     assert "Linux or macOS terminal" in connectors_page
     assert "Linux server, NAS, or Raspberry Pi" in connectors_page
     assert "no inbound Internet port is required" in connectors_page
-    assert "Create enrollment code" in connectors_page
+    assert "Add a site connector" in connectors_page
+    assert "Create connector and code" in connectors_page
+    assert "Edit name" in connectors_page
+    assert "Go to connector setup" in connectors_page
+    assert "offlineCount" in connectors_page
+    assert "PATCH" in connectors_page
     assert "endusercompute/chargepilot-connector:sha-" in connectors_page
     assert "curl -fsSL" in connectors_page
     assert "/connectors/install.sh | sh" in connectors_page
-    assert "same local network" in connectors_page
+    assert "switch LAN" in connectors_page
+    assert "Graph" in endpoint_details
+    assert "EndpointReadingChart" in endpoint_details
+    assert "Unavailable values are not plotted" in app
     assert ".connector-deploy-guide" in light
+    assert ".connector-readiness" in light
+    assert ".reading-chart-series" in light
     assert "body.theme-dark .connector-deploy-guide" in dark
+    assert "body.theme-dark .connector-readiness" in dark
+    assert "body.theme-dark .endpoint-reading-chart" in dark
     assert "endusercompute/chargepilot-connector:sha-" in connector_readme

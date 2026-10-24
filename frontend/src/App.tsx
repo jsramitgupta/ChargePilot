@@ -2810,6 +2810,7 @@ function EndpointDetailsPanel({
 
   const latestReading = details?.readings.at(-1)
   const metrics = latestReading?.system_metrics
+  const [readingView, setReadingView] = useState<'table' | 'chart'>('table')
   const memoryPercent = metrics?.memory_used_bytes !== null && metrics?.memory_used_bytes !== undefined &&
     metrics.memory_total_bytes !== null && metrics.memory_total_bytes !== undefined && metrics.memory_total_bytes > 0
     ? metrics.memory_used_bytes / metrics.memory_total_bytes * 100
@@ -2900,9 +2901,17 @@ function EndpointDetailsPanel({
       <section aria-labelledby="report-history-title">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h3 id="report-history-title" className="font-semibold text-[var(--ink)]">Recent reports</h3>
-          <span className="text-xs text-[var(--muted)]">Up to 100 reports · retained for 30 days</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs text-[var(--muted)]">Up to 100 reports · retained for 30 days</span>
+            {details.readings.length > 0 && <div className="reading-view-toggle" role="group" aria-label="Recent report view">
+              <button type="button" aria-pressed={readingView === 'table'} onClick={() => setReadingView('table')}>Table</button>
+              <button type="button" aria-pressed={readingView === 'chart'} onClick={() => setReadingView('chart')}>Graph</button>
+            </div>}
+          </div>
         </div>
-        {details.readings.length ? <div className="max-h-72 overflow-auto rounded-lg border border-[var(--line)]">
+        {details.readings.length ? readingView === 'chart'
+          ? <EndpointReadingChart readings={details.readings} />
+          : <div className="max-h-72 overflow-auto rounded-lg border border-[var(--line)]">
           <table className="w-full text-left text-sm">
             <thead className="sticky top-0 bg-[var(--surface-muted)] text-xs text-[var(--muted)]"><tr><th className="px-3 py-2">Time</th><th className="px-3 py-2">Battery</th><th className="px-3 py-2">CPU</th><th className="px-3 py-2">Memory</th><th className="px-3 py-2">GPU</th></tr></thead>
             <tbody>{[...details.readings].reverse().map((reading) => <tr key={reading.timestamp} className="border-t border-[var(--line)]">
@@ -2918,6 +2927,106 @@ function EndpointDetailsPanel({
       </>}
         </div>
     </aside>
+    </div>
+  )
+}
+
+function EndpointReadingChart({ readings }: { readings: EndpointReading[] }) {
+  const chartWidth = 840
+  const chartHeight = 300
+  const plot = { left: 48, right: 18, top: 18, bottom: 44 }
+  const plotWidth = chartWidth - plot.left - plot.right
+  const plotHeight = chartHeight - plot.top - plot.bottom
+  const timestamps = readings.map((reading) => Date.parse(reading.timestamp))
+  const validTimestamps = timestamps.filter(Number.isFinite)
+  const minTime = Math.min(...validTimestamps)
+  const maxTime = Math.max(...validTimestamps)
+  const xAt = (index: number) => {
+    const time = timestamps[index]
+    if (!Number.isFinite(time) || minTime === maxTime) {
+      return plot.left + plotWidth * (readings.length === 1 ? 0.5 : index / (readings.length - 1))
+    }
+    return plot.left + ((time - minTime) / (maxTime - minTime)) * plotWidth
+  }
+  const yAt = (value: number) => plot.top + ((100 - value) / 100) * plotHeight
+  const series = [
+    {
+      key: 'battery',
+      label: 'Battery',
+      value: (reading: EndpointReading) => reading.battery_percentage,
+    },
+    {
+      key: 'cpu',
+      label: 'CPU',
+      value: (reading: EndpointReading) => reading.system_metrics?.cpu_usage_percent ?? null,
+    },
+    {
+      key: 'memory',
+      label: 'Memory',
+      value: (reading: EndpointReading) => {
+        const used = reading.system_metrics?.memory_used_bytes
+        const total = reading.system_metrics?.memory_total_bytes
+        return used != null && total != null && total > 0 ? used / total * 100 : null
+      },
+    },
+    {
+      key: 'gpu',
+      label: 'GPU',
+      value: (reading: EndpointReading) => reading.system_metrics?.gpu_usage_percent ?? null,
+    },
+  ] as const
+  const timeLabel = (index: number) => formatTimestamp(readings[index]?.timestamp ?? null)
+
+  return (
+    <div className="endpoint-reading-chart">
+      <ul className="reading-chart-legend" aria-label="Graph series">
+        {series.map((item) => <li key={item.key}>
+          <span className={`reading-chart-swatch reading-chart-${item.key}`} aria-hidden="true" />
+          {item.label}
+        </li>)}
+      </ul>
+      <svg
+        className="reading-chart-svg"
+        viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+        role="img"
+        aria-label={`Battery and system resource percentages across ${readings.length} recent device reports. Unavailable values are not plotted.`}
+      >
+        {[0, 25, 50, 75, 100].map((tick) => {
+          const y = yAt(tick)
+          return <g key={tick}>
+            <line className="reading-chart-grid" x1={plot.left} x2={chartWidth - plot.right} y1={y} y2={y} />
+            <text className="reading-chart-axis-label" x={plot.left - 10} y={y + 4} textAnchor="end">{tick}%</text>
+          </g>
+        })}
+        <text className="reading-chart-axis-label" x={plot.left} y={chartHeight - 10} textAnchor="start">{timeLabel(0)}</text>
+        {readings.length > 1 && <text className="reading-chart-axis-label" x={chartWidth - plot.right} y={chartHeight - 10} textAnchor="end">{timeLabel(readings.length - 1)}</text>}
+        {series.map((item) => {
+          const segments: string[] = []
+          let segment: string[] = []
+          readings.forEach((reading, index) => {
+            const value = item.value(reading)
+            if (value === null || !Number.isFinite(value)) {
+              if (segment.length) segments.push(segment.join(' '))
+              segment = []
+              return
+            }
+            segment.push(`${segment.length ? 'L' : 'M'} ${xAt(index).toFixed(2)} ${yAt(Math.max(0, Math.min(100, value))).toFixed(2)}`)
+          })
+          if (segment.length) segments.push(segment.join(' '))
+          return <g key={item.key} className={`reading-chart-series reading-chart-${item.key}`}>
+            {segments.map((path, index) => <path key={`${item.key}-${index}`} d={path} />)}
+            {readings.map((reading, index) => {
+              const value = item.value(reading)
+              if (value === null || !Number.isFinite(value)) return null
+              const plottedValue = Math.max(0, Math.min(100, value))
+              return <circle key={`${reading.timestamp}-${item.key}`} cx={xAt(index)} cy={yAt(plottedValue)} r="3.5">
+                <title>{`${item.label}: ${Math.round(value)}% at ${formatTimestampWithSeconds(reading.timestamp)}`}</title>
+              </circle>
+            })}
+          </g>
+        })}
+      </svg>
+      <p className="reading-chart-note">Each line uses the same 0–100% scale. Missing platform readings are left blank.</p>
     </div>
   )
 }
@@ -3002,6 +3111,8 @@ function ConnectorsPage() {
   const { data: user } = useSession()
   const [deploymentMethod, setDeploymentMethod] = useState<'docker' | 'python'>('docker')
   const [name, setName] = useState('')
+  const [editingConnectorId, setEditingConnectorId] = useState<string | null>(null)
+  const [editedConnectorName, setEditedConnectorName] = useState('')
   const [tenantId, setTenantId] = useState('')
   const [enrollmentCode, setEnrollmentCode] = useState('')
   const [copyStatus, setCopyStatus] = useState('')
@@ -3027,6 +3138,18 @@ function ConnectorsPage() {
       queryClient.invalidateQueries({ queryKey: ['connectors'] })
     },
   })
+  const renameMutation = useMutation({
+    mutationFn: ({ connectorId, name }: { connectorId: string; name: string }) =>
+      apiFetch<{ id: string; name: string }>(`/api/v1/connectors/${connectorId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => {
+      setEditingConnectorId(null)
+      setEditedConnectorName('')
+      queryClient.invalidateQueries({ queryKey: ['connectors'] })
+    },
+  })
   const revokeMutation = useMutation({
     mutationFn: (connectorId: string) => apiFetch<{ status: string }>(`/api/v1/connectors/${connectorId}/revoke`, { method: 'POST' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['connectors'] }),
@@ -3041,10 +3164,13 @@ function ConnectorsPage() {
   if (tenantsQuery.error) return <ErrorCard message={tenantsQuery.error.message} />
   const connectors = connectorsQuery.data ?? []
   const tenants = tenantsQuery.data ?? []
-  const actionError = createMutation.error ?? revokeMutation.error ?? deleteMutation.error
+  const actionError = createMutation.error ?? renameMutation.error ?? revokeMutation.error ?? deleteMutation.error
   const canManageConnectors = user?.role === 'super_admin' || user?.role === 'tenant_admin' || user?.role === 'manager'
   const connectorServerUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, '')
   const pythonInstallCommand = `curl -fsSL ${connectorServerUrl}/connectors/install.sh | sh`
+  const onlineCount = connectors.filter((connector) => connector.is_active && connector.is_enrolled && connector.is_online).length
+  const waitingCount = connectors.filter((connector) => connector.is_active && !connector.is_enrolled).length
+  const offlineCount = connectors.filter((connector) => connector.is_active && connector.is_enrolled && !connector.is_online).length
   const composeYaml = `services:
   chargepilot-connector:
     image: endusercompute/chargepilot-connector:sha-922f4aac9cef35276eef7814620f38d674720f73
@@ -3070,7 +3196,15 @@ volumes:
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Remote device networks" title="Site connectors" description="Connect a computer on the same local network as your Tuya switches. It securely polls ChargePilot over HTTPS and performs discovery and control on site." />
+      <PageHeader eyebrow="Remote device networks" title="Site connectors" description="Run one connector on each switch network. It keeps Tuya discovery and control on site while polling ChargePilot over outbound HTTPS." />
+      <section className="connector-readiness" aria-label="Connector setup overview">
+        <p><strong>Before you start</strong> Choose an always-on computer on the switch LAN. It needs outbound HTTPS and local Tuya access; no inbound Internet port is required.</p>
+        <ul>
+          <li><span className="connector-readiness-dot is-online" aria-hidden="true" />{onlineCount} online</li>
+          <li><span className="connector-readiness-dot is-waiting" aria-hidden="true" />{waitingCount} awaiting enrollment</li>
+          <li><span className="connector-readiness-dot is-offline" aria-hidden="true" />{offlineCount} offline</li>
+        </ul>
+      </section>
       {actionError && <ErrorCard message={actionError.message} />}
       <section className="connector-deploy-guide" aria-labelledby="connector-deploy-title">
         <div className="connector-deploy-heading">
@@ -3082,7 +3216,7 @@ volumes:
             <span>Tuya LAN</span><ChevronRight size={15} aria-hidden="true" /><span>Connector</span><ChevronRight size={15} aria-hidden="true" /><span>HTTPS</span>
           </div>
         </div>
-        <p className="connector-prerequisite"><ShieldCheck size={16} aria-hidden="true" /><span>Use an always-on computer on the same network as your switches. It needs outbound HTTPS and local Tuya traffic; no inbound Internet port is required.</span></p>
+        <p className="connector-prerequisite"><ShieldCheck size={16} aria-hidden="true" /><span>The host must stay powered on, reach ChargePilot over HTTPS, and reach switches on the local network using Tuya traffic (UDP 6666, 6667, 7000; TCP 6668).</span></p>
         <div className="connector-method-options" role="group" aria-label="Connector deployment method">
           <button type="button" className={`connector-method-option ${deploymentMethod === 'docker' ? 'is-selected' : ''}`} aria-pressed={deploymentMethod === 'docker'} onClick={() => setDeploymentMethod('docker')}>
             <span className="connector-method-name">Docker Compose</span><span>Linux server, NAS, or Raspberry Pi</span>
@@ -3098,14 +3232,14 @@ volumes:
           </article>
           <article className="connector-deploy-step">
             <span className="connector-step-number">2</span>
-            <div><h3>Create its one-time code</h3><p>Name this network and generate a code below. It expires after 15 minutes and can be used once.</p>{canManageConnectors && <a href="#connector-enrollment-form" className="connector-step-link">Create enrollment code</a>}</div>
+            <div><h3>Create a one-time code</h3><p>Name the connector for this switch network. The code appears once, expires in 15 minutes, and can enroll only one connector.</p>{canManageConnectors && <a href="#connector-enrollment-form" className="connector-step-link">Go to connector setup</a>}</div>
           </article>
           <article className="connector-deploy-step">
             <span className="connector-step-number">3</span>
             <div>
               <h3>{deploymentMethod === 'docker' ? 'Start the published Docker image' : 'Install and start Python'}</h3>
               {deploymentMethod === 'docker' ? <>
-                <p>Save this as <code>docker-compose.yml</code>. It uses the published image and this ChargePilot API URL, and Docker creates persistent storage automatically.</p>
+                <p>Save as <code>docker-compose.yml</code> on the connector host. This uses the published image, connects to this ChargePilot server, and creates persistent Docker storage.</p>
                 <pre className="connector-command"><code>{composeYaml}</code></pre>
                 <button type="button" className="btn-secondary mt-2" onClick={async () => {
                   try {
@@ -3118,7 +3252,7 @@ volumes:
                 <p className="mt-1 text-xs text-slate-500" role="status">{copyStatus}</p>
                 <p className="connector-step-note">Run this in Bash beside the Compose file: <code>read -rsp 'One-time ChargePilot code: ' CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE &amp;&amp; echo &amp;&amp; export CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE &amp;&amp; docker compose up -d &amp;&amp; unset CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE</code>. The code is not added to shell history, but remains visible in Docker metadata until enrollment completes and the container is recreated without it. The saved credential remains in the Docker-managed volume. Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668).</p>
               </> : <>
-                <p>On Linux or macOS, install Python 3.12+, <code>curl</code>, and <code>unzip</code>. Run this command on the switch LAN and enter only the one-time enrollment code when prompted. Windows users can download the source package for manual Python setup.</p>
+                <p>On Linux or macOS, install Python 3.12+, <code>curl</code>, and <code>unzip</code>. Run the command in a terminal on the switch LAN; enter the one-time code only when prompted. Windows users can use the source package for manual Python setup.</p>
                 <pre className="connector-command"><code>{pythonInstallCommand}</code></pre>
                 <button type="button" className="btn-secondary mt-2" onClick={async () => {
                   try {
@@ -3134,7 +3268,7 @@ volumes:
             </div>
           </article>
         </div>
-        <p className="connector-finish-note">When it reports online here, use the Switches page to scan this LAN and assign discovered switches to the connector.</p>
+        <p className="connector-finish-note">Setup is complete when this page shows the connector online. Then open <strong>Switches</strong> to scan this LAN and assign the discovered switches to it.</p>
       </section>
       {enrollmentCode && (
         <section className="rounded-2xl border border-amber-300 bg-amber-50 p-5" aria-labelledby="enrollment-code-title">
@@ -3154,29 +3288,41 @@ volumes:
         </section>
       )}
       <div className="grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-        {canManageConnectors && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-slate-900" id="connector-enrollment-form">Create enrollment code</h2>
-          <p className="mt-1 text-sm text-slate-600">Choose a name that identifies the physical switch network.</p>
+        {canManageConnectors && <section className="connector-create-panel" aria-labelledby="connector-enrollment-form">
+          <h2 className="text-lg font-bold text-[var(--ink)]" id="connector-enrollment-form">Add a site connector</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">Give this connector a location-based name, then enter its one-time code on the computer that will run it.</p>
           <form className="mt-4 space-y-3" onSubmit={(event) => { event.preventDefault(); createMutation.mutate() }}>
-            <label className="label" htmlFor="connector-name">Name<input id="connector-name" required maxLength={160} className="field" value={name} onChange={(event) => setName(event.target.value)} placeholder="Main office LAN" /></label>
-            {user?.role === 'super_admin' && <label className="label" htmlFor="connector-tenant">Tenant<select id="connector-tenant" required className="field" value={tenantId} onChange={(event) => setTenantId(event.target.value)}><option value="">Select a tenant</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></label>}
-            <button type="submit" className="btn-primary" disabled={createMutation.isPending}>{createMutation.isPending ? 'Creating code…' : 'Create one-time code'}</button>
+            <label className="label" htmlFor="connector-name">Connector name<input id="connector-name" required maxLength={160} className="field" value={name} onChange={(event) => setName(event.target.value)} placeholder="Warehouse switch network" /></label>
+            {user?.role === 'super_admin' && <label className="label" htmlFor="connector-tenant">Workspace<select id="connector-tenant" required className="field" value={tenantId} onChange={(event) => setTenantId(event.target.value)}><option value="">Select a workspace</option>{tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></label>}
+            <button type="submit" className="btn-primary" disabled={createMutation.isPending}>{createMutation.isPending ? 'Creating code…' : 'Create connector and code'}</button>
           </form>
         </section>}
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-baseline justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">Connectors</h2><span className="text-sm text-slate-500">{connectors.length}</span></div>
-          <div className="mt-4 divide-y divide-slate-100">
+        <section className="connector-inventory" aria-labelledby="connector-inventory-title">
+          <div className="connector-inventory-heading"><div><h2 id="connector-inventory-title">Your connectors</h2><p>Rename a connector to match its site; device assignments and credentials stay the same.</p></div><span>{connectors.length}</span></div>
+          <div className="site-connector-list">
             {connectors.map((connector) => {
               const status = !connector.is_active ? 'Revoked' : !connector.is_enrolled ? 'Awaiting enrollment' : connector.is_online ? 'Online' : 'Offline'
-              const statusColor = !connector.is_active ? 'text-red-700' : connector.is_online ? 'text-emerald-700' : 'text-amber-700'
-              return <article key={connector.id} className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
-                <div><h3 className="font-semibold text-slate-900">{connector.name}</h3><p className="mt-1 text-sm"><span className={statusColor}>{status}</span><span className="text-slate-500"> · Last contact {formatTimestamp(connector.last_seen_at ?? null)}</span></p></div>
-                {canManageConnectors && (connector.is_active
-                  ? <button type="button" className="btn-secondary border-red-200 text-red-700 hover:bg-red-50" disabled={revokeMutation.isPending} onClick={() => { if (window.confirm('Revoke this connector and unassign its switches?')) revokeMutation.mutate(connector.id) }}>Revoke</button>
-                  : <button type="button" className="btn-secondary border-red-200 text-red-700 hover:bg-red-50" disabled={deleteMutation.isPending} onClick={() => { if (window.confirm('Permanently delete this revoked connector and its command history?')) deleteMutation.mutate(connector.id) }}>Delete</button>)}
+              return <article key={connector.id} className="site-connector-row">
+                <div className="site-connector-info">
+                  {editingConnectorId === connector.id
+                    ? <form className="site-connector-rename" onSubmit={(event) => { event.preventDefault(); renameMutation.mutate({ connectorId: connector.id, name: editedConnectorName.trim() }) }}>
+                      <label className="sr-only" htmlFor={`connector-rename-${connector.id}`}>Name for {connector.name}</label>
+                      <input id={`connector-rename-${connector.id}`} className="field" autoFocus maxLength={160} required value={editedConnectorName} onChange={(event) => setEditedConnectorName(event.target.value)} />
+                      <button type="submit" className="btn-primary" disabled={renameMutation.isPending}>{renameMutation.isPending ? 'Saving…' : 'Save name'}</button>
+                      <button type="button" className="btn-secondary" disabled={renameMutation.isPending} onClick={() => { setEditingConnectorId(null); setEditedConnectorName('') }}>Cancel</button>
+                    </form>
+                    : <div className="site-connector-title">
+                      <h3>{connector.name}</h3>
+                      {canManageConnectors && <button type="button" className="connector-edit-name" aria-label={`Edit ${connector.name} name`} onClick={() => { setEditingConnectorId(connector.id); setEditedConnectorName(connector.name) }}><Pencil size={14} aria-hidden="true" /><span>Edit name</span></button>}
+                    </div>}
+                  <p className="site-connector-status"><span className={`connector-status-pill ${!connector.is_active ? 'is-revoked' : connector.is_online ? 'is-online' : connector.is_enrolled ? 'is-offline' : 'is-waiting'}`}>{status}</span><span>Last contact {formatTimestamp(connector.last_seen_at ?? null)}</span>{user?.role === 'super_admin' && connector.tenant_name && <span>Workspace: {connector.tenant_name}</span>}</p>
+                </div>
+                {canManageConnectors && <div className="site-connector-actions">{connector.is_active
+                  ? <button type="button" className="btn-secondary connector-revoke-button" disabled={revokeMutation.isPending} onClick={() => { if (window.confirm('Revoke this connector and unassign its switches?')) revokeMutation.mutate(connector.id) }}>Revoke connector</button>
+                  : <button type="button" className="btn-secondary connector-revoke-button" disabled={deleteMutation.isPending} onClick={() => { if (window.confirm('Permanently delete this revoked connector and its command history?')) deleteMutation.mutate(connector.id) }}>Delete connector</button>}</div>}
               </article>
             })}
-            {!connectors.length && <p className="py-6 text-sm text-slate-500">No connectors yet. Add one for a remote switch network.</p>}
+            {!connectors.length && <p className="connector-empty-state">No connectors yet. Add one after choosing the computer that will stay on the switch network.</p>}
           </div>
         </section>
       </div>

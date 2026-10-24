@@ -288,6 +288,82 @@ body.theme-dark .connector-command {
   color: #e1ece5;
 }
 
+body.theme-dark .connector-readiness,
+body.theme-dark .connector-create-panel,
+body.theme-dark .connector-inventory {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+body.theme-dark .connector-readiness {
+  background: var(--surface-muted);
+}
+
+body.theme-dark .connector-inventory-heading h2,
+body.theme-dark .site-connector-title h3,
+body.theme-dark .site-connector-rename .field {
+  color: var(--ink);
+}
+
+body.theme-dark .connector-inventory-heading p,
+body.theme-dark .site-connector-status,
+body.theme-dark .connector-readiness li,
+body.theme-dark .connector-empty-state {
+  color: var(--muted);
+}
+
+body.theme-dark .site-connector-row,
+body.theme-dark .site-connector-list {
+  border-color: var(--line);
+}
+
+body.theme-dark .connector-edit-name:hover,
+body.theme-dark .connector-edit-name:focus-visible {
+  background: var(--surface-muted);
+}
+
+body.theme-dark .connector-revoke-button {
+  border-color: var(--danger-line);
+  color: var(--danger-ink);
+  background: var(--danger-surface);
+}
+
+body.theme-dark .reading-view-toggle {
+  border-color: var(--line);
+  background: var(--surface-muted);
+}
+
+body.theme-dark .reading-view-toggle button[aria-pressed="true"] {
+  border-color: var(--line);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+body.theme-dark .endpoint-reading-chart {
+  --chart-battery-color: #8fcfa3;
+  --chart-cpu-color: #e8b66b;
+  --chart-memory-color: #82c9e8;
+  --chart-gpu-color: #c5a1e7;
+  border-color: var(--line);
+  background: var(--surface-muted);
+}
+
+body.theme-dark .reading-chart-battery {
+  --chart-series-color: var(--chart-battery-color);
+}
+
+body.theme-dark .reading-chart-cpu {
+  --chart-series-color: var(--chart-cpu-color);
+}
+
+body.theme-dark .reading-chart-memory {
+  --chart-series-color: var(--chart-memory-color);
+}
+
+body.theme-dark .reading-chart-gpu {
+  --chart-series-color: var(--chart-gpu-color);
+}
+
 body.theme-dark .page-shell .mapping-number-input:focus-within {
   border-color: #83b18e;
   box-shadow: 0 0 0 3px rgba(131, 177, 142, 0.22);
