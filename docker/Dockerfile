@@ -10,11 +10,16 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./
+
+RUN python -m venv /opt/venv \
+    && python -c 'import tomllib; from pathlib import Path; project = tomllib.loads(Path("pyproject.toml").read_text()); dependencies = project["project"]["dependencies"] + project["build-system"]["requires"]; Path("/tmp/chargepilot-build-requirements.txt").write_text("\n".join(dependencies) + "\n", encoding="utf-8")' \
+    && /opt/venv/bin/pip install --no-cache-dir -r /tmp/chargepilot-build-requirements.txt
+
 COPY app ./app
 COPY connector ./connector
 
-RUN python -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir .
+RUN /opt/venv/bin/pip install --no-cache-dir --no-deps --no-build-isolation . \
+    && /opt/venv/bin/pip uninstall --yes setuptools wheel
 
 FROM python:3.15-slim@sha256:2da676046630d7bf14c6764ae1143dc7fa0377a53f94bf5a642f0b214aca5bce AS runtime
 

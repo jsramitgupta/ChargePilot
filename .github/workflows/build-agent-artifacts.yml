@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: agent-artifacts-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/agents-v') }}
 
 jobs:
   version:
@@ -29,18 +29,29 @@ jobs:
     outputs:
       agent_version: ${{ steps.version.outputs.agent_version }}
       build_number: ${{ steps.version.outputs.build_number }}
+      android: ${{ steps.version.outputs.android }}
+      ios: ${{ steps.version.outputs.ios }}
+      macos: ${{ steps.version.outputs.macos }}
+      windows: ${{ steps.version.outputs.windows }}
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
 
       - name: Resolve version from release tag or project version
         id: version
         env:
+          EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           python3 - <<'PY'
           import os
           import re
+          import subprocess
           from pathlib import Path
 
           ref = os.environ["REF"]
@@ -56,15 +67,53 @@ jobs:
           build_number = major * 1_000_000 + minor * 1_000 + patch
           if minor > 999 or patch > 999 or build_number < 1 or build_number > 2_100_000_000:
               raise SystemExit("Agent version is outside the supported mobile build-number range")
+
+          platforms = {"android", "ios", "macos", "windows"}
+          changed_files = None
+          if not ref.startswith("refs/tags/agents-v") and os.environ["EVENT_NAME"] != "workflow_dispatch":
+              if os.environ["EVENT_NAME"] == "pull_request":
+                  base = os.environ["BASE_SHA"]
+              else:
+                  base = os.environ["BEFORE_SHA"]
+              head = os.environ["HEAD_SHA"]
+              if base and subprocess.run(
+                  ["git", "cat-file", "-e", f"{base}^{{commit}}"],
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              ).returncode == 0:
+                  changed_files = subprocess.check_output(
+                      ["git", "diff", "--name-only", base, head], text=True
+                  ).splitlines()
+
+          selected = set(platforms) if changed_files is None else set()
+          for filename in changed_files or []:
+              if filename == ".github/workflows/build-agent-artifacts.yml" or filename == "agent/VERSION":
+                  selected.update(platforms)
+              elif filename in {"agent/BatteryAgent.ps1", "agent/CreateAgentScheduledTask.ps1"}:
+                  selected.add("windows")
+              elif filename.startswith("agent/android/"):
+                  selected.add("android")
+              elif filename.startswith("agent/ios/"):
+                  selected.add("ios")
+              elif filename.startswith("agent/macos/"):
+                  selected.add("macos")
+              elif filename.startswith("agent/windows/"):
+                  selected.add("windows")
+              elif filename.startswith("agent/"):
+                  selected.update(platforms)
+
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"agent_version={version}\n")
               output.write(f"build_number={build_number}\n")
+              for platform in sorted(platforms):
+                  output.write(f"{platform}={'true' if platform in selected else 'false'}\n")
           PY
 
   android:
     name: Build Android agent
     runs-on: ubuntu-24.04
     needs: version
+    if: startsWith(github.ref, 'refs/tags/agents-v') || needs.version.outputs.android == 'true'
     env:
       AGENT_VERSION: ${{ needs.version.outputs.agent_version }}
       AGENT_BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
@@ -79,6 +128,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            agent/android/gradle/wrapper/gradle-wrapper.properties
+            agent/android/*.gradle*
+            agent/android/app/*.gradle*
 
       - name: Check Android signing configuration
         id: signing
@@ -115,7 +169,7 @@ jobs:
         working-directory: agent/android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          ./gradlew --no-daemon --build-cache assembleDebug
 
       - name: Prepare Android release signing key
         if: ${{ startsWith(github.ref, 'refs/tags/agents-v') && steps.signing.outputs.signed == 'true' }}
@@ -141,7 +195,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleRelease
+          ./gradlew --no-daemon --build-cache assembleRelease
           mkdir -p "$RUNNER_TEMP/android-release"
           if [[ "${{ steps.signing.outputs.signed }}" == "true" ]]; then
             apk="app/build/outputs/apk/release/app-release.apk"
@@ -178,6 +232,7 @@ jobs:
     name: Build iOS device agent
     runs-on: macos-15
     needs: version
+    if: startsWith(github.ref, 'refs/tags/agents-v') || needs.version.outputs.ios == 'true'
     env:
       AGENT_VERSION: ${{ needs.version.outputs.agent_version }}
       AGENT_BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
@@ -362,6 +417,7 @@ jobs:
     name: Build macOS agent
     runs-on: macos-15
     needs: version
+    if: startsWith(github.ref, 'refs/tags/agents-v') || needs.version.outputs.macos == 'true'
     env:
       AGENT_VERSION: ${{ needs.version.outputs.agent_version }}
       AGENT_BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
@@ -489,6 +545,7 @@ jobs:
     name: Build Windows service agent
     runs-on: windows-2022
     needs: version
+    if: startsWith(github.ref, 'refs/tags/agents-v') || needs.version.outputs.windows == 'true'
     env:
       AGENT_VERSION: ${{ needs.version.outputs.agent_version }}
       AGENT_BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
@@ -520,6 +577,11 @@ jobs:
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: |
+            agent/windows/ChargePilotAgent.csproj
+            agent/windows/ChargePilotAgent.Core/ChargePilotAgent.Core.csproj
+            agent/windows/tests/ChargePilotAgent.Core.Tests/ChargePilotAgent.Core.Tests.csproj
 
       - name: Test Windows agent contract
         run: dotnet test agent/windows/tests/ChargePilotAgent.Core.Tests/ChargePilotAgent.Core.Tests.csproj --configuration Release

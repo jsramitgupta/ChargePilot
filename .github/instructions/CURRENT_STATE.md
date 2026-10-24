@@ -8,8 +8,10 @@ backend supports enrolled Windows, macOS, Android, and iOS telemetry. Android
 Kotlin/Compose and iOS SwiftUI source projects are implemented. The agent
 artifact workflow builds a self-contained Windows .NET executable that
 installs a native Windows telemetry service and provides an administrator
-setup UI and CLI, plus Android, iOS, and macOS apps. Agent source changes produce development artifacts. An `agents-v*` GitHub
-Release publishes platform builds whether or not signing secrets are set;
+setup UI and CLI, plus Android, iOS, and macOS apps. Branch and PR changes
+build development artifacts only for affected platforms; shared version or
+workflow changes build all platforms. An `agents-v*` GitHub Release publishes
+all platform builds whether or not signing secrets are set;
 configured signing is applied and verified per platform, otherwise the
 release contains clearly documented unsigned assets. Partially configured
 signing credentials fail that platform's release job. The iOS IPA is ad-hoc

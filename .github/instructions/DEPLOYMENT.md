@@ -271,14 +271,19 @@ The GitHub Actions pipeline keeps routine validation separate from publishing:
 - `publish-deploy.yml` runs only after successful CI for the latest `main`
   commit from this repository. It compares API/frontend source files with the
   source revision recorded in their deployed image tags, so stale CI runs and
-  unchanged images are skipped. API and frontend tags are updated independently.
+  unchanged images are skipped. Changed API and frontend images build and scan
+  in parallel, then a separate least-privilege job updates only their tags.
+  Newer main publications supersede in-progress stale builds.
 - `connector-multiarch.yml` builds only for connector-related changes or an
   explicit manual rebuild.
 - Trivy scans each created image for OS/library vulnerabilities and secrets.
   Published multi-platform images are scanned by digest for AMD64 and ARM64.
   High and critical findings with fixes available fail the workflow before the
   image tag is promoted to the k3s manifests. Images include BuildKit
-  provenance and SBOM attestations.
+  provenance and SBOM attestations. BuildKit caches are scoped per image and
+  workflow so independent builds can reuse layers without overwriting one
+  another; the API image installs project dependencies before copying changing
+  source files to preserve its dependency layer.
 - Python runtime images remove package-installer tooling and copy the final
   filesystem into a `scratch` stage so scanners do not report vulnerable
   bundled packages left in upstream image layers.
@@ -289,10 +294,15 @@ The GitHub Actions pipeline keeps routine validation separate from publishing:
   manifest-only commits do not start another CI run.
 
 Agent source is not copied into the API image. `build-agent-artifacts.yml`
-builds a self-contained Windows service executable, APK, IPA, and DMG
-artifacts for changes under `agent/`. The Windows x64 executable is built on a
-Windows runner; its .NET 10 project can also be cross-published from macOS with
-the .NET 10 SDK. An `agents-v*` tag publishes those binaries and platform
+builds only the affected platform on branch and PR changes; shared version or
+workflow changes and manual runs build all platforms. Tagged releases always
+build the complete Windows service executable, APK, IPA, and DMG set. The
+Windows x64 executable is built on a Windows runner; its .NET 10 project can
+also be cross-published from macOS with the .NET 10 SDK. Android Gradle
+dependencies/build outputs and Windows NuGet packages use runner caches keyed
+by their build definitions. Superseded branch builds are canceled, while
+tagged releases remain non-cancelable. An
+`agents-v*` tag publishes those binaries and platform
 source archives as a GitHub Release. Platform artifacts are signed and
 verified when each complete secret group is configured, and are otherwise
 published unsigned; release notes and `agent-release-manifest.json` identify

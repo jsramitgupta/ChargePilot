@@ -16,12 +16,20 @@ swift build \
     --package-path "$PROJECT_DIR" \
     --scratch-path "$ARM64_BUILD" \
     --triple arm64-apple-macosx13.0 \
-    -c release
+    -c release &
+ARM64_BUILD_PID=$!
 swift build \
     --package-path "$PROJECT_DIR" \
     --scratch-path "$X86_64_BUILD" \
     --triple x86_64-apple-macosx13.0 \
-    -c release
+    -c release &
+X86_64_BUILD_PID=$!
+BUILD_STATUS=0
+wait "$ARM64_BUILD_PID" || BUILD_STATUS=$?
+wait "$X86_64_BUILD_PID" || BUILD_STATUS=$?
+if [ "$BUILD_STATUS" -ne 0 ]; then
+    exit "$BUILD_STATUS"
+fi
 ARM64_BIN=$(swift build \
     --package-path "$PROJECT_DIR" \
     --scratch-path "$ARM64_BUILD" \
