@@ -16,7 +16,7 @@ internal static class AgentBuildInfo
 internal static class Program
 {
     private const int AttachParentConsole = -1;
-    private const string ServerUrl = "https://api-chargepilot.endusercompute.in";
+    internal const string DefaultServerUrl = "https://api-chargepilot.endusercompute.in";
 
     [STAThread]
     private static int Main(string[] args)
@@ -63,13 +63,14 @@ internal static class Program
 
     private static int RunUi(string[] arguments)
     {
-        var values = ParseOptions(arguments, "--agent-version");
+        var values = ParseOptions(arguments, "--agent-version", "--server-url");
         AttachConsoleIfAvailable();
         ApplicationConfiguration.Initialize();
         Application.Run(new SetupForm(
             string.IsNullOrWhiteSpace(values.GetValueOrDefault("--agent-version"))
                 ? AgentBuildInfo.Version
-                : values["--agent-version"]));
+                : values["--agent-version"],
+            values.GetValueOrDefault("--server-url")));
         return 0;
     }
 
@@ -79,7 +80,8 @@ internal static class Program
         var values = ParseOptions(
             arguments,
             "--class",
-            "--interval-minutes");
+            "--interval-minutes",
+            "--server-url");
         if (!ServiceManager.IsAdministrator())
         {
             throw new UnauthorizedAccessException(
@@ -102,7 +104,10 @@ internal static class Program
         var interval = ParseInterval(values.GetValueOrDefault("--interval-minutes"), previous?.IntervalMinutes ?? 5);
         Console.Write("Enrollment token (leave blank to keep the current enrollment): ");
         var enrollmentToken = ReadSecret();
-        var serverUri = new Uri(ServerUrl);
+        var serverUri = new Uri(
+            values.GetValueOrDefault("--server-url")
+            ?? previous?.ServerUri.ToString()
+            ?? DefaultServerUrl);
 
         AgentOptions options;
         if (!string.IsNullOrEmpty(enrollmentToken))
@@ -312,9 +317,9 @@ internal static class Program
             ChargePilot Windows telemetry agent
 
             Commands:
-              ChargePilotAgent.exe ui
-              ChargePilotAgent.exe install [--class laptop|desktop] [--interval-minutes N]
-              ChargePilotAgent.exe configure [--class laptop|desktop] [--interval-minutes N]
+              ChargePilotAgent.exe ui [--server-url URL]
+              ChargePilotAgent.exe install [--server-url URL] [--class laptop|desktop] [--interval-minutes N]
+              ChargePilotAgent.exe configure [--server-url URL] [--class laptop|desktop] [--interval-minutes N]
               ChargePilotAgent.exe status
               ChargePilotAgent.exe start
               ChargePilotAgent.exe stop

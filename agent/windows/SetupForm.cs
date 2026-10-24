@@ -34,7 +34,7 @@ internal sealed class SetupForm : Form
     private readonly string _agentVersion;
     private AgentOptions? _existingOptions;
 
-    public SetupForm(string agentVersion)
+    public SetupForm(string agentVersion, string? serverUrl = null)
     {
         _agentVersion = agentVersion;
         Text = "ChargePilot Agent";
@@ -172,7 +172,7 @@ internal sealed class SetupForm : Form
         });
         page.Controls.Add(footer, 0, 4);
 
-        LoadConfiguration();
+        LoadConfiguration(serverUrl);
         RefreshServiceStatus();
         var isAdmin = ServiceManager.IsAdministrator();
         _saveButton.Enabled = isAdmin;
@@ -207,7 +207,7 @@ internal sealed class SetupForm : Form
         panel.Controls.Add(control, 1, row);
     }
 
-    private void LoadConfiguration()
+    private void LoadConfiguration(string? serverUrl)
     {
         try
         {
@@ -219,6 +219,9 @@ internal sealed class SetupForm : Form
             ShowMessage(exception.Message, isError: true);
         }
 
+        _serverUrl.Text = serverUrl
+            ?? _existingOptions?.ServerUri.ToString()
+            ?? Program.DefaultServerUrl;
         _deviceClass.SelectedItem = _existingOptions?.DeviceClass == "desktop" ? "Desktop" : "Laptop";
         _interval.Value = _existingOptions?.IntervalMinutes ?? 5;
     }
@@ -228,7 +231,7 @@ internal sealed class SetupForm : Form
         SetBusy(true);
         try
         {
-            var serverUri = new Uri("https://api-chargepilot.endusercompute.in");
+            var serverUri = new Uri(_serverUrl.Text);
             var deviceClass = _deviceClass.SelectedItem?.ToString()?.ToLowerInvariant()
                 ?? throw new ArgumentException("Select a device class.");
             var deviceName = Environment.MachineName;

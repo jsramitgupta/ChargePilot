@@ -69,10 +69,12 @@ credentials; its release notes and `agent-release-manifest.json` state the
 signing status for each.
 Partially configured signing groups or failed signature verification stop the
 release workflow. Signed iOS profiles limit which devices can install the
-ad-hoc IPA. Explain how to install each build. Shipped agent enrollment screens
-show the fixed `https://api-chargepilot.endusercompute.in` origin without
-allowing edits. Device labels use non-serial platform metadata, and enrollment
-asks only for the high-entropy token.
+ad-hoc IPA. Explain how to install each build. The Windows setup screen shows
+the API origin selected by the setup command without allowing edits; Android,
+iOS, and macOS use the fixed
+`https://api-chargepilot.endusercompute.in` origin. Device labels use
+non-serial platform metadata, and enrollment asks only for the high-entropy
+token.
 Clearly
 explain Android's inexact WorkManager
 timing and iOS Shortcuts automation best-effort limits. The iOS setup guidance

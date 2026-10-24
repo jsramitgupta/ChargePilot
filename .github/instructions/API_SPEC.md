@@ -205,10 +205,13 @@ Super Admin; it does not expose tenant or global agent credentials. The
 bootstrap downloads the self-contained Windows service executable over HTTPS
 and opens its elevated setup UI; the enrollment token is entered in that UI,
 not on the command line. The API response is marked `private, no-store`.
-The generated command does not pass a server URL or device label. All shipped
-native agents use `https://api-chargepilot.endusercompute.in`, and derive
-non-serial device names from platform metadata. Enrollment continues to use
-the server-generated high-entropy token.
+The generated Windows command passes the public API origin to its installer,
+which uses that origin both to download the executable and initialize the
+setup UI. This supports self-hosted deployments when `CHARGEPILOT_API_URL` is
+configured; when unset, the request's public origin is used. The origin is not
+a credential and is not a device label. Native agent device names continue to
+be derived from non-serial platform metadata. Enrollment uses the
+server-generated high-entropy token.
 
 The following agent source downloads do not require a browser session and
 contain no credentials. They issue a `302` redirect to the corresponding asset
