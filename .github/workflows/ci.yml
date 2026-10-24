@@ -26,6 +26,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       api: ${{ steps.filter.outputs.api }}
+      backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       connector: ${{ steps.filter.outputs.connector }}
     steps:
@@ -58,6 +59,11 @@ jobs:
           else
             echo "api=false" >> "$GITHUB_OUTPUT"
           fi
+          if printf '%s\n' "$changed_files" | grep -Eq '^(app/|connector/|tests/|scripts/|pyproject.toml$|README.md$|\.github/workflows/(ci|publish-deploy|connector-multiarch)\.yml$)'; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=false" >> "$GITHUB_OUTPUT"
+          fi
           if printf '%s\n' "$changed_files" | grep -Eq '^(frontend/|app/frontend_server\.py$|\.dockerignore$|\.github/workflows/(ci|publish-deploy)\.yml$)'; then
             echo "frontend=true" >> "$GITHUB_OUTPUT"
           else
@@ -72,7 +78,7 @@ jobs:
   backend:
     name: Backend tests and lint
     needs: changes
-    if: needs.changes.outputs.api == 'true'
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
