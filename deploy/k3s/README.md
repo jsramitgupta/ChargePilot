@@ -18,7 +18,7 @@ copy credentials from the live cluster into this document or Git.
 - Argo CD Application: `argocd/chargepilot`; at inspection it used
   `https://github.com/jsramitgupta/ChargePilot.git`, branch `main`, path
   `deploy/k3s`; live status `Synced` / `Healthy`. The observed synced Git
-  revision was `185abd40f79c00b11055c6c04e8e6e7f44218a1c`. The checked-in
+  revision was `fc9eabe75338a35ab0e2270135cdbc324b825d34`. The checked-in
   Application now uses SSH; provision a read-only Argo CD deploy key before
   making the repository private. See the deployment guide.
 - Istio ingress Service: `istio-system/istio-ingressgateway`, type
@@ -27,17 +27,27 @@ copy credentials from the live cluster into this document or Git.
 - The API, frontend, outbox relay, automation consumer, PostgreSQL, and Kafka
   were each at one ready replica when inspected.
 - API-family image:
-  `endusercompute/chargepilot-api:sha-082611cb012a63e611ccb3d486eb89f37cb2e0de`.
+  `endusercompute/chargepilot-api:sha-d589ed504a39b18c59e534e7efba631bcd61acbe`.
   The API, relay, and consumer use this same image.
 - Frontend image:
-  `endusercompute/chargepilot-frontend:sha-082611cb012a63e611ccb3d486eb89f37cb2e0de`.
+  `endusercompute/chargepilot-frontend:sha-d589ed504a39b18c59e534e7efba631bcd61acbe`.
 - Data images: `postgres:16-alpine` and `apache/kafka:4.1.1`.
-- The six pods were Running and Ready. Kafka had 3 restarts and PostgreSQL
-  had 4; a recent warning event recorded a Kafka readiness-probe timeout.
-  The pods were Ready at inspection time, but those restarts and the warning
-  are operational signals worth checking during a rebuild.
-- The cluster inspection did not verify public DNS, external proxy/TLS
-  configuration, or backups stored outside the cluster.
+- The six core `chargepilot` namespace pods were Running and Ready. Kafka had
+  3 restarts and PostgreSQL had 4; a recent warning event recorded a Kafka
+  readiness-probe timeout. The pods were Ready at inspection time, but those
+  restarts and the warning are operational signals worth checking during a
+  rebuild.
+- Public checks returned HTTP 200 for the management console, API health
+  endpoint, and docs homepage. The docs onboarding guide also rendered
+  successfully.
+- The docs app, CMS, and its dedicated PostgreSQL StatefulSet are deployed in
+  the separate `chargepilot-docs` namespace, each at one Ready replica. The
+  docs web and CMS image tags are
+  `sha-d589ed504a39b18c59e534e7efba631bcd61acbe`; the public guide API
+  returned nine published guides.
+- The docs PostgreSQL PVC uses node-local `local-path` storage. No independent
+  backup/restore destination has been verified, and the first Strapi editor
+  account has not been bootstrapped.
 
 The Argo CD Git revision and the immutable application image tags are separate
 revision identifiers. Keep both: Argo CD tracks the GitOps source; the tags
@@ -280,32 +290,25 @@ values when necessary.
 - Device control is site-local: retain the separately deployed connector
   architecture and do not route cloud pods directly to Tuya LAN devices.
 
-## Desired docs site (not in the dated live snapshot)
+## Documentation site
 
-The GitOps manifests now define a separate `chargepilot-docs` namespace with
-Next.js, Strapi, and its own PostgreSQL StatefulSet. The public Istio route is
-`docs-chargepilot.endusercompute.in`; only the Next.js site and Strapi's
-read-only published-guide API are routed. The CMS admin and PostgreSQL service
-remain ClusterIP-only. See [the docs-site reference](../../.github/instructions/DOCS_SITE.md)
-for content ownership, release notes, and the implementation boundary.
+The docs site is live at `https://docs-chargepilot.endusercompute.in` in the
+separate `chargepilot-docs` namespace. The Next.js site, Strapi CMS, and
+dedicated PostgreSQL StatefulSet were each Ready at the 2026-10-24 inspection.
+The public homepage and onboarding guide returned HTTP 200, and the published
+guide API returned nine records. Only Next.js and Strapi's read-only published
+guide API are routed; the CMS admin and PostgreSQL service remain
+ClusterIP-only. See [the docs-site reference](../../.github/instructions/DOCS_SITE.md)
+for content ownership and release behavior.
 
-Before publishing this desired state:
-
-1. Confirm that the node has capacity for the docs workload. Its Kubernetes
-   requests total about 608 MiB and its individual limits total about
-   1.6 GiB; the live node was already at 76% requested memory at inspection.
-2. Confirm DNS and the external TLS/edge proxy route the requested docs host to
-   the Istio ingress.
-3. Create the `chargepilot-docs` namespace and the `docs-runtime` Secret out
-   of band before Argo CD starts the workloads. The Secret must contain
-   `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`,
-   `APP_KEYS`, `ADMIN_JWT_SECRET`, `API_TOKEN_SALT`, `TRANSFER_TOKEN_SALT`,
-   `ENCRYPTION_KEY`, and `JWT_SECRET`. Use the same random value for the two
-   database password keys. Never commit or print those values.
-4. Arrange and test a backup/restore procedure for the docs PostgreSQL PVC;
-   its `local-path` storage is node-local.
-5. Use the successful CI, image-scan, and GitOps publisher workflow. Do not
-   apply `docs.yaml` or set image tags by hand.
+The docs PostgreSQL PVC is node-local `local-path` storage. No independent
+backup/restore path has been verified; establish and test one before relying
+on this content as the sole copy. The first Strapi editor account has not been
+bootstrapped. Create it through an authorized Kubernetes port-forward, never
+through the public hostname. For a new environment, provision the `docs-runtime`
+Secret out of band before Argo CD starts the workloads; never commit or print
+its values. Use the successful CI, image-scan, and GitOps publisher workflow
+for upgrades. Do not apply `docs.yaml` or set image tags by hand.
 
 The CMS pins patched production dependencies and carries a versioned Zod 4
 compatibility patch for `koa-session`. CI requires the production npm audit to

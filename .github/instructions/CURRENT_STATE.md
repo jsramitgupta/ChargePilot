@@ -189,9 +189,15 @@ namespace. GitHub Actions builds and scans the docs images, and the existing
 main-branch publisher updates immutable GitOps tags. `agents-v*` releases
 require a matching versioned guide in `docs-site/cms/release-notes/`.
 The desired public host is `docs-chargepilot.endusercompute.in`; the docs
-workloads have not been published to the live cluster from this checkout.
+site is deployed in the separate `chargepilot-docs` namespace. As of
+2026-10-24, Argo CD reports the application Synced/Healthy, the Next.js site
+and Strapi are Ready, and the public site serves the homepage and nine
+published starter guides. The docs PostgreSQL PVC is node-local and no
+independent backup/restore path has been verified. The first Strapi editor
+account has not been bootstrapped; use an authorized internal port-forward
+before making CMS edits.
 See [DOCS_SITE.md](DOCS_SITE.md) for the architecture, release process, and
-first-deployment prerequisites.
+deployment and rebuild prerequisites.
 
 ## Current primary workflows
 1. New Windows and macOS agents exchange a tenant-scoped, reusable 24-hour
