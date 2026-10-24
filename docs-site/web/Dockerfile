@@ -18,7 +18,6 @@ ENV NODE_ENV=production \
     PORT=3000
 RUN groupadd --system --gid 10001 nextjs \
     && useradd --system --uid 10001 --gid nextjs nextjs
-COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 USER 10001:10001

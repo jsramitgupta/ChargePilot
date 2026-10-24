@@ -1,6 +1,7 @@
 FROM node:24.22.1-bookworm-slim AS dependencies
 WORKDIR /opt/app
 COPY package.json package-lock.json ./
+COPY patches ./patches
 RUN npm ci
 
 FROM node:24.22.1-bookworm-slim AS builder
