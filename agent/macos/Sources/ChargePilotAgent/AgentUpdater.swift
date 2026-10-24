@@ -8,25 +8,25 @@ struct AgentReleaseInfo {
 }
 
 enum AgentUpdater {
-    private static let releaseAPI = URL(string: "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest")!
+    private static let releaseAPI = URL(string: "https://api-chargepilot.endusercompute.in/api/v1/agent/releases/latest")!
 
     private struct ReleaseResponse: Decodable {
-        let tagName: String
+        let tag: String
         let assets: [ReleaseAsset]
 
         enum CodingKeys: String, CodingKey {
-            case tagName = "tag_name"
+            case tag
             case assets
         }
     }
 
     private struct ReleaseAsset: Decodable {
         let name: String
-        let browserDownloadURL: URL
+        let url: URL
 
         enum CodingKeys: String, CodingKey {
             case name
-            case browserDownloadURL = "browser_download_url"
+            case url
         }
     }
 
@@ -42,18 +42,20 @@ enum AgentUpdater {
         }
 
         let release = try JSONDecoder().decode(ReleaseResponse.self, from: data)
-        guard release.tagName.hasPrefix("agents-v") else {
+        guard release.tag.hasPrefix("agents-v") else {
             throw AgentUpdateError.invalidRelease
         }
-        let version = String(release.tagName.dropFirst("agents-v".count))
+        let version = String(release.tag.dropFirst("agents-v".count))
         guard versionParts(version) != nil,
               let asset = release.assets.first(where: { $0.name == "ChargePilotAgent-\(version).dmg" }),
-              asset.browserDownloadURL.scheme == "https",
-              asset.browserDownloadURL.host == "github.com"
+              asset.url.scheme == "https",
+              asset.url.host == releaseAPI.host,
+              asset.url.port == releaseAPI.port,
+              asset.url.path == "/agent/releases/latest/download/ChargePilotAgent-\(version).dmg"
         else {
             throw AgentUpdateError.invalidRelease
         }
-        return AgentReleaseInfo(version: version, downloadURL: asset.browserDownloadURL)
+        return AgentReleaseInfo(version: version, downloadURL: asset.url)
     }
 
     static func hasUpdate(current: String, latest: String) -> Bool {

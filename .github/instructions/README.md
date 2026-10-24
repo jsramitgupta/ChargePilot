@@ -9,11 +9,14 @@ for an existing API or runtime feature.
 - [CURRENT_STATE.md](CURRENT_STATE.md) — current implementation and persistent project guidance.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — architecture, runtime boundaries, and current module layout.
 - [FRONTEND_DESIGN.md](FRONTEND_DESIGN.md) — browser routes, visual decisions, typography, theme behavior, and UI change checklist.
+- [DOCS_SITE.md](DOCS_SITE.md) — separate Next.js/Strapi help site, content rules, release synchronization, and deployment prerequisites.
 - [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md) — canonical cloud-to-site control architecture and rollout design.
 - [PRD.md](PRD.md) — product intent, user goals, functional requirements, and current scope.
 - [TLD.md](TLD.md) — technical design for service roles, event flows, data, and scale-test boundaries.
 - [API_SPEC.md](API_SPEC.md) — the current API surface and payload contracts.
 - [DEPLOYMENT.md](DEPLOYMENT.md) — environment, Docker, and runtime setup notes.
+- [DOCS_SITE.instructions.md](DOCS_SITE.instructions.md) — automatically
+  applies to documentation site implementation files.
 - [k3s live setup and rebuild notes](../../deploy/k3s/README.md) — dated live
   ChargePilot cluster snapshot, Kubernetes topology, and AI-agent recovery guide.
 - [RUNBOOK.md](RUNBOOK.md) — debugging, validation, and operational checklist.
@@ -53,6 +56,11 @@ includes:
 - a wizard-based device onboarding flow using AJAX and local session state
 - SSE-driven UI updates and current-state refreshes
 
+Installable agent binaries are streamed through the ChargePilot API when
+requested. A private repository requires a server-side, contents-read GitHub
+token. Source archives are excluded from releases; connector installations
+use the published Docker image.
+
 ## Reading guidance
 
 Start with [CURRENT_STATE.md](CURRENT_STATE.md), then read only the relevant
@@ -67,7 +75,9 @@ contract without a separately reviewed backend change.
 - Runtime stack: Python 3.15 production image (Python 3.12+ supported for local
   development), FastAPI, SQLAlchemy 2.x, PostgreSQL, Kafka/aiokafka,
   TinyTuya, tuya-device-sharing-sdk, pytest.
-- App entrypoint: `app/main.py` registers JSON APIs, serves public connector downloads and redirects agent downloads to GitHub Release assets, and redirects legacy page paths to React routes.
+- App entrypoint: `app/main.py` registers JSON APIs, proxies allow-listed
+  installable agent binaries, serves the small Windows installer, and
+  redirects legacy page paths to React routes.
 - Settings prefix: `CHARGEPILOT_` via `app/core/config.py`.
 - Database bootstrap: `create_db_and_tables()` runs on startup and ensures missing columns are added.
 - Telemetry auth: the current bearer token remains available for backward-compatible Windows telemetry; enrolled
@@ -83,6 +93,9 @@ events use a PostgreSQL outbox and Kafka before asynchronous rule processing.
 - Device discovery: the wizard can scan on the ChargePilot server network or delegate discovery to an online site connector; both paths omit local keys.
 - Connector deployment: the downloadable package includes Python and Docker Compose instructions, and the standalone Docker image targets Linux amd64 and arm64.
 - UI pattern: React, TypeScript, and Tailwind provide the full browser UI; FastAPI exposes JSON APIs and file downloads. Frontend design and theme decisions are documented in [FRONTEND_DESIGN.md](FRONTEND_DESIGN.md).
+- The separate public help site is built with Next.js and Strapi in
+  `docs-site/`; it is not the ChargePilot management console. Its initial
+  deployment is pending the reviewed main-branch GitOps release.
 
 ## File map relevant to AI understanding
 

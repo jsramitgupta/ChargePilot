@@ -232,14 +232,16 @@ handling, all-platform automation defaults, and a server freshness gate.
 Windows PowerShell and macOS Swift agents are validated;
 Android Kotlin/Compose and iOS SwiftUI clients use the same enrollment and
 telemetry contract. Tagged GitHub releases publish Windows, Android, iOS, and
-macOS builds alongside source archives. Each platform is signed when its
-complete signing-secret group is configured and otherwise published unsigned;
-the release manifest records each platform's signing status. Existing Windows
-shared-token agents remain compatible during migration.
+macOS installable builds; source archives are not distributed. Each platform
+is signed when its complete signing-secret group is configured and otherwise
+published unsigned; the release manifest records each platform's signing
+status. Existing Windows shared-token agents remain compatible during
+migration.
 
-The authenticated **Set up a device** page links to the latest GitHub Release
-assets and platform source projects, and gives platform-specific install
-guidance. Android has an emulator smoke test, but still requires
+The authenticated **Set up a device** page lists installable binaries served
+through the ChargePilot API and gives platform-specific install guidance.
+Source projects require repository access. Android has an emulator smoke test,
+but still requires
 physical-device validation; iOS has a simulator smoke test, but an unsigned
 IPA requires signing and provisioning before installation. macOS reports only
 while awake and running; no mobile client guarantees a real-time reporting

@@ -1,10 +1,8 @@
 import asyncio
-import io
 import logging
 import re
 import secrets
 import string
-import zipfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -15,6 +13,7 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -41,9 +40,6 @@ from app.services.connector_service import expire_overdue_commands
 from app.services.event_retention import purge_expired_events, purge_expired_telemetry
 
 BASE_DIR = Path(__file__).resolve().parent
-AGENT_RELEASE_DOWNLOAD_BASE = (
-    "https://github.com/jsramitgupta/ChargePilot/releases/latest/download"
-)
 AGENT_RELEASE_API_URL = (
     "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest"
 )
@@ -159,7 +155,11 @@ def _escape_powershell_expandable(value: str) -> str:
 
 
 def _agent_server_url(request: Request) -> str:
-    return settings.api_url.rstrip("/") if settings.api_url else str(request.base_url).rstrip("/")
+    if settings.api_url:
+        return settings.api_url.rstrip("/")
+    if settings.frontend_url:
+        return settings.frontend_url.rstrip("/")
+    return str(request.base_url).rstrip("/")
 
 
 async def event_retention_loop() -> None:
@@ -240,24 +240,78 @@ async def get_agent_setup(
 
 @app.get(f"{settings.api_v1_prefix}/agent/releases/latest")
 async def get_latest_agent_release(
+    request: Request,
     response: Response,
-    user: User = Depends(get_authenticated_user),
 ):
-    response.headers["Cache-Control"] = "private, max-age=300"
+    response.headers["Cache-Control"] = "public, max-age=300"
+    release = await _get_latest_agent_release()
+    version = release["tag_name"].removeprefix("agents-v")
+    assets = []
+    for asset in release["assets"]:
+        if not isinstance(asset, dict):
+            continue
+        name = asset.get("name")
+        if not isinstance(name, str) or not _is_supported_agent_asset(name, version):
+            continue
+        assets.append(
+            {
+                "name": name,
+                "url": f"{_agent_server_url(request)}/agent/releases/latest/download/{name}",
+            }
+        )
+    return {"tag": release["tag_name"], "assets": assets}
+
+
+def _github_release_headers(accept: str) -> dict[str, str]:
+    headers = {
+        "Accept": accept,
+        "User-Agent": "ChargePilotAgentSetup",
+    }
+    token = settings.agent_release_github_token.get_secret_value()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _is_supported_agent_asset(name: str, version: str) -> bool:
+    return name in {
+        "ChargePilotAgent.exe",
+        f"ChargePilotAgent-{version}.dmg",
+        f"ChargePilotAgent-{version}.ipa",
+        f"ChargePilotAgent-{version}.apk",
+    }
+
+
+def _is_github_release_asset_url(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        parsed_url = httpx.URL(value)
+    except httpx.InvalidURL:
+        return False
+    return (
+        parsed_url.scheme == "https"
+        and parsed_url.host == "api.github.com"
+        and re.fullmatch(
+            r"/repos/jsramitgupta/ChargePilot/releases/assets/\d+",
+            parsed_url.path,
+        )
+        is not None
+    )
+
+
+async def _get_latest_agent_release() -> dict:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             release_response = await client.get(
                 AGENT_RELEASE_API_URL,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "User-Agent": "ChargePilotAgentSetup",
-                },
+                headers=_github_release_headers("application/vnd.github+json"),
             )
     except httpx.RequestError as error:
         logger.warning("Could not reach GitHub while loading agent release assets: %s", error)
         raise HTTPException(
             status_code=502,
-            detail="Could not reach GitHub to load the latest agent packages. Try again or open the release page.",
+            detail="Could not reach the agent package service. Try again later.",
         ) from error
 
     if release_response.status_code != 200:
@@ -267,7 +321,7 @@ async def get_latest_agent_release(
         )
         raise HTTPException(
             status_code=502,
-            detail="GitHub could not provide the latest agent packages. Try again or open the release page.",
+            detail="The agent package service could not provide the latest packages. Try again later.",
         )
 
     try:
@@ -281,7 +335,13 @@ async def get_latest_agent_release(
     if (
         not isinstance(release, dict)
         or not isinstance(release.get("tag_name"), str)
-        or re.fullmatch(r"agents-v\d+\.\d+\.\d+", release["tag_name"]) is None
+        or (
+            tag_match := re.fullmatch(
+                r"agents-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)",
+                release["tag_name"],
+            )
+        )
+        is None
         or not isinstance(release.get("assets"), list)
     ):
         raise HTTPException(
@@ -289,107 +349,159 @@ async def get_latest_agent_release(
             detail="GitHub returned an incomplete latest agent release.",
         )
 
-    assets = []
-    for asset in release["assets"]:
-        if not isinstance(asset, dict):
-            continue
-        name = asset.get("name")
-        download_url = asset.get("browser_download_url")
-        if not isinstance(name, str) or not name.lower().endswith((".exe", ".dmg", ".ipa", ".apk")):
-            continue
-        if not isinstance(download_url, str):
-            continue
-        try:
-            parsed_url = httpx.URL(download_url)
-        except httpx.InvalidURL:
-            continue
-        if parsed_url.scheme != "https" or parsed_url.host != "github.com":
-            continue
-        assets.append({"name": name, "url": download_url})
-
-    return {"tag": release["tag_name"], "assets": assets}
+    version = ".".join(tag_match.groups())
+    release["assets"] = [
+        asset
+        for asset in release["assets"]
+        if isinstance(asset, dict)
+        and isinstance(asset.get("name"), str)
+        and _is_supported_agent_asset(asset["name"], version)
+        and _is_github_release_asset_url(asset.get("url"))
+    ]
+    return release
 
 
 @app.get("/agent/download")
 async def download_agent_scripts():
-    return _redirect_to_agent_release("chargepilot-windows-agent-source.zip")
+    raise HTTPException(
+        status_code=410,
+        detail="Agent source archives are no longer distributed by this service.",
+    )
 
 
 @app.get("/agent/ChargePilotAgent.exe", include_in_schema=False)
 async def download_windows_agent_executable():
-    return _redirect_to_agent_release("ChargePilotAgent.exe")
+    return await _download_latest_agent_asset("ChargePilotAgent.exe")
 
 
 @app.get("/agent/macos/download")
 async def download_macos_agent():
-    return _redirect_to_agent_release("chargepilot-macos-agent-source.zip")
-
-
-def _redirect_to_agent_release(asset_name: str) -> RedirectResponse:
-    return RedirectResponse(
-        url=f"{AGENT_RELEASE_DOWNLOAD_BASE}/{asset_name}",
-        status_code=302,
-        headers={"Cache-Control": "public, max-age=300"},
+    raise HTTPException(
+        status_code=410,
+        detail="Agent source archives are no longer distributed by this service.",
     )
+
+
+async def _download_latest_agent_asset(asset_name: str) -> StreamingResponse:
+    release = await _get_latest_agent_release()
+    version = release["tag_name"].removeprefix("agents-v")
+    if not _is_supported_agent_asset(asset_name, version):
+        raise HTTPException(status_code=404, detail="Agent package not found.")
+    asset = next(
+        (item for item in release["assets"] if item.get("name") == asset_name),
+        None,
+    )
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Agent package not found.")
+
+    asset_url = asset.get("url")
+    if not _is_github_release_asset_url(asset_url):
+        raise HTTPException(status_code=502, detail="GitHub returned an invalid agent package URL.")
+
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(10.0, read=60.0),
+        follow_redirects=True,
+    )
+    try:
+        github_response = await client.send(
+            client.build_request(
+                "GET",
+                asset_url,
+                headers=_github_release_headers("application/octet-stream"),
+            ),
+            stream=True,
+        )
+    except httpx.RequestError as error:
+        await client.aclose()
+        logger.warning("Could not download agent package %s from GitHub: %s", asset_name, error)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not download the agent package from GitHub.",
+        ) from error
+
+    if github_response.status_code != 200:
+        status_code = github_response.status_code
+        await github_response.aclose()
+        await client.aclose()
+        logger.warning(
+            "GitHub returned HTTP %s while downloading agent package %s",
+            status_code,
+            asset_name,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="GitHub could not provide the requested agent package.",
+        )
+
+    async def close_github_stream() -> None:
+        await github_response.aclose()
+        await client.aclose()
+
+    return StreamingResponse(
+        github_response.aiter_bytes(),
+        media_type="application/octet-stream",
+        headers={
+            "Cache-Control": "public, max-age=300",
+            "Content-Disposition": f'attachment; filename="{asset_name}"',
+        },
+        background=BackgroundTask(close_github_stream),
+    )
+
+
+@app.get("/agent/releases/latest/download/{asset_name}", include_in_schema=False)
+async def download_latest_agent_release_asset(asset_name: str):
+    return await _download_latest_agent_asset(asset_name)
 
 
 @app.get("/agent/android/download")
 async def download_android_agent():
-    return _redirect_to_agent_release("chargepilot-android-agent-source.zip")
+    raise HTTPException(
+        status_code=410,
+        detail="Agent source archives are no longer distributed by this service.",
+    )
 
 
 @app.get("/agent/ios/download")
 async def download_ios_agent():
-    return _redirect_to_agent_release("chargepilot-ios-agent-source.zip")
+    raise HTTPException(
+        status_code=410,
+        detail="Agent source archives are no longer distributed by this service.",
+    )
 
 
 @app.get("/agent/install.ps1", include_in_schema=False)
 async def download_agent_installer():
-    return _redirect_to_agent_release("chargepilot-windows-agent-installer.ps1")
+    installer_path = BASE_DIR.parent / "agent" / "windows" / "install.ps1"
+    if not installer_path.is_file():
+        raise HTTPException(status_code=500, detail="The ChargePilot agent installer is missing.")
+    return PlainTextResponse(
+        installer_path.read_text(encoding="utf-8"),
+        media_type="text/plain",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @app.get("/agent/BatteryAgent.ps1", include_in_schema=False)
 async def download_battery_agent():
-    return _redirect_to_agent_release("chargepilot-windows-battery-agent.ps1")
+    raise HTTPException(
+        status_code=410,
+        detail="The legacy PowerShell agent is no longer distributed by this service.",
+    )
 
 
 @app.get("/connectors/download")
 async def download_site_connector():
-    archive = io.BytesIO()
-    connector_dir = BASE_DIR.parent / "connector"
-    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as package:
-        for source, name in (
-            ("__init__.py", "connector/__init__.py"),
-            ("chargepilot_connector.py", "connector/chargepilot_connector.py"),
-            ("requirements.txt", "requirements.txt"),
-            ("Dockerfile", "connector/Dockerfile"),
-            ("docker-compose.yml", "docker-compose.yml"),
-            (".env.example", ".env.example"),
-            ("install.sh", "install.sh"),
-            ("README.md", "README.md"),
-        ):
-            package.write(connector_dir / source, name)
-    archive.seek(0)
-    return StreamingResponse(
-        archive,
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": 'attachment; filename="chargepilot-site-connector.zip"',
-            "Cache-Control": "public, max-age=300",
-        },
+    raise HTTPException(
+        status_code=410,
+        detail="Connector source archives are no longer distributed by this service.",
     )
 
 
 @app.get("/connectors/install.sh", include_in_schema=False)
-async def download_site_connector_installer(request: Request):
-    script_path = BASE_DIR.parent / "connector" / "install.sh"
-    if not script_path.is_file():
-        raise HTTPException(status_code=500, detail="The site connector installer script is missing.")
-    server_url = _agent_server_url(request)
-    script = script_path.read_text(encoding="utf-8").replace("__CHARGEPILOT_SERVER_URL__", server_url)
-    return PlainTextResponse(
-        script,
-        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+async def download_site_connector_installer():
+    raise HTTPException(
+        status_code=410,
+        detail="The source-based Python connector installer is no longer available. Use the published Docker image.",
     )
 
 

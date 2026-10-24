@@ -46,7 +46,7 @@ created by the previous Windows agent. Run setup as the same Windows account
 that created that configuration so its user-scoped DPAPI value can be
 decrypted. After the new service starts, setup removes the legacy
 `ChargePilotBatteryAgent` scheduled task. The shared-token agent remains
-available in the source archive only for compatibility and diagnostics.
+retained in the private repository only for compatibility and diagnostics.
 
 ## Configure with the UI
 
@@ -135,13 +135,14 @@ On Windows, the repository build script also checks the generated PE header:
 
 GitHub Actions runs the Windows build and uploads a 90-day development
 artifact for `agent/**` changes. An `agents-v*` tag publishes the executable
-only after Authenticode signing and verification succeed. See the
-platform-agent release-signing instructions for the required GitHub secrets.
+with the signing state recorded in release metadata. The ChargePilot API
+provides the installable binary to customers. See the platform-agent
+release-signing instructions for the required GitHub secrets.
 Windows service installation and telemetry runtime behavior must be validated
 on a Windows device; they cannot be run on macOS.
 
 ## Legacy PowerShell agent
 
 `agent/BatteryAgent.ps1` and `agent/CreateAgentScheduledTask.ps1` remain in the
-source archive for existing deployments. They are not used by the new service
-installer and should not be used for new installations.
+private repository for existing deployments. They are not part of public
+downloads and are not used by the new service installer.

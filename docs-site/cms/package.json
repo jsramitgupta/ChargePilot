@@ -1,0 +1,52 @@
+{
+  "name": "cms",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A Strapi application",
+  "scripts": {
+    "build": "npm run types:generate && strapi build",
+    "console": "strapi console",
+    "deploy": "strapi deploy",
+    "dev": "strapi develop",
+    "develop": "strapi develop",
+    "start": "strapi start",
+    "strapi": "strapi",
+    "types:generate": "strapi ts:generate-types",
+    "upgrade": "npx @strapi/upgrade latest",
+    "upgrade:dry": "npx @strapi/upgrade latest --dry",
+    "postinstall": "patch-package"
+  },
+  "dependencies": {
+    "@strapi/database": "5.59.0",
+    "@strapi/strapi": "5.59.0",
+    "pg": "^8.23.1",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-router-dom": "^6.30.3",
+    "styled-components": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "patch-package": "^8.0.1",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "dompurify": "3.4.17",
+    "markdown-it": "14.3.3",
+    "nodemailer": "10.2.1",
+    "undici": "8.12.3",
+    "vite": "6.4.5",
+    "webpack-dev-middleware": "7.4.5",
+    "zod": "4.6.7"
+  },
+  "engines": {
+    "node": ">=20.0.0 <=26.x.x",
+    "npm": ">=6.0.0"
+  },
+  "strapi": {
+    "uuid": "3c2ef2df-b0d0-421f-8be9-faaf45970784",
+    "installId": "eaff15c80cff859685e00f7f26b879cf2d7af34ef35541d9451172e41ac9fca6"
+  }
+}

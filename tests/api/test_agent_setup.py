@@ -2,6 +2,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from app.core.config import settings
 from app.core.database import SessionLocal
@@ -41,11 +42,7 @@ def test_agent_setup_api_returns_credential_free_install_command_and_enrollment_
     assert client.get("/agent", follow_redirects=False).headers["location"] == "/agent"
 
     download = client.get("/agent/download", follow_redirects=False)
-    assert download.status_code == 302
-    assert download.headers["location"].endswith(
-        "/chargepilot-windows-agent-source.zip"
-    )
-    assert download.headers["cache-control"] == "public, max-age=300"
+    assert download.status_code == 410
     assert "iex" in payload["install_command"]
     assert "$(irm" in payload["install_command"]
 
@@ -64,7 +61,7 @@ def test_agent_setup_uses_configured_public_api_origin(monkeypatch):
     assert "-EndpointToken " not in install_command
 
 
-def test_latest_agent_release_assets_are_loaded_by_the_authenticated_api(monkeypatch):
+def test_latest_agent_release_assets_are_proxied_by_the_public_api(monkeypatch):
     class FakeResponse:
         status_code = 200
 
@@ -75,18 +72,15 @@ def test_latest_agent_release_assets_are_loaded_by_the_authenticated_api(monkeyp
                 "assets": [
                     {
                         "name": "ChargePilotAgent-0.1.6.dmg",
-                        "browser_download_url": (
-                            "https://github.com/jsramitgupta/ChargePilot/releases/"
-                            "download/agents-v0.1.6/ChargePilotAgent-0.1.6.dmg"
-                        ),
+                        "url": "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/assets/1",
                     },
                     {
                         "name": "chargepilot-macos-agent-source.zip",
-                        "browser_download_url": "https://github.com/example/source.zip",
+                        "url": "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/assets/2",
                     },
                     {
                         "name": "unexpected.apk",
-                        "browser_download_url": "https://example.com/unexpected.apk",
+                        "url": "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/assets/3",
                     },
                 ],
             }
@@ -103,24 +97,27 @@ def test_latest_agent_release_assets_are_loaded_by_the_authenticated_api(monkeyp
                 "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest"
             )
             assert headers["User-Agent"] == "ChargePilotAgentSetup"
+            assert headers["Authorization"] == "Bearer read-only-token"
             return FakeResponse()
 
+    monkeypatch.setattr(
+        settings,
+        "agent_release_github_token",
+        SecretStr("read-only-token"),
+    )
     monkeypatch.setattr("app.main.httpx.AsyncClient", lambda timeout: FakeClient())
     client = TestClient(app)
-    assert client.get("/api/v1/agent/releases/latest").status_code == 401
-    register_tenant_admin(client, "agent_release_assets", "tenant-agent-password")
-
     response = client.get("/api/v1/agent/releases/latest")
 
     assert response.status_code == 200, response.text
-    assert response.headers["cache-control"] == "private, max-age=300"
+    assert response.headers["cache-control"] == "public, max-age=300"
     assert response.json() == {
         "tag": "agents-v0.1.6",
         "assets": [{
             "name": "ChargePilotAgent-0.1.6.dmg",
             "url": (
-                "https://github.com/jsramitgupta/ChargePilot/releases/"
-                "download/agents-v0.1.6/ChargePilotAgent-0.1.6.dmg"
+                "https://app.example.test/agent/releases/latest/download/"
+                "ChargePilotAgent-0.1.6.dmg"
             ),
         }],
     }
@@ -141,13 +138,67 @@ def test_latest_agent_release_api_reports_github_errors(monkeypatch):
             return FakeResponse()
 
     monkeypatch.setattr("app.main.httpx.AsyncClient", lambda timeout: FakeClient())
-    client = TestClient(app)
-    register_tenant_admin(client, "agent_release_error", "tenant-agent-password")
-
-    response = client.get("/api/v1/agent/releases/latest")
+    response = TestClient(app).get("/api/v1/agent/releases/latest")
 
     assert response.status_code == 502
-    assert "GitHub could not provide the latest agent packages" in response.json()["detail"]
+    assert "agent package service" in response.json()["detail"]
+
+
+def test_agent_release_asset_is_streamed_through_the_api(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+
+        async def aiter_bytes(self):
+            yield b"release-binary"
+
+        async def aclose(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        @staticmethod
+        def build_request(method, url, headers):
+            return method, url, headers
+
+        async def send(self, request, stream):
+            assert stream is True
+            method, url, headers = request
+            assert method == "GET"
+            assert url == (
+                "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/assets/7"
+            )
+            assert headers["Accept"] == "application/octet-stream"
+            assert headers["Authorization"] == "Bearer read-only-token"
+            return FakeResponse()
+
+        async def aclose(self):
+            return None
+
+    async def fake_release():
+        return {
+            "tag_name": "agents-v0.1.6",
+            "assets": [{
+                "name": "ChargePilotAgent-0.1.6.dmg",
+                "url": "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/assets/7",
+            }],
+        }
+
+    monkeypatch.setattr(settings, "agent_release_github_token", SecretStr("read-only-token"))
+    monkeypatch.setattr("app.main._get_latest_agent_release", fake_release)
+    monkeypatch.setattr("app.main.httpx.AsyncClient", FakeClient)
+
+    response = TestClient(app).get(
+        "/agent/releases/latest/download/ChargePilotAgent-0.1.6.dmg"
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"release-binary"
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="ChargePilotAgent-0.1.6.dmg"'
+    )
+    assert response.headers["cache-control"] == "public, max-age=300"
 
 
 def test_windows_installer_passes_configured_server_to_executable():
@@ -160,26 +211,25 @@ def test_windows_installer_passes_configured_server_to_executable():
     assert '--server-url "{1}"' in installer
 
 
-def test_agent_setup_requires_authentication_but_agent_sources_are_public():
+def test_public_agent_installer_is_served_from_the_deployed_source_file():
+    response = TestClient(app).get("/agent/install.ps1")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=300"
+    assert "$($ServerUrl.TrimEnd('/'))/agent/ChargePilotAgent.exe" in response.text
+
+
+def test_agent_source_archives_are_no_longer_public():
     client = TestClient(app)
     assert client.get("/api/v1/agent/setup").status_code == 401
-    downloads = {
-        "/agent/download": "chargepilot-windows-agent-source.zip",
-        "/agent/ChargePilotAgent.exe": "ChargePilotAgent.exe",
-        "/agent/install.ps1": "chargepilot-windows-agent-installer.ps1",
-        "/agent/BatteryAgent.ps1": "chargepilot-windows-battery-agent.ps1",
-        "/agent/macos/download": "chargepilot-macos-agent-source.zip",
-        "/agent/android/download": "chargepilot-android-agent-source.zip",
-        "/agent/ios/download": "chargepilot-ios-agent-source.zip",
-    }
-    for route, asset in downloads.items():
-        response = client.get(route, follow_redirects=False)
-        assert response.status_code == 302, route
-        assert response.headers["location"] == (
-            "https://github.com/jsramitgupta/ChargePilot/releases/latest/download/"
-            f"{asset}"
-        )
-        assert response.headers["cache-control"] == "public, max-age=300"
+    for route in (
+        "/agent/download",
+        "/agent/BatteryAgent.ps1",
+        "/agent/macos/download",
+        "/agent/android/download",
+        "/agent/ios/download",
+    ):
+        assert client.get(route).status_code == 410, route
 
 
 def test_standard_user_can_download_but_cannot_rotate_tenant_token():
@@ -187,7 +237,7 @@ def test_standard_user_can_download_but_cannot_rotate_tenant_token():
     register_standard_user(client, "agent_standard_user", "standard-agent-password")
 
     assert client.get("/api/v1/agent/setup").status_code == 200
-    assert client.get("/agent/download", follow_redirects=False).status_code == 302
+    assert client.get("/agent/download").status_code == 410
     assert client.put("/api/v1/admin/tenant-agent-token").status_code == 403
     assert client.put(
         "/api/v1/admin/global-agent-token",

@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: chargepilot-api
+  namespace: chargepilot
   labels:
     app.kubernetes.io/name: chargepilot
     app.kubernetes.io/component: api
@@ -43,6 +44,9 @@ spec:
                 name: chargepilot-runtime
             - secretRef:
                 name: chargepilot-smtp
+                optional: true
+            - secretRef:
+                name: chargepilot-agent-release
                 optional: true
           env:
             - name: CHARGEPILOT_ENVIRONMENT
@@ -89,6 +93,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: chargepilot-api
+  namespace: chargepilot
 spec:
   selector:
     app.kubernetes.io/name: chargepilot
@@ -102,6 +107,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: chargepilot-frontend
+  namespace: chargepilot
   labels:
     app.kubernetes.io/name: chargepilot
     app.kubernetes.io/component: frontend
@@ -177,6 +183,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: chargepilot-frontend
+  namespace: chargepilot
 spec:
   selector:
     app.kubernetes.io/name: chargepilot
@@ -190,6 +197,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: chargepilot-outbox-relay
+  namespace: chargepilot
   labels:
     app.kubernetes.io/name: chargepilot
     app.kubernetes.io/component: outbox-relay
@@ -256,6 +264,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: chargepilot-automation
+  namespace: chargepilot
   labels:
     app.kubernetes.io/name: chargepilot
     app.kubernetes.io/component: automation

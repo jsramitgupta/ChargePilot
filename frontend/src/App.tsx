@@ -69,8 +69,6 @@ const queryClient = new QueryClient({
   },
 })
 
-const AGENT_RELEASE_URL = 'https://github.com/jsramitgupta/ChargePilot/releases/latest'
-
 type User = {
   id: string
   username: string
@@ -3144,7 +3142,6 @@ function EventsPage() {
 function ConnectorsPage() {
   const queryClient = useQueryClient()
   const { data: user } = useSession()
-  const [deploymentMethod, setDeploymentMethod] = useState<'docker' | 'python'>('docker')
   const [name, setName] = useState('')
   const [editingConnectorId, setEditingConnectorId] = useState<string | null>(null)
   const [editedConnectorName, setEditedConnectorName] = useState('')
@@ -3202,7 +3199,6 @@ function ConnectorsPage() {
   const actionError = createMutation.error ?? renameMutation.error ?? revokeMutation.error ?? deleteMutation.error
   const canManageConnectors = user?.role === 'super_admin' || user?.role === 'tenant_admin' || user?.role === 'manager'
   const connectorServerUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, '')
-  const pythonInstallCommand = `curl -fsSL ${connectorServerUrl}/connectors/install.sh | sh`
   const onlineCount = connectors.filter((connector) => connector.is_active && connector.is_enrolled && connector.is_online).length
   const waitingCount = connectors.filter((connector) => connector.is_active && !connector.is_enrolled).length
   const offlineCount = connectors.filter((connector) => connector.is_active && connector.is_enrolled && !connector.is_online).length
@@ -3244,26 +3240,18 @@ volumes:
       <section className="connector-deploy-guide" aria-labelledby="connector-deploy-title">
         <div className="connector-deploy-heading">
           <div>
-            <h2 id="connector-deploy-title">Choose how to run your site connector</h2>
-            <p>One small service on the switch's LAN keeps discovery and control local.</p>
+            <h2 id="connector-deploy-title">Run a site connector</h2>
+            <p>Use the published Docker image to keep discovery and switch control on the switch LAN.</p>
           </div>
           <div className="connector-network-path" aria-label="Connector network path">
             <span>Tuya LAN</span><ChevronRight size={15} aria-hidden="true" /><span>Connector</span><ChevronRight size={15} aria-hidden="true" /><span>HTTPS</span>
           </div>
         </div>
         <p className="connector-prerequisite"><ShieldCheck size={16} aria-hidden="true" /><span>The host must stay powered on, reach ChargePilot over HTTPS, and reach switches on the local network using Tuya traffic (UDP 6666, 6667, 7000; TCP 6668).</span></p>
-        <div className="connector-method-options" role="group" aria-label="Connector deployment method">
-          <button type="button" className={`connector-method-option ${deploymentMethod === 'docker' ? 'is-selected' : ''}`} aria-pressed={deploymentMethod === 'docker'} onClick={() => setDeploymentMethod('docker')}>
-            <span className="connector-method-name">Docker Compose</span><span>Linux server, NAS, or Raspberry Pi</span>
-          </button>
-          <button type="button" className={`connector-method-option ${deploymentMethod === 'python' ? 'is-selected' : ''}`} aria-pressed={deploymentMethod === 'python'} onClick={() => setDeploymentMethod('python')}>
-            <span className="connector-method-name">Python process</span><span>Linux or macOS terminal</span>
-          </button>
-        </div>
         <div className="connector-deploy-steps" aria-live="polite">
           <article className="connector-deploy-step">
             <span className="connector-step-number">1</span>
-            <div><h3>Prepare the connector host</h3><p>Use an always-on computer on the switch LAN. Python installs directly from ChargePilot; Docker pulls the published image.</p>{deploymentMethod === 'python' && <a href={backendUrl('/connectors/download')} className="connector-download-link">Download source package (optional)</a>}</div>
+            <div><h3>Prepare the connector host</h3><p>Use an always-on Linux computer, NAS, or Raspberry Pi on the switch LAN with Docker Compose installed.</p></div>
           </article>
           <article className="connector-deploy-step">
             <span className="connector-step-number">2</span>
@@ -3272,34 +3260,19 @@ volumes:
           <article className="connector-deploy-step">
             <span className="connector-step-number">3</span>
             <div>
-              <h3>{deploymentMethod === 'docker' ? 'Start the published Docker image' : 'Install and start Python'}</h3>
-              {deploymentMethod === 'docker' ? <>
-                <p>Save as <code>docker-compose.yml</code> on the connector host. This uses the published image, connects to this ChargePilot server, and creates persistent Docker storage.</p>
-                <pre className="connector-command"><code>{composeYaml}</code></pre>
-                <button type="button" className="btn-secondary mt-2" onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(composeYaml)
-                    setCopyStatus('Compose YAML copied.')
-                  } catch {
-                    setCopyStatus('Copy was blocked. Select the YAML and copy it manually.')
-                  }
-                }}>Copy Compose YAML</button>
-                <p className="mt-1 text-xs text-slate-500" role="status">{copyStatus}</p>
-                <p className="connector-step-note">Run this in Bash beside the Compose file: <code>read -rsp 'One-time ChargePilot code: ' CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE &amp;&amp; echo &amp;&amp; export CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE &amp;&amp; docker compose up -d &amp;&amp; unset CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE</code>. The code is not added to shell history, but remains visible in Docker metadata until enrollment completes and the container is recreated without it. The saved credential remains in the Docker-managed volume. Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668).</p>
-              </> : <>
-                <p>On Linux or macOS, install Python 3.12+, <code>curl</code>, and <code>unzip</code>. Run the command in a terminal on the switch LAN; enter the one-time code only when prompted. Windows users can use the source package for manual Python setup.</p>
-                <pre className="connector-command"><code>{pythonInstallCommand}</code></pre>
-                <button type="button" className="btn-secondary mt-2" onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(pythonInstallCommand)
-                    setCopyStatus('Python install command copied.')
-                  } catch {
-                    setCopyStatus('Copy was blocked. Select the command and copy it manually.')
-                  }
-                }}>Copy install command</button>
-                <p className="mt-1 text-xs text-slate-500" role="status">{copyStatus}</p>
-                <p className="connector-step-note">This runs the installer provided by your ChargePilot server; use it only if you trust that server. It stores the credential in your user configuration directory. Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668). Keep the process running or configure your OS service manager.</p>
-              </>}
+              <h3>Start the published Docker image</h3>
+              <p>Save as <code>docker-compose.yml</code> on the connector host. This uses the published image, connects to this ChargePilot server, and creates persistent Docker storage.</p>
+              <pre className="connector-command"><code>{composeYaml}</code></pre>
+              <button type="button" className="btn-secondary mt-2" onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(composeYaml)
+                  setCopyStatus('Compose YAML copied.')
+                } catch {
+                  setCopyStatus('Copy was blocked. Select the YAML and copy it manually.')
+                }
+              }}>Copy Compose YAML</button>
+              <p className="mt-1 text-xs text-slate-500" role="status">{copyStatus}</p>
+              <p className="connector-step-note">Run this in Bash beside the Compose file: <code>read -rsp 'One-time ChargePilot code: ' CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE &amp;&amp; echo &amp;&amp; export CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE &amp;&amp; docker compose up -d &amp;&amp; unset CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE</code>. The code is not added to shell history, but remains visible in Docker metadata until enrollment completes and the container is recreated without it. The saved credential remains in the Docker-managed volume. Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668).</p>
             </div>
           </article>
         </div>
@@ -3993,12 +3966,11 @@ function AgentSetupPage() {
           <h2 id="agent-package-title">Install a ChargePilot agent</h2>
           <p>Choose the installer for the device you want to enroll.</p>
         </div>
-        {releaseAssetsQuery.data && <a href={AGENT_RELEASE_URL} target="_blank" rel="noreferrer">Release {releaseAssetsQuery.data.tag}</a>}
+        {releaseAssetsQuery.data && <span>Release {releaseAssetsQuery.data.tag}</span>}
       </div>
       {releaseAssetsQuery.isLoading && <p className="agent-package-message">Loading the latest agent packages…</p>}
       {releaseAssetsQuery.error && <div className="agent-package-error" role="alert">
         <p>{releaseAssetsQuery.error.message}</p>
-        <a href={AGENT_RELEASE_URL} target="_blank" rel="noreferrer">Open the latest agent release</a>
         <button type="button" className="agent-release-retry" disabled={releaseAssetsQuery.isFetching} onClick={() => { void releaseAssetsQuery.refetch() }}>
           {releaseAssetsQuery.isFetching ? 'Retrying…' : 'Retry package lookup'}
         </button>
@@ -4012,7 +3984,7 @@ function AgentSetupPage() {
             <p>{agentPackage.description}</p>
             {asset
               ? <a className="btn-secondary" href={asset.url} download>{`Download ${agentPackage.format}`}</a>
-              : <a className="btn-secondary" href={AGENT_RELEASE_URL} target="_blank" rel="noreferrer">Check release assets</a>}
+              : <span className="agent-package-message">Not available in this release.</span>}
             {asset && <span className="agent-package-filename">{asset.name}</span>}
           </article>
         })}
@@ -4209,9 +4181,8 @@ function AgentInstallInstructions({ onClose }: { onClose: () => void }) {
         <li><strong>Android (.APK)</strong><span>Open the APK on the device and allow your browser or file manager to install it if asked. Launch ChargePilotAgent and enter the enrollment token. Android WorkManager may delay background reports and enforces a 15-minute minimum.</span></li>
         <li><strong>iPhone and iPad (.IPA)</strong><span>An IPA is not an App Store install. Install through Apple Configurator or Xcode with a valid provisioning profile; a release IPA can be installed only on devices in its ad-hoc profile. In Shortcuts, add “Report battery to ChargePilot” to both a Battery Level automation and a Charger Connected automation.</span></li>
       </ol>
-      <p className="install-guide-note">Release signing varies by platform and release. Review the latest release notes before installing. iOS Shortcuts and mobile background reports are best-effort and do not guarantee exact reporting times.</p>
+      <p className="install-guide-note">Release signing varies by platform and release. Follow the operating system's installation warnings. iOS Shortcuts and mobile background reports are best-effort and do not guarantee exact reporting times.</p>
       <div className="install-guide-footer">
-        <a href={AGENT_RELEASE_URL} target="_blank" rel="noreferrer">Review release notes and signing details</a>
         <button type="button" className="btn-primary" onClick={onClose}>Done</button>
       </div>
     </section>

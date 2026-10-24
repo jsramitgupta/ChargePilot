@@ -237,16 +237,13 @@ body.theme-dark .connector-deploy-guide {
 
 body.theme-dark .connector-deploy-heading h2,
 body.theme-dark .connector-deploy-step h3,
-body.theme-dark .connector-method-name,
 body.theme-dark .connector-prerequisite {
   color: #e1ece5;
 }
 
 body.theme-dark .connector-deploy-heading p,
 body.theme-dark .connector-deploy-step p,
-body.theme-dark .connector-finish-note,
-body.theme-dark .connector-method-option,
-body.theme-dark .connector-method-option > span:last-child {
+body.theme-dark .connector-finish-note {
   color: #a4b5ac;
 }
 
@@ -261,24 +258,12 @@ body.theme-dark .connector-network-path {
   color: #dce9e1;
 }
 
-body.theme-dark .connector-method-option {
-  border-color: #40544a;
-  background: #192824;
-}
-
-body.theme-dark .connector-method-option.is-selected {
-  border-color: #83b18e;
-  color: #e1ece5;
-  background: #22372c;
-}
-
 body.theme-dark .connector-step-number {
   border-color: rgba(222, 169, 93, 0.45);
   color: #efc98f;
   background: rgba(135, 86, 37, 0.2);
 }
 
-body.theme-dark .connector-download-link,
 body.theme-dark .connector-step-link,
 body.theme-dark .connector-deploy-step code {
   color: #b8d9c0;

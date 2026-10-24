@@ -29,6 +29,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       connector: ${{ steps.filter.outputs.connector }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - name: Check out source code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -54,12 +55,12 @@ jobs:
           fi
 
           printf '%s\n' "$changed_files"
-          if printf '%s\n' "$changed_files" | grep -Eq '^(app/|connector/|docker/Dockerfile$|pyproject.toml$|README.md$|\.dockerignore$|\.github/workflows/(ci|publish-deploy|connector-multiarch)\.yml$)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(app/|agent/windows/install\.ps1$|docker/Dockerfile$|pyproject.toml$|README.md$|\.dockerignore$|\.github/workflows/(ci|publish-deploy|connector-multiarch)\.yml$)'; then
             echo "api=true" >> "$GITHUB_OUTPUT"
           else
             echo "api=false" >> "$GITHUB_OUTPUT"
           fi
-          if printf '%s\n' "$changed_files" | grep -Eq '^(app/|connector/|tests/|scripts/|pyproject.toml$|README.md$|\.github/workflows/(ci|publish-deploy|connector-multiarch)\.yml$)'; then
+          if printf '%s\n' "$changed_files" | grep -Eq '^(app/|agent/windows/install\.ps1$|connector/|tests/|scripts/|pyproject.toml$|README.md$|\.github/workflows/(ci|publish-deploy|connector-multiarch)\.yml$)'; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
@@ -74,6 +75,62 @@ jobs:
           else
             echo "connector=false" >> "$GITHUB_OUTPUT"
           fi
+          if printf '%s\n' "$changed_files" | grep -Eq '^(docs-site/|\.github/workflows/(ci|publish-deploy|build-agent-artifacts)\.yml$)'; then
+            echo "docs=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  docs:
+    name: Documentation site lint and builds
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate release documentation
+        run: python3 -m unittest discover -s docs-site/tests -v
+
+      - name: Set up Node.js
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
+        with:
+          node-version: 24.22.1
+          cache: npm
+          cache-dependency-path: |
+            docs-site/web/package-lock.json
+            docs-site/cms/package-lock.json
+
+      - name: Install documentation website dependencies
+        run: npm ci --prefix docs-site/web
+
+      - name: Lint documentation website
+        run: npm run lint --prefix docs-site/web
+
+      - name: Build documentation website
+        run: npm run build --prefix docs-site/web
+
+      - name: Install documentation CMS dependencies
+        run: npm ci --prefix docs-site/cms
+
+      - name: Audit production CMS dependencies
+        run: npm audit --prefix docs-site/cms --omit=dev --audit-level=high
+
+      - name: Build documentation CMS
+        env:
+          DATABASE_CLIENT: postgres
+          DATABASE_HOST: 127.0.0.1
+          DATABASE_PORT: "5432"
+          DATABASE_NAME: chargepilot_docs
+          DATABASE_USERNAME: chargepilot_docs
+          DATABASE_PASSWORD: ci-not-a-secret
+          APP_KEYS: ci-one,ci-two,ci-three,ci-four
+          ADMIN_JWT_SECRET: ci-admin-secret-not-used-at-runtime
+          API_TOKEN_SALT: ci-api-salt-not-used-at-runtime
+          TRANSFER_TOKEN_SALT: ci-transfer-salt-not-used-at-runtime
+          ENCRYPTION_KEY: ci-encryption-key-not-used-at-runtime
+        run: npm run build --prefix docs-site/cms
 
   backend:
     name: Backend tests and lint

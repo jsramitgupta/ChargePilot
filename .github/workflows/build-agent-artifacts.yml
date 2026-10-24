@@ -52,6 +52,7 @@ jobs:
           import os
           import re
           import subprocess
+          import sys
           from pathlib import Path
 
           ref = os.environ["REF"]
@@ -67,6 +68,15 @@ jobs:
           build_number = major * 1_000_000 + minor * 1_000 + patch
           if minor > 999 or patch > 999 or build_number < 1 or build_number > 2_100_000_000:
               raise SystemExit("Agent version is outside the supported mobile build-number range")
+          if ref.startswith("refs/tags/agents-v"):
+              subprocess.run(
+                  [
+                      sys.executable,
+                      "docs-site/scripts/validate_release_note.py",
+                      f"agents-v{version}",
+                  ],
+                  check=True,
+              )
 
           platforms = {"android", "ios", "macos", "windows"}
           changed_files = None
@@ -726,80 +736,6 @@ jobs:
               + "\n\nAndroid and iOS physical-device validation remains the installer's responsibility.\n",
               encoding="utf-8",
           )
-          PY
-
-      - name: Package public agent source downloads
-        env:
-          AGENT_VERSION: ${{ needs.version.outputs.agent_version }}
-        run: |
-          python3 - <<'PY'
-          import os
-          import subprocess
-          import zipfile
-          from pathlib import Path
-
-          root = Path.cwd()
-          tracked = subprocess.run(
-              ["git", "ls-files", "-z"],
-              check=True,
-              capture_output=True,
-          ).stdout.decode().split("\0")
-          tracked = [Path(path) for path in tracked if path]
-          targets = {
-              "android": "chargepilot-android-agent-source.zip",
-              "ios": "chargepilot-ios-agent-source.zip",
-              "macos": "chargepilot-macos-agent-source.zip",
-          }
-          for platform, archive_name in targets.items():
-              prefix = Path("agent") / platform
-              sources = [path for path in tracked if path.is_relative_to(prefix)]
-              if not sources:
-                  raise SystemExit(f"No tracked {platform} agent files found")
-              with zipfile.ZipFile(
-                  root / "artifacts" / archive_name,
-                  "w",
-                  compression=zipfile.ZIP_DEFLATED,
-              ) as archive:
-                  archive.writestr("VERSION", os.environ["AGENT_VERSION"] + "\n")
-                  for path in sources:
-                      archive.write(
-                          root / path,
-                          Path(f"chargepilot-{platform}-agent") / path.relative_to(prefix),
-                      )
-
-          windows_files = [
-              path
-              for path in tracked
-              if path.is_relative_to(Path("agent/windows"))
-              and "bin" not in path.parts
-              and "obj" not in path.parts
-          ]
-          windows_files.extend(
-              [
-                  Path("agent/BatteryAgent.ps1"),
-                  Path("agent/CreateAgentScheduledTask.ps1"),
-              ]
-          )
-          with zipfile.ZipFile(
-              root / "artifacts" / "chargepilot-windows-agent-source.zip",
-              "w",
-              compression=zipfile.ZIP_DEFLATED,
-          ) as archive:
-              archive.writestr("VERSION", os.environ["AGENT_VERSION"] + "\n")
-              for source in windows_files:
-                  archive.write(
-                      root / source,
-                      Path("chargepilot-windows-agent") / source.relative_to("agent"),
-                  )
-
-          for source, asset in (
-              ("agent/BatteryAgent.ps1", "chargepilot-windows-battery-agent.ps1"),
-              (
-                  "agent/windows/install.ps1",
-                  "chargepilot-windows-agent-installer.ps1",
-              ),
-          ):
-              (root / "artifacts" / asset).write_bytes((root / source).read_bytes())
           PY
 
       - name: Publish platform builds

@@ -36,6 +36,8 @@ def test_dockerfiles_use_pinned_images_and_unprivileged_runtime():
     assert "pip install --no-cache-dir -r /tmp/chargepilot-build-requirements.txt" in app_dockerfile
     assert "pip install --no-cache-dir --no-deps --no-build-isolation ." in app_dockerfile
     assert "pip install --no-cache-dir -e ." not in app_dockerfile
+    assert "COPY connector ./connector" not in app_dockerfile
+    assert "COPY agent/windows/install.ps1 ./agent/windows/install.ps1" in app_dockerfile
 
 
 def test_compose_services_apply_container_hardening():
@@ -114,6 +116,7 @@ def test_container_workflows_scan_built_images_and_scope_publishing():
     assert "needs.changes.outputs.api == 'true'" in ci_workflow
     assert "needs.changes.outputs.frontend == 'true'" in ci_workflow
     assert "needs.changes.outputs.connector == 'true'" in ci_workflow
+    assert "agent/windows/install\\.ps1" in ci_workflow
     assert "connector/Dockerfile" in connector_workflow
     assert "connector/requirements.txt" in connector_workflow
     assert "connector/*.py" in connector_workflow
@@ -125,6 +128,7 @@ def test_container_workflows_scan_built_images_and_scope_publishing():
     assert "Build, scan, and publish ${{ matrix.component }}" in publish_workflow
     assert "dockerfile: ./docker/Dockerfile" in publish_workflow
     assert "dockerfile: ./frontend/Dockerfile" in publish_workflow
+    assert "agent/windows/install\\.ps1" in publish_workflow
     assert "Build and push multi-arch image" in publish_workflow
     assert "Scan published AMD64 image for vulnerabilities and secrets" in publish_workflow
     assert "Update GitOps image tags" in publish_workflow

@@ -2,6 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: chargepilot-postgres
+  namespace: chargepilot
 spec:
   selector:
     app.kubernetes.io/name: chargepilot-postgres
@@ -14,6 +15,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: chargepilot-postgres
+  namespace: chargepilot
 spec:
   serviceName: chargepilot-postgres
   replicas: 1
@@ -79,6 +81,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: chargepilot-kafka
+  namespace: chargepilot
 spec:
   clusterIP: None
   publishNotReadyAddresses: true
@@ -96,6 +99,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: chargepilot-kafka
+  namespace: chargepilot
 spec:
   serviceName: chargepilot-kafka
   replicas: 1

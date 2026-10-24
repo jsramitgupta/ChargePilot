@@ -1,0 +1,328 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chargepilot-docs
+  labels:
+    app.kubernetes.io/part-of: chargepilot
+    app.kubernetes.io/name: docs
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: docs-runtime
+  namespace: chargepilot-docs
+data:
+  CMS_API_URL: http://docs-cms:1337/api/public/guides
+  DOCS_SITE_URL: https://docs-chargepilot.endusercompute.in
+  DATABASE_CLIENT: postgres
+  DATABASE_HOST: docs-postgres
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: chargepilot_docs
+  DATABASE_USERNAME: chargepilot_docs
+  DATABASE_POOL_MIN: "1"
+  DATABASE_POOL_MAX: "3"
+  PUBLIC_URL: http://localhost:1337
+  STRAPI_TELEMETRY_DISABLED: "true"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: docs-postgres
+  namespace: chargepilot-docs
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: docs-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: docs-cms
+  namespace: chargepilot-docs
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: docs-cms
+  ports:
+    - name: http
+      port: 1337
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: docs-web
+  namespace: chargepilot-docs
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: docs-web
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: docs-postgres
+  namespace: chargepilot-docs
+spec:
+  serviceName: docs-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: docs-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: docs-postgres
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: docs-runtime
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: docs-cms
+  namespace: chargepilot-docs
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: docs-cms
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: docs-cms
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cms
+          image: endusercompute/chargepilot-docs-cms:bootstrap-required
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: docs-runtime
+            - secretRef:
+                name: docs-runtime
+          env:
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=512
+          ports:
+            - name: http
+              containerPort: 1337
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /api/public/guides
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/public/guides
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /api/public/guides
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 200m
+              memory: 384Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /opt/app/.cache
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 128Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: docs-web
+  namespace: chargepilot-docs
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: docs-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: docs-web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: endusercompute/chargepilot-docs-web:bootstrap-required
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: docs-runtime
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 250m
+              memory: 384Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: next-cache
+          emptyDir:
+            sizeLimit: 128Mi
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: chargepilot-docs
+  namespace: chargepilot-docs
+spec:
+  hosts:
+    - docs-chargepilot.endusercompute.in
+  gateways:
+    - chargepilot/chargepilot-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /api
+      route:
+        - destination:
+            host: docs-cms.chargepilot-docs.svc.cluster.local
+            port:
+              number: 1337
+    - route:
+        - destination:
+            host: docs-web.chargepilot-docs.svc.cluster.local
+            port:
+              number: 3000

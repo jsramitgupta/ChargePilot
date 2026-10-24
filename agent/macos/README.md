@@ -6,8 +6,8 @@ background while the user is signed in and the Mac is awake. It does not
 control switches or promise reports during sleep, logout, network loss, or
 when the app is stopped.
 
-The latest development DMG and source archive are published at
-[ChargePilot GitHub Releases](https://github.com/jsramitgupta/ChargePilot/releases/latest).
+The latest installable DMG is available from ChargePilot **Set up a device**.
+The source project requires an authorized checkout of the private repository.
 
 ## Requirements
 
@@ -40,7 +40,8 @@ code from ChargePilot's **Set up a device** page and select **Connect this
 Mac**. The code is not saved; the per-install credential is stored in the
 user's macOS Keychain.
 
-The menu shows the installed app version and checks the latest public release.
+The menu shows the installed app version and checks the latest release through
+the ChargePilot API.
 Select **Update to …** to download and install a newer release; the app quits
 and reopens when the update finishes. Updating an app in `/Applications` may
 ask for an administrator password. Install the app in **Applications** before

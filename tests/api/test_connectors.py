@@ -1,6 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from io import BytesIO
-from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 
@@ -218,46 +216,19 @@ def test_agent_setup_api_supplies_token_free_install_command(monkeypatch):
     assert "-EndpointToken " not in payload["install_command"]
 
 
-def test_connector_download_contains_runtime_and_pinned_requirements():
+def test_connector_source_download_is_disabled_for_private_source():
     client = TestClient(app)
     response = client.get("/connectors/download")
 
-    assert response.status_code == 200
-    assert response.headers["cache-control"] == "public, max-age=300"
-    with ZipFile(BytesIO(response.content)) as package:
-        assert "connector/chargepilot_connector.py" in package.namelist()
-        assert "requirements.txt" in package.namelist()
-        assert "README.md" in package.namelist()
-        assert "install.sh" in package.namelist()
-        assert "connector/Dockerfile" in package.namelist()
-        assert "docker-compose.yml" in package.namelist()
-        assert ".env.example" in package.namelist()
-        compose = package.read("docker-compose.yml").decode()
-        assert "CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE:" in compose
-        assert "connector-data:/data" in compose
-        assert "ENROLLMENT_CODE_FILE" not in compose
-        assert "enrollment-code.txt" not in compose
-        assert "network_mode: host" in compose
-        assert "endusercompute/chargepilot-connector:sha-922f4aac9cef35276eef7814620f38d674720f73" in compose
-        assert "httpx==0.27.0" in package.read("requirements.txt").decode()
-        readme = package.read("README.md").decode()
-        assert "Docker Compose (Linux)" in readme
-        assert "docker compose up -d" in readme
-        assert "permanent credential" in readme
-        assert "no host directory" in readme
+    assert response.status_code == 410
+    assert "source archives are no longer distributed" in response.json()["detail"]
 
 
-def test_connector_installer_is_public_and_uses_configured_api_url(monkeypatch):
-    monkeypatch.setattr(settings, "api_url", "https://api.example.test")
-
+def test_python_connector_installer_is_disabled():
     response = TestClient(app).get("/connectors/install.sh")
 
-    assert response.status_code == 200
-    assert response.headers["cache-control"] == "no-store"
-    assert '"$SERVER_URL/connectors/download"' in response.text
-    assert "https://api.example.test" in response.text
-    assert "__CHARGEPILOT_SERVER_URL__" not in response.text
-    assert "getpass.getpass" in response.text
+    assert response.status_code == 410
+    assert "Use the published Docker image" in response.json()["detail"]
 
 
 def test_enrollment_code_is_single_use_and_commands_wait_for_connector_ack():

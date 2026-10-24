@@ -15,10 +15,12 @@ copy credentials from the live cluster into this document or Git.
 - Namespace: `chargepilot`.
 - Cluster: one Ready k3s node, `x64-docker`, running Ubuntu 24.04.5 LTS,
   amd64, k3s/Kubernetes `v1.36.4+k3s1`, containerd `2.3.4-k3s1.36`.
-- Argo CD Application: `argocd/chargepilot`; repo
+- Argo CD Application: `argocd/chargepilot`; at inspection it used
   `https://github.com/jsramitgupta/ChargePilot.git`, branch `main`, path
   `deploy/k3s`; live status `Synced` / `Healthy`. The observed synced Git
-  revision was `185abd40f79c00b11055c6c04e8e6e7f44218a1c`.
+  revision was `185abd40f79c00b11055c6c04e8e6e7f44218a1c`. The checked-in
+  Application now uses SSH; provision a read-only Argo CD deploy key before
+  making the repository private. See the deployment guide.
 - Istio ingress Service: `istio-system/istio-ingressgateway`, type
   `LoadBalancer`, LAN address `192.168.1.21`, ports 80 and 443 (plus status
   port 15021).
@@ -277,3 +279,38 @@ values when necessary.
   same PostgreSQL schema and Kafka cluster.
 - Device control is site-local: retain the separately deployed connector
   architecture and do not route cloud pods directly to Tuya LAN devices.
+
+## Desired docs site (not in the dated live snapshot)
+
+The GitOps manifests now define a separate `chargepilot-docs` namespace with
+Next.js, Strapi, and its own PostgreSQL StatefulSet. The public Istio route is
+`docs-chargepilot.endusercompute.in`; only the Next.js site and Strapi's
+read-only published-guide API are routed. The CMS admin and PostgreSQL service
+remain ClusterIP-only. See [the docs-site reference](../../.github/instructions/DOCS_SITE.md)
+for content ownership, release notes, and the implementation boundary.
+
+Before publishing this desired state:
+
+1. Confirm that the node has capacity for the docs workload. Its Kubernetes
+   requests total about 608 MiB and its individual limits total about
+   1.6 GiB; the live node was already at 76% requested memory at inspection.
+2. Confirm DNS and the external TLS/edge proxy route the requested docs host to
+   the Istio ingress.
+3. Create the `chargepilot-docs` namespace and the `docs-runtime` Secret out
+   of band before Argo CD starts the workloads. The Secret must contain
+   `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DATABASE_PASSWORD`,
+   `APP_KEYS`, `ADMIN_JWT_SECRET`, `API_TOKEN_SALT`, `TRANSFER_TOKEN_SALT`,
+   `ENCRYPTION_KEY`, and `JWT_SECRET`. Use the same random value for the two
+   database password keys. Never commit or print those values.
+4. Arrange and test a backup/restore procedure for the docs PostgreSQL PVC;
+   its `local-path` storage is node-local.
+5. Use the successful CI, image-scan, and GitOps publisher workflow. Do not
+   apply `docs.yaml` or set image tags by hand.
+
+The CMS pins patched production dependencies and carries a versioned Zod 4
+compatibility patch for `koa-session`. CI requires the production npm audit to
+have no high or critical findings, and the image scanner remains authoritative
+for published containers. Moderate dependency advisories may remain and must
+be reviewed during upgrades; do not bypass either gate. The admin bootstrap
+route must stay internal: create the first editor account through an
+authorized Kubernetes port-forward, never through the public docs hostname.

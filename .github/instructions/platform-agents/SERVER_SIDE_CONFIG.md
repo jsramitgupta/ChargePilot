@@ -249,7 +249,8 @@ connector.
       enabled-mapping checks.
 - [x] Agents support self-service deregistration and re-enrollment without
       reinstalling.
-- [x] Android and iOS source projects and setup-page source downloads.
+- [x] Android and iOS source projects in the repository and setup-page binary
+      downloads through the ChargePilot API.
 - [x] Android debug APK build and emulator smoke test.
 - [x] iOS unsigned device IPA build and simulator smoke test.
 - [x] Release workflow supports signed and unsigned tagged assets on Windows,

@@ -880,47 +880,6 @@ button, a {
   color: var(--leaf);
 }
 
-.connector-method-options {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.connector-method-option {
-  display: grid;
-  gap: 3px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  color: var(--muted);
-  background: var(--surface);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color .16s ease, background-color .16s ease;
-}
-
-.connector-method-option:hover,
-.connector-method-option:focus-visible {
-  border-color: var(--leaf);
-}
-
-.connector-method-option.is-selected {
-  border-color: var(--leaf);
-  color: var(--ink);
-  background: color-mix(in srgb, var(--surface) 87%, var(--leaf));
-  box-shadow: inset 3px 0 0 var(--leaf);
-}
-
-.connector-method-name {
-  color: var(--ink);
-  font-size: 12px;
-  font-weight: 720;
-}
-
-.connector-method-option > span:last-child {
-  font-size: 10px;
-}
-
 .connector-deploy-steps {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -957,7 +916,6 @@ button, a {
   font-weight: 720;
 }
 
-.connector-download-link,
 .connector-step-link {
   display: inline-flex;
   margin-top: 9px;
@@ -5301,10 +5259,6 @@ button, a {
 
   .connector-network-path {
     align-self: flex-start;
-  }
-
-  .connector-method-options {
-    grid-template-columns: 1fr;
   }
 
   .connector-deploy-guide {

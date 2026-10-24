@@ -12,10 +12,12 @@ battery state, and automation outcomes easy to scan without obscuring the
 underlying device relationships. Keep actions explicit and explain unavailable
 or empty states with the next useful step.
 
-The UI is React-only. FastAPI supplies JSON APIs and downloads; agent and
-connector source archives are public, while setup APIs and credential
-management require authentication. Do not add a second browser UI or use mock
-data to fill gaps in API workflows.
+The authenticated ChargePilot management console is React-only. FastAPI
+supplies JSON APIs, public installable agent binaries, and connector
+enrollment APIs; source archives are not distributed. Setup APIs and
+credential management require authentication. The separate Next.js/Strapi
+site at `docs-site/` is public user documentation, not a second management
+console. Do not use mock data to fill gaps in product API workflows.
 Authenticated navigation remains left-aligned in a responsive rail.
 
 ## Routes and page responsibilities
@@ -101,14 +103,14 @@ promising an exact schedule.
 Endpoint automation is enabled by default for all four platforms, subject to
 server-side platform and freshness checks. The Overview shows last-seen age as
 a live relative time. The Connectors page supports a published Docker Compose image with
-environment-based one-time enrollment and Docker-managed persistent storage,
-and a one-line Python installer that prompts locally for the enrollment code.
+environment-based one-time enrollment and Docker-managed persistent storage.
 It shows setup readiness and current connector status, lets authorized
 administrators rename a connector without changing its credential or device
 assignments, and requires revoked connectors to be deleted explicitly.
-Connector and agent source downloads are public; code creation and credential
-management remain authenticated. Show the connector source archive link only
-for Python setup, not in the Docker Compose instructions.
+Only installable agent binaries are available through the public API proxy;
+agent and connector source archives are not distributed. The Site Connectors
+page documents the published Docker Compose image only. Code creation and
+credential management remain authenticated.
 Mapping setup advances only on an explicit user action and saves only from its
 explicit create/save action.
 The mapping stepper places each label below its numbered marker; connector

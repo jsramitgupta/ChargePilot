@@ -316,18 +316,19 @@ internal sealed class SetupForm : Form
             using var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
             httpClient.DefaultRequestHeaders.UserAgent.Add(
                 new ProductInfoHeaderValue("ChargePilotAgentUpdater", _agentVersion));
+            var releaseUri = new Uri(_existingOptions.ServerUri, "/api/v1/agent/releases/latest");
             using var releaseResponse = await httpClient.GetAsync(
-                "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest",
+                releaseUri,
                 HttpCompletionOption.ResponseHeadersRead);
             releaseResponse.EnsureSuccessStatusCode();
             await using var releaseStream = await releaseResponse.Content.ReadAsStreamAsync();
             using var release = await JsonDocument.ParseAsync(releaseStream);
 
-            var tag = release.RootElement.GetProperty("tag_name").GetString();
+            var tag = release.RootElement.GetProperty("tag").GetString();
             if (tag is null || !tag.StartsWith("agents-v", StringComparison.Ordinal) ||
                 !Version.TryParse(tag["agents-v".Length..], out var latestVersion))
             {
-                throw new InvalidDataException("GitHub returned an invalid ChargePilot agent release version.");
+                throw new InvalidDataException("The ChargePilot API returned an invalid agent release version.");
             }
 
             if (latestVersion <= Version.Parse(_agentVersion))
@@ -343,12 +344,15 @@ internal sealed class SetupForm : Form
                     item.TryGetProperty("name", out var name) &&
                     name.GetString() == "ChargePilotAgent.exe");
             if (asset.ValueKind == JsonValueKind.Undefined ||
-                !asset.TryGetProperty("browser_download_url", out var downloadUrlElement) ||
+                !asset.TryGetProperty("url", out var downloadUrlElement) ||
                 !Uri.TryCreate(downloadUrlElement.GetString(), UriKind.Absolute, out var downloadUrl) ||
-                downloadUrl.Scheme != Uri.UriSchemeHttps ||
-                downloadUrl.Host != "github.com")
+                !string.Equals(
+                    downloadUrl.GetLeftPart(UriPartial.Authority),
+                    _existingOptions.ServerUri.GetLeftPart(UriPartial.Authority),
+                    StringComparison.OrdinalIgnoreCase) ||
+                downloadUrl.AbsolutePath != "/agent/releases/latest/download/ChargePilotAgent.exe")
             {
-                throw new InvalidDataException("The latest release does not contain the expected Windows agent download.");
+                throw new InvalidDataException("The latest agent release does not contain the expected Windows download.");
             }
 
             var confirmation = MessageBox.Show(

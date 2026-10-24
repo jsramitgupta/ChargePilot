@@ -6,7 +6,8 @@ builds use the debug key. Tagged GitHub Releases use the configured Android
 release keystore when available; otherwise the APK is unsigned and Android
 will not install it as a trusted release. This is not a Google Play release.
 
-Latest APK and source downloads: [ChargePilot GitHub Releases](https://github.com/jsramitgupta/ChargePilot/releases/latest).
+The latest installable APK is available from ChargePilot **Set up a device**.
+The source project requires an authorized checkout of the private repository.
 
 ## Requirements
 
@@ -16,8 +17,8 @@ Latest APK and source downloads: [ChargePilot GitHub Releases](https://github.co
 
 ## Build and install
 
-1. Download and extract the Android agent source archive, then open the
-   extracted `chargepilot-android-agent` folder in Android Studio.
+1. Open the `agent/android` folder from an authorized repository checkout in
+   Android Studio.
 2. Allow Gradle sync, then build the debug APK with **Build > Build Bundle(s) /
    APK(s) > Build APK(s)**, or run `./gradlew assembleDebug` from the project
    folder (`gradlew.bat assembleDebug` on Windows). The APK is written to

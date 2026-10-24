@@ -19,6 +19,15 @@ Docker Hub namespace for `linux/amd64` and `linux/arm64`.
 4. Allow GitHub Actions `GITHUB_TOKEN` **Read and write permissions** so the
    image publisher can commit the ArgoCD tag update to `main`.
 5. Confirm GitHub Actions and the ArgoCD controller are enabled.
+6. Before making the repository private, configure a read-only SSH deploy key
+   in Argo CD. The checked-in Application uses
+   `git@github.com:jsramitgupta/ChargePilot.git`; add its public key as a
+   read-only deploy key in GitHub and register its private key with
+   `argocd repo add git@github.com:jsramitgupta/ChargePilot.git --ssh-private-key-path <private-key-file>`.
+7. To keep agent binary downloads available from a private repository, provision
+   a fine-grained Contents: read token as `CHARGEPILOT_AGENT_RELEASE_GITHUB_TOKEN`
+   in the separate `chargepilot-agent-release` Kubernetes Secret. The API
+   proxies only installable agent binaries; source archives are not exposed.
 
 ### Main-branch pipeline and security practices
 
@@ -70,9 +79,12 @@ Before applying the ArgoCD Application:
    admin secrets, public browser origins, and Kafka settings. Use the same
    URL-safe PostgreSQL password in both the URL and
    `CHARGEPILOT_POSTGRES_PASSWORD`.
-3. Apply `deploy/argocd/chargepilot.yaml`; ArgoCD will sync the app and future
+3. Create the `chargepilot-agent-release` Secret from the secret manager or a
+   secure local process; do not store the GitHub token in `.env.k3s`, Git, or
+   the shared `chargepilot-runtime` Secret.
+4. Apply `deploy/argocd/chargepilot.yaml`; ArgoCD will sync the app and future
    successful main-branch image updates automatically.
-4. In Cloudflare, create proxied DNS records for both hostnames to the public
+5. In Cloudflare, create proxied DNS records for both hostnames to the public
    address that forwards traffic to the ingress. Select a TLS mode compatible
    with the configured origin; use **Full (strict)** only after configuring a
    trusted origin certificate and TLS listener.

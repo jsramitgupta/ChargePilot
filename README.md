@@ -20,7 +20,9 @@ The product contains:
 - a hysteresis-based battery rule engine
 - TinyTuya wrappers for local switch discovery and control
 - React, TypeScript, Tailwind, and Vite frontend in `frontend/`, serving the
-  complete browser experience through JSON APIs
+  complete authenticated management experience through JSON APIs
+- tenant administrator and user help site in `docs-site/`, built with Next.js
+  and Strapi and designed for `https://docs-chargepilot.endusercompute.in`
 - Windows PowerShell and macOS menu-bar agents, plus Android and iOS telemetry
   apps
 - an outbound-HTTPS site connector that scans and controls devices on private LANs
@@ -52,6 +54,7 @@ The product contains:
 │   ├── workers.py           # Kafka outbox relay and automation consumer roles
 │   └── main.py              # FastAPI app setup, redirects, and downloads
 ├── frontend/                # React application and design system
+├── docs-site/               # Next.js help site, Strapi CMS, and release notes
 ├── agent/
 │   ├── BatteryAgent.ps1               # Windows battery telemetry sender
 │   ├── CreateAgentScheduledTask.ps1   # creates the recurring Windows task
@@ -150,20 +153,14 @@ The `install` command prompts for an enrollment token without displaying its
 characters. `status`, `start`, `stop`, and `send-once` are also available
 without opening the setup window. `uninstall` removes the service and retains
 its configuration; pass `--purge-config` to delete the saved enrollment.
-Device setup also links the Windows executable and source archive. A Windows
-executable cannot run on macOS; use the macOS DMG or Swift source project there.
+Device setup provides installable agent binaries through the ChargePilot API;
+repository source archives are not distributed. A Windows executable cannot
+run on macOS; use the macOS DMG there.
 
-For macOS, the setup page provides the Swift source archive. Build the package
-with Swift 5.9+ on macOS 13+, enter the enrollment token when prompted, and
-start its foreground reporting process. The API origin is fixed, the Mac
-computer name is used automatically, and serial numbers are not collected. The
-agent stores the credential in Keychain and sends no report while the Mac
-sleeps or the process is stopped.
-New endpoints are automation-enabled by default; server-side freshness,
-platform-policy, tenant, and mapping checks remain required. Android and iOS
-source projects are
-available from device setup; they require Android Studio or Xcode, have not
-been validated on physical devices, and are not signed store releases.
+For native-agent source builds, clone the private repository with an authorized
+GitHub account. The macOS source requires Swift 5.9+ on macOS 13+; Android and
+iOS source projects require Android Studio or Xcode. The mobile builds have
+not been validated on physical devices and are not signed store releases.
 
 ### Tenant isolation and administrator assignment
 
@@ -240,7 +237,7 @@ including the local IP address, come from the LAN scan (or manual entry).
 ## Site connector
 
 Create a one-time enrollment code in **Connectors** for the tenant. The
-published Docker image and Python installer use the k3s API URL by default:
+published Docker image uses the k3s API URL by default:
 `https://api-chargepilot.endusercompute.in`.
 
 ### Docker Compose on Linux
@@ -280,32 +277,10 @@ enrollment code for first enrollment:
 read -rsp 'One-time ChargePilot code: ' CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE && echo && export CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE && docker compose up -d && unset CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE
 ```
 
-### Python on Linux or macOS
-
-Install Python 3.12+, `curl`, and `unzip`. Run this on the switch LAN and enter
-the one-time code when prompted:
-
-```sh
-curl -fsSL https://api-chargepilot.endusercompute.in/connectors/install.sh | sh
-```
-
-The installer creates a private virtual environment and stores its permanent
-credential under `~/.local/share/chargepilot/site-connector/`. Keep the
-process running or configure your OS service manager to start it at boot. The
-command runs an installer served by ChargePilot; use it only if you trust
-that HTTPS server.
-
-The public source archive for manual installation is available at
-`https://api-chargepilot.endusercompute.in/connectors/download`. Downloads
-contain no enrollment or connector credentials. On Windows, extract the
-archive and run:
-
-```powershell
-python -m pip install -r requirements.txt
-python -m connector.chargepilot_connector --server-url "https://api-chargepilot.endusercompute.in"
-```
-
-Enter the one-time code when prompted.
+The site connector is installed from the published Docker Hub image using the
+Docker Compose instructions in the authenticated **Site Connectors** page.
+Source archives and the source-based Python installer are not served by the
+ChargePilot API.
 
 Assign switches to that connector on the **Switches** page. Confirm that the
 connector reports online, then use LAN scan or switch controls. The connector
@@ -379,7 +354,8 @@ CHARGEPILOT_SESSION_COOKIE_SAMESITE=lax
 
 Configure the reverse proxy to send the frontend hostname to container port
 `5173` and the API hostname to port `8000`. The API hostname must proxy the
-JSON API, authenticated downloads, and public agent/connector source downloads.
+JSON API, the public agent installer and binary proxy, and connector
+enrollment APIs.
 The backend permits credentialed
 browser requests only from the configured frontend origin. For frontend and API
 hostnames on different registrable domains, set

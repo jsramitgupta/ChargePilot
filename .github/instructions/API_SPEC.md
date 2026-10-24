@@ -33,7 +33,9 @@ The validation logic lives in `app/services/endpoint_service.py`. It accepts a t
 
 Browser authentication uses session cookies set by JSON requests to
 `POST /api/v1/auth/login` and `POST /api/v1/auth/register`. The React frontend
-is the only browser UI; legacy page GETs redirect to the configured frontend.
+is the only browser UI for the authenticated ChargePilot console; the separate
+Next.js/Strapi documentation site does not provide product operations. Legacy
+page GETs redirect to the configured frontend.
 Both public signup modes require a Cloudflare Turnstile token, verified
 server-side against the configured frontend hostname and the `registration`
 action. Production signup fails closed if Turnstile is not configured.
@@ -216,52 +218,38 @@ server-generated high-entropy token.
 ### 2.8 GET /api/v1/agent/releases/latest
 
 Returns the latest `agents-v*` release tag and supported `.exe`, `.dmg`,
-`.ipa`, and `.apk` asset names and URLs for the authenticated setup page. The
-API fetches release metadata server-side so browser access to GitHub's API is
-not required. The response is cached privately for five minutes. GitHub
-network, status, or payload errors return an explicit `502` response.
+`.ipa`, and `.apk` asset names and ChargePilot API URLs. It is public so native
+agents can check for updates without a GitHub account. When the GitHub
+repository is private, the API fetches release metadata using
+`CHARGEPILOT_AGENT_RELEASE_GITHUB_TOKEN`, a fine-grained token scoped to this
+repository with Contents: read permission. Store it only in the API runtime
+secret. The response is cached publicly for five minutes and contains only
+installable binaries, never source archives or direct GitHub URLs.
 
-The following agent source downloads do not require a browser session and
-contain no credentials. They issue a `302` redirect to the corresponding asset
-on the latest stable `agents-v*` GitHub Release. The agent workflow publishes
-these source files alongside the platform build artifacts:
+`GET /agent/releases/latest/download/{asset_name}` streams an allow-listed
+binary from the latest `agents-v*` release through the API. The endpoint is
+public, so it intentionally makes those binaries public; release source
+archives are not returned. `GET /agent/ChargePilotAgent.exe` remains as a
+compatibility route for the Windows installer. `GET /agent/install.ps1`
+serves the installer script bundled in the API image.
 
-- `GET /agent/download` redirects to the Windows PowerShell source ZIP.
-- `GET /agent/ChargePilotAgent.exe` redirects to the self-contained .NET
-  Windows service executable with UI and CLI modes. Tagged release notes and
-  `agent-release-manifest.json` state whether the current binary is
-  Authenticode-signed.
-- `GET /agent/macos/download` redirects to the Swift/macOS source ZIP.
-- `GET /agent/android/download` redirects to the Kotlin/Compose Android source
-  project ZIP.
-- `GET /agent/ios/download` redirects to the SwiftUI Xcode project ZIP.
-- `GET /agent/install.ps1` redirects to the installer used by the one-line
-  command. The installer downloads the Windows executable and opens its setup
-  UI, where the administrator enrolls the device and installs the Windows
-  service. New installs do not use Task Scheduler.
-- `GET /agent/BatteryAgent.ps1` redirects to the legacy PowerShell telemetry
-  script. The new Windows service does not execute this script.
+GitHub network, status, invalid release metadata, and asset-download errors
+return an explicit `502` response. Unsupported assets return `404`.
+`GET /agent/download`, `/agent/macos/download`, `/agent/android/download`,
+`/agent/ios/download`, and `/agent/BatteryAgent.ps1` return `410 Gone` because
+they previously exposed source archives or legacy source code.
 
-Create an `agents-v*` release before deploying an API version that uses these
-redirects; without a published agent release, the GitHub asset URLs are not
-available. No application environment variable is required.
-
-The authenticated **Set up a device** page resolves the current Windows
-`ChargePilotAgent.exe`, Android `app-release.apk`, macOS
-`ChargePilotAgent-<version>.dmg`, and iOS `ChargePilotAgent-<version>.ipa`
-assets from GitHub's public latest-release API and lists only these four
-installable package types. It provides a separate platform installation guide;
-source archives remain available through the public endpoints above but are
-not presented as agent installers. Tagged releases publish these packages
-whether or not signing secrets are configured. Each release includes
+The **Set up a device** page lists the current Windows EXE, Android APK, macOS
+DMG, and iOS IPA from this API. Tagged releases publish those binaries whether
+or not signing secrets are configured. Each release includes
 `agent-release-manifest.json` and notes identifying each platform as signed
 or unsigned. The iOS signed option is ad-hoc provisioned for included devices,
 not an App Store release. Partially configured signing-secret groups or
 signature verification failures stop the release workflow.
 
-- `GET /connectors/download` returns the Python/Docker source ZIP.
-- `GET /connectors/install.sh` returns the Python bootstrap script; it prompts
-  locally for the one-time connector enrollment code.
+`GET /connectors/download` and `GET /connectors/install.sh` return `410 Gone`.
+Connector installation is supported through the published Docker Hub image;
+the API no longer serves connector source code or a Python bootstrap installer.
 
 ## 3. Endpoint reference
 

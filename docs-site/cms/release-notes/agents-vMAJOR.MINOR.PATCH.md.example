@@ -1,0 +1,19 @@
+# ChargePilot release MAJOR.MINOR.PATCH
+
+Summarize the user-visible change and who needs to know about it.
+
+## What changed
+
+- Describe the change in plain language.
+
+## What you need to do
+
+- State the action required, or say that no action is needed.
+
+## Platforms and limitations
+
+- List affected platforms and any validation or background-operation limits.
+
+## Related help
+
+- Link to the relevant ChargePilot guides.

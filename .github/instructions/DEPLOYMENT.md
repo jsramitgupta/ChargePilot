@@ -85,6 +85,7 @@ CHARGEPILOT_TELEMETRY_ENABLED_PLATFORMS=windows,macos,android,ios
 CHARGEPILOT_TELEMETRY_AUTOMATION_ENABLED_PLATFORMS=windows,macos,android,ios
 CHARGEPILOT_API_URL=https://api.example.com
 CHARGEPILOT_FRONTEND_URL=https://app.example.com
+CHARGEPILOT_AGENT_RELEASE_GITHUB_TOKEN=<repository-contents-read-token>
 CHARGEPILOT_TURNSTILE_SITE_KEY=<public-turnstile-site-key>
 CHARGEPILOT_TURNSTILE_SECRET_KEY=<private-turnstile-secret-key>
 CHARGEPILOT_SESSION_COOKIE_SECURE=true
@@ -130,6 +131,13 @@ redirects. Agent setup uses `CHARGEPILOT_API_URL` as the server URL embedded
 in the Windows install command; set it to the public HTTPS API origin when
 agents connect through a TLS-terminating proxy. Session cookies use `Secure` in production; use `SameSite=None`
 when the frontend and API are on different registrable domains.
+
+When this repository is private, configure
+`CHARGEPILOT_AGENT_RELEASE_GITHUB_TOKEN` as a fine-grained token with only
+Contents: read access to `jsramitgupta/ChargePilot`. The API uses it to read
+private release metadata and stream installable binaries through public
+ChargePilot URLs. The token stays server-side and the binaries are intentionally
+public; source archives are not served. Do not use a token with write access.
 
 Public tenant and standard-user signup require Cloudflare Turnstile. Create a
 Turnstile widget for the frontend hostname, configure its site key and secret
@@ -185,8 +193,8 @@ stores and all local data.
 The API image serves FastAPI on container port `8000`; the frontend image
 serves the built React application on `5173`. Compose publishes both ports.
 Configure the reverse proxy to route the frontend hostname to `5173` and JSON
-API calls, authenticated downloads, and public agent/connector source downloads
-to `8000`. React is the only browser UI;
+API calls, authenticated downloads, the public agent installer/binary proxy,
+and connector enrollment APIs to `8000`. React is the only browser UI;
 legacy page GETs redirect to the configured frontend origin. The frontend
 receives only public runtime configuration, including the Turnstile site key;
 keep private Turnstile and other server secrets in the API environment.
@@ -259,6 +267,23 @@ data untouched until the k3s instance has been independently validated.
 4. Keep `main` writable by the workflow bot for that deployment-tag commit.
    The CI workflow ignores commits that only change the generated image tag,
    preventing a publish loop.
+5. Before making the repository private, add a read-only SSH deploy key to the
+   GitHub repository and register its private key with Argo CD. The
+   `deploy/argocd/chargepilot.yaml` Application uses the SSH repository URL.
+   After logging in to Argo CD, register it with
+   `argocd repo add git@github.com:jsramitgupta/ChargePilot.git --ssh-private-key-path <private-key-file>`.
+   Keep the key out of Git and Actions secrets; verify the repository is
+   connected in Argo CD before changing repository visibility.
+6. For public installable agent updates from a private repository, provision a
+   fine-grained GitHub token with only Contents: read access as the
+   `CHARGEPILOT_AGENT_RELEASE_GITHUB_TOKEN` key in a separate Kubernetes Secret
+   named `chargepilot-agent-release` in the `chargepilot` namespace. The API
+   Deployment loads this optional Secret; workers do not. Do not commit or
+   print the token. Refresh the API Deployment after provisioning. The API
+   intentionally makes supported agent binaries public but does not expose
+   release source archives.
+7. GitHub Actions checkouts and tagged release publication continue using the
+   repository-scoped `GITHUB_TOKEN`; they do not need an Actions PAT.
 
 #### Workflow security and build best practices
 
@@ -293,7 +318,8 @@ The GitHub Actions pipeline keeps routine validation separate from publishing:
   commit SHAs, registry credentials stay in Actions secrets, and generated
   manifest-only commits do not start another CI run.
 
-Agent source is not copied into the API image. `build-agent-artifacts.yml`
+Agent source is not copied into the API image except for the small Windows
+bootstrap installer script. `build-agent-artifacts.yml`
 builds only the affected platform on branch and PR changes; shared version or
 workflow changes and manual runs build all platforms. Tagged releases always
 build the complete Windows service executable, APK, IPA, and DMG set. The
@@ -302,16 +328,16 @@ also be cross-published from macOS with the .NET 10 SDK. Android Gradle
 dependencies/build outputs and Windows NuGet packages use runner caches keyed
 by their build definitions. Superseded branch builds are canceled, while
 tagged releases remain non-cancelable. An
-`agents-v*` tag publishes those binaries and platform
-source archives as a GitHub Release. Platform artifacts are signed and
+`agents-v*` tag publishes those binaries and a signing manifest as a GitHub
+Release. Platform artifacts are signed and
 verified when each complete secret group is configured, and are otherwise
 published unsigned; release notes and `agent-release-manifest.json` identify
 the status. Partial secret groups or failed signature checks fail publication.
 The Windows executable installs a background Windows service and provides a
 separate administrator UI and CLI; it does not conceal its source. The public
-`/agent/.../download` API routes redirect to the latest stable release assets.
-No additional GitHub secret or application environment variable is required
-for release creation.
+API streams only allow-listed installable binaries from the latest stable
+release. Private repositories require the read-only API runtime token described
+above; source archives are not included in tagged releases.
 
 Use short-lived branches named `server/<change>`, `agents/<change>`, or
 `connector/<change>` and merge them into protected `main` through pull
@@ -322,9 +348,8 @@ component boundaries by changed files:
   tests, build server images, or trigger a deployment.
 - API/frontend changes run the corresponding CI checks and publish only the
   changed images after merge to `main`.
-- Connector changes validate and publish the connector image; the API image
-  is also rebuilt when connector source changes because the API currently
-  serves the connector source package.
+- Connector changes validate and publish the connector image. Connector
+  source is not bundled or downloaded through the API image.
 
 The image workflow updates immutable image tags in the GitOps manifest, and
 Argo CD reconciles those workload changes. Routine application deployments do
@@ -793,29 +818,12 @@ remove the code from the container; the permanent credential remains in the
 Docker-managed volume. No `connector-data` directory, enrollment-code file, or
 ownership commands are needed.
 
-### Python on Linux or macOS
+### Site connector
 
-Install Python 3.12+, `curl`, and `unzip`. Run this on the switch LAN and
-enter the one-time enrollment code when prompted:
-
-```sh
-curl -fsSL https://api-chargepilot.endusercompute.in/connectors/install.sh | sh
-```
-
-The installer downloads the public source package over HTTPS, creates a
-virtual environment, and saves the connector credential under
-`~/.local/share/chargepilot/site-connector/`. Keep the process running or
-configure your OS service manager to start it at boot. The command executes an
-installer from your ChargePilot server; use it only if you trust that server.
-
-For Windows Python hosts, download and extract the public source package, then
-run these commands from the extracted folder and enter the one-time code when
-prompted:
-
-```powershell
-python -m pip install -r requirements.txt
-python -m connector.chargepilot_connector --server-url "https://api-chargepilot.endusercompute.in"
-```
+Install a site connector using the published Docker Compose image and the
+instructions on the authenticated **Site Connectors** page. The API no longer
+serves the connector source archive or the Python installation script. Use an
+authorized repository checkout for source builds.
 
 ### Windows agent
 
@@ -863,16 +871,16 @@ On **Set up a device**, choose the correct tenant and create a reusable
 enabled platforms until it expires or is revoked. Each admin may have up to
 five active tokens across workspaces; the creator can reveal or hide each
 active token until it expires. Expired and revoked tokens are hidden.
-Download the macOS DMG from the GitHub Release, move the app to Applications,
-and enter the enrollment token in the menu-bar app. The API origin is fixed,
+Download the macOS DMG from ChargePilot **Set up a device**, move the app to
+Applications, and enter the enrollment token in the menu-bar app. The API origin is fixed,
 the Mac computer name is used automatically, and serial numbers are not
 collected. The per-install credential is stored in the user's Keychain. The
 development DMG is unsigned and not notarized; follow the macOS approval
 prompt if needed. The app reports only while running and the Mac is awake.
-The source project is also available from the release for users who prefer to
-build it. Revoke a token to prevent new enrollments and revoke individual
-endpoint credentials from the **Endpoints** page to stop already-enrolled
-devices. New endpoints have automation enabled by default; the worker only
+The source project requires an authorized checkout of the private repository.
+Revoke a token to prevent new enrollments and revoke individual endpoint
+credentials from the **Endpoints** page to stop already-enrolled devices. New
+endpoints have automation enabled by default; the worker only
 acts on fresh samples from an allow-listed platform when an enabled,
 tenant-matching mapping exists.
 

@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/jsramitgupta/ChargePilot.git
+    repoURL: git@github.com:jsramitgupta/ChargePilot.git
     targetRevision: main
     path: deploy/k3s
   destination:

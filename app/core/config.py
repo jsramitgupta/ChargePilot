@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     api_url: str = ""
     frontend_url: str = ""
+    agent_release_github_token: SecretStr = SecretStr("")
     turnstile_site_key: str = ""
     turnstile_secret_key: SecretStr = SecretStr("")
     smtp_host: str = ""

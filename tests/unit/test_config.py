@@ -79,6 +79,13 @@ def test_api_url_must_be_an_origin():
         Settings(_env_file=None, api_url="https://chargepilot.example.com/api/v1")
 
 
+def test_agent_release_github_token_is_secret_configuration():
+    settings = Settings(_env_file=None, agent_release_github_token="read-only-token")
+
+    assert settings.agent_release_github_token.get_secret_value() == "read-only-token"
+    assert Settings(_env_file=None).agent_release_github_token.get_secret_value() == ""
+
+
 def test_frontend_url_rejects_embedded_credentials():
     with pytest.raises(ValidationError, match="HTTP\\(S\\) origin"):
         Settings(

@@ -16,8 +16,8 @@ and label proposals as proposals.
   address, and protocol metadata must come from LAN discovery or explicit
   manual entry.
 - Extend the existing FastAPI/SQLAlchemy backend and React/TypeScript/Tailwind
-  frontend. React is the only browser UI; implement JSON API operations for
-  user-facing workflows.
+  management console. The separate Next.js/Strapi app in `docs-site/` is only
+  for public documentation; implement JSON API operations for product workflows.
 - Preserve ChargePilot's local-first behavior, responsive layout, light/dark
   theme parity, and left-aligned authenticated navigation. Do not introduce
   mock data or dead-end controls.

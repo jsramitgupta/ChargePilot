@@ -93,8 +93,8 @@ def test_device_setup_links_to_published_builds_and_explains_installation():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     packages = app.split('className="agent-package-section"', 1)[1].split("</section>", 1)[0]
 
-    assert "https://github.com/jsramitgupta/ChargePilot/releases/latest" in app
     assert "apiFetch<AgentReleaseAssets>('/api/v1/agent/releases/latest')" in app
+    assert "Not available in this release." in packages
     assert "Retry package lookup" in app
     assert "Install instructions" in app
     assert "Download ${agentPackage.format}" in packages
@@ -103,6 +103,7 @@ def test_device_setup_links_to_published_builds_and_explains_installation():
     assert "endsWith('.ipa')" in app
     assert "endsWith('.apk')" in app
     assert "source.zip" not in packages
+    assert "Review release notes and signing details" not in app
     assert "Install through Apple Configurator or Xcode with a valid provisioning profile" in app
     assert "allow your browser or file manager to install it" in app
     assert "ad-hoc profile" in app
@@ -431,9 +432,7 @@ def test_connector_page_explains_supported_deployments_and_local_network_needs()
     connector_readme = (PROJECT_ROOT / "connector" / "README.md").read_text(encoding="utf-8")
 
     assert "Docker Compose" in connectors_page
-    assert "Python process" in connectors_page
-    assert "Linux or macOS terminal" in connectors_page
-    assert "Linux server, NAS, or Raspberry Pi" in connectors_page
+    assert "always-on Linux computer, NAS, or Raspberry Pi" in connectors_page
     assert "no inbound Internet port is required" in connectors_page
     assert "Add a site connector" in connectors_page
     assert "Create connector and code" in connectors_page
@@ -442,9 +441,8 @@ def test_connector_page_explains_supported_deployments_and_local_network_needs()
     assert "offlineCount" in connectors_page
     assert "PATCH" in connectors_page
     assert "endusercompute/chargepilot-connector:sha-" in connectors_page
-    assert "curl -fsSL" in connectors_page
-    assert "/connectors/install.sh | sh" in connectors_page
-    assert "deploymentMethod === 'python' && <a href={backendUrl('/connectors/download')}" in connectors_page
+    assert "/connectors/install.sh" not in connectors_page
+    assert "/connectors/download" not in connectors_page
     assert "switch LAN" in connectors_page
     assert "Graph" in endpoint_details
     assert "EndpointReadingChart" in endpoint_details

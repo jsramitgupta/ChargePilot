@@ -60,10 +60,13 @@ provides sign-in/registration, dashboard, switches, mappings, endpoints,
 events, connector administration, profile, user/tenant administration, agent
 setup, and super-admin account pages. Authenticated in-app navigation stays
 within React Router, with the dev server serving the SPA for direct page loads.
-FastAPI serves JSON APIs and downloads; agent-source download endpoints redirect
-to assets on the latest stable `agents-v*` GitHub Release, while connector
-source and its bootstrap script remain public API downloads. Setup APIs and
-credential management remain authenticated. The built React app is the only browser UI.
+FastAPI serves JSON APIs and downloads; installable agent binaries are streamed
+from the latest `agents-v*` GitHub Release through public API endpoints. For a
+private repository the API needs a repository-scoped, contents-read GitHub token
+in its runtime Secret. Source archives and the connector Python installer are
+not served; site connectors use the published Docker image. Setup APIs and
+credential management remain authenticated. The built React app remains the
+only browser UI for the ChargePilot management console.
 Legacy page GETs redirect to the matching React route.
 React admin pages use authenticated, tenant-scoped API data and preserve
 server-side authorization and business rules. The UI has responsive
@@ -100,7 +103,7 @@ retains up to 30 days of metric history, exposed with endpoint details. macOS
 CPU telemetry represents whole-host utilization from Mach user/system/idle/nice
 counters, not the ChargePilot process. Agent setup presents only the current
 EXE, DMG, IPA, and APK release assets from the
-authenticated ChargePilot release-metadata API and provides platform
+public ChargePilot release-metadata API and provides platform
 installation guidance from a top-right help action; source archives are not
 presented as installers.
 The configured switch inventory loads independently of live connector status
@@ -142,13 +145,11 @@ charging-completion shutoff threshold. The charging cutoff uses telemetry's
 threshold. Existing mappings can be edited or deleted; clearing a channel
 during an edit restores whole-switch control. Table text, emphasized cells,
 and status badges retain readable contrast in dark mode.
-The Site Connectors page presents a prebuilt Docker Compose deployment for
-Linux hosts and a one-line Python installer for Linux/macOS. Docker Compose
-accepts the one-time enrollment code through
+The Site Connectors page presents the prebuilt Docker Compose deployment for
+Linux hosts. It accepts the one-time enrollment code through
 `CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE` and persists the connector credential
-in a Docker-managed volume without host-directory setup. The Python installer
-prompts for the code and saves its credential locally. The source archive
-remains public for manual installation.
+in a Docker-managed volume without host-directory setup. The API no longer
+serves connector source archives or the Python installer.
 The iOS source project exposes a Shortcuts action for fresh battery reports.
 Users can attach it to battery-level and charger-connected personal
 automations; iOS may defer or skip those actions, so this does not guarantee
@@ -178,6 +179,19 @@ create a command.
 The macOS SwiftUI menu-bar app configures enrollment and reports every five
 minutes while running. Users can pause reporting or opt in to opening the app
 at sign-in; it is not a system daemon and does not report during sleep.
+
+## Documentation site
+
+The separate tenant administrator and user documentation app is implemented
+under `docs-site/`: Next.js renders published guides from Strapi, whose
+PostgreSQL database and workloads are isolated in the `chargepilot-docs`
+namespace. GitHub Actions builds and scans the docs images, and the existing
+main-branch publisher updates immutable GitOps tags. `agents-v*` releases
+require a matching versioned guide in `docs-site/cms/release-notes/`.
+The desired public host is `docs-chargepilot.endusercompute.in`; the docs
+workloads have not been published to the live cluster from this checkout.
+See [DOCS_SITE.md](DOCS_SITE.md) for the architecture, release process, and
+first-deployment prerequisites.
 
 ## Current primary workflows
 1. New Windows and macOS agents exchange a tenant-scoped, reusable 24-hour
@@ -276,8 +290,8 @@ manifests under `deploy/k3s/` configure Istio routes for
 `console-chargepilot.endusercompute.in` and `api-chargepilot.endusercompute.in`;
 runtime frontend and API origins use HTTPS on those hosts. ArgoCD bootstrapping
 is under `deploy/argocd/`.
-The Connectors page uses the immutable published image by default and also
-offers a one-line Python installer.
+The Connectors page uses the immutable published Docker image. The API does
+not distribute connector source archives or a Python installer.
 The checked-in k3s PostgreSQL and Kafka services are single-replica,
 single-node starting components and are not highly available.
 
@@ -318,8 +332,9 @@ documented in [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md)
 
 ## Remaining platform-agent validation
 
-Android and iOS source projects are implemented and available from device
-setup. Android has a debug APK build and emulator smoke test; iOS has an
+Android and iOS source projects are implemented in the private repository.
+Their installable APK and IPA releases are available through ChargePilot
+**Set up a device**. Android has a debug APK build and emulator smoke test; iOS has an
 unsigned device IPA build and simulator smoke test. Physical-device validation
 and actual signed release publication remain follow-up work. Their platform values are
 accepted by the shared enrollment and telemetry APIs by default. Read

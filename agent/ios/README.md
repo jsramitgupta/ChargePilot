@@ -2,13 +2,14 @@
 
 This SwiftUI iPhone/iPad app enrolls with a tenant-scoped, reusable 24-hour
 token and reports battery telemetry while open, when it returns to the
-foreground, or when invoked by a Shortcuts automation. It is source code for
-Xcode. Tagged GitHub Releases publish an IPA plus the source project. When
+foreground, or when invoked by a Shortcuts automation. Tagged GitHub Releases
+publish an installable IPA. When
 Apple signing secrets are configured, it is ad-hoc signed for devices in the
 configured provisioning profile; without them, it is unsigned and requires
 signing before device installation. This is not an App Store release.
 
-Latest IPA and source downloads: [ChargePilot GitHub Releases](https://github.com/jsramitgupta/ChargePilot/releases/latest).
+The latest installable IPA is available from ChargePilot **Set up a device**.
+The source project requires an authorized checkout of the private repository.
 
 ## Requirements
 
@@ -18,8 +19,8 @@ Latest IPA and source downloads: [ChargePilot GitHub Releases](https://github.co
 
 ## Build and enroll
 
-1. Download and extract the iOS agent project from **Set up a device**.
-2. Open `ChargePilotAgent.xcodeproj` in Xcode.
+1. Open `agent/ios/ChargePilotAgent.xcodeproj` from an authorized repository
+   checkout in Xcode.
 3. Select the `ChargePilotAgent` scheme and a signing team, then build and
    install it on an iPhone or iPad.
 4. Paste the 24-hour enrollment token. The API origin is fixed to
