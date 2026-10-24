@@ -127,12 +127,12 @@ jobs:
           - component: docs-web
             changed: ${{ needs.detect.outputs.docs_web == 'true' }}
             image: endusercompute/chargepilot-docs-web
-            dockerfile: ./Dockerfile
+            dockerfile: ./docs-site/web/Dockerfile
             context: ./docs-site/web
           - component: docs-cms
             changed: ${{ needs.detect.outputs.docs_cms == 'true' }}
             image: endusercompute/chargepilot-docs-cms
-            dockerfile: ./Dockerfile
+            dockerfile: ./docs-site/cms/Dockerfile
             context: ./docs-site/cms
     runs-on: ubuntu-24.04
     permissions:
