@@ -53,18 +53,20 @@ until expiry, and allows active tokens to be revoked. Expired and revoked
 tokens are not shown. Windows, macOS, Android, and iOS agents exchange a token
 for a per-install credential and persist it using platform-appropriate
 protected storage. Existing Windows agents using shared tenant tokens remain
-compatible during migration. Windows setup offers the PowerShell install
-bootstrap, which downloads the executable and opens its setup UI, plus a direct
-link to the Windows executable. The UI installs/configures a Windows service,
-and lets users deregister and re-enroll without reinstalling; it does not use
-Task Scheduler. The executable also provides CLI service controls, including
+compatible during migration. The setup page lists only the latest Windows
+`.exe`, macOS `.dmg`, Android `.apk`, and iOS `.ipa` assets, resolving their
+current URLs from the public GitHub latest-release API. Source archives are not
+listed as installable agents. A top-right **Install instructions** action
+explains platform-specific installation and signing limits. The Windows
+executable opens a setup UI that installs/configures a Windows service and
+lets users deregister and re-enroll without reinstalling; it does not use Task
+Scheduler. The executable also provides CLI service controls, including
 deregistration, and prompts for enrollment secrets instead of accepting
 tokens as command-line arguments. The macOS, Android, and iOS agent UIs also
-provide self-service deregistration and re-enrollment. The setup page links to
-the latest GitHub Release for Windows, Android, iOS, and macOS builds, and
-separately offers source projects. A release may contain signed and unsigned
-builds across platforms depending on configured credentials; its release
-notes and `agent-release-manifest.json` state the signing status for each.
+provide self-service deregistration and re-enrollment. A release may contain
+signed and unsigned builds across platforms depending on configured
+credentials; its release notes and `agent-release-manifest.json` state the
+signing status for each.
 Partially configured signing groups or failed signature verification stop the
 release workflow. Signed iOS profiles limit which devices can install the
 ad-hoc IPA. Explain how to install each build. Shipped agent enrollment screens
@@ -78,11 +80,14 @@ should suggest both a battery-level and charger-connected trigger and must not
 promise exact timing. The page shows token expiry and enrollment count without
 exposing token values unless its creator explicitly reveals one. Revoking a
 token prevents new exchanges; admins separately revoke already-issued endpoint
-credentials. The Endpoints page shows platform, enrollment state, and last-seen time to
-the second; it does not include a separate endpoint automation column.
-Selecting **View details** opens a tenant-scoped endpoint panel with identity,
-current online/report state, configured cadence, automation eligibility,
-device mappings, and up to 100 historical battery and system-resource samples.
+credentials. The Endpoints page has fleet counts, online/offline filters,
+platform filtering, search, and 50- or 100-device pages, sorted by last report
+with missing timestamps last. Each inventory row shows platform, enrollment
+state, battery, and last-seen time to the second; it does not include a
+separate endpoint automation column. Selecting a device label opens a
+tenant-scoped right-side detail drawer with identity, current online/report
+state, configured cadence, automation eligibility, device mappings, and up to
+100 historical battery and system-resource samples.
 Show CPU, memory, disk, and GPU values only when supplied; unsupported or
 unavailable values remain explicitly unavailable rather than appearing as
 zero. The Agent setup page lets tenant admins and managers choose a tenant-wide

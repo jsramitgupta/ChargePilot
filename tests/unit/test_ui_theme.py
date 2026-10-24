@@ -91,20 +91,42 @@ def test_mapping_wizard_and_switch_inventory_have_tenant_safe_theme_support():
 
 def test_device_setup_links_to_published_builds_and_explains_installation():
     app = APP_COMPONENT.read_text(encoding="utf-8")
+    packages = app.split('className="agent-package-section"', 1)[1].split("</section>", 1)[0]
 
     assert "https://github.com/jsramitgupta/ChargePilot/releases/latest" in app
-    assert "View latest macOS release assets" in app
-    assert "View latest Android release assets" in app
-    assert "View latest iOS release assets" in app
-    assert "chargepilot-android-agent-source.zip" in app
-    assert "chargepilot-ios-agent-source.zip" in app
-    assert "agent-release-manifest.json" in app
-    assert "otherwise they are unsigned" in app
-    assert "deregister" in app
-    assert "allow your browser or file manager to install this app" in app
-    assert "select your signing team" in app
-    assert "Shortcuts" in app
+    assert "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest" in app
+    assert "Install instructions" in app
+    assert "Download ${agentPackage.format}" in packages
+    assert "name.toLowerCase() === 'chargepilotagent.exe'" in app
+    assert "endsWith('.dmg')" in app
+    assert "endsWith('.ipa')" in app
+    assert "endsWith('.apk')" in app
+    assert "source.zip" not in packages
+    assert "Install through Apple Configurator or Xcode with a valid provisioning profile" in app
+    assert "allow your browser or file manager to install it" in app
+    assert "ad-hoc profile" in app
+    assert "Battery Level automation" in app
+    assert "Charger Connected automation" in app
+    assert "15-minute minimum" in app
+    assert "best-effort" in app
     assert "Set up a laptop" not in app
+
+
+def test_endpoints_inventory_opens_accessible_device_detail_drawer():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    dark = DARK_THEME.read_text(encoding="utf-8")
+
+    assert 'className="endpoint-device-link"' in app
+    assert "setSelectedEndpointId(endpoint.id)" in app
+    assert 'role="dialog" aria-modal="true" aria-labelledby="endpoint-details-title"' in app
+    assert "event.key === 'Escape'" in app
+    assert "onKeyDown={trapDialogFocus}" in app
+    assert "endpoint-overview-strip" in light
+    assert "endpoint-detail-backdrop" in light
+    assert "agent-package-grid" in light
+    assert "body.theme-dark .endpoint-detail-drawer" in dark
+    assert "body.theme-dark .agent-package-format" in dark
 
 
 def test_overview_and_endpoints_pair_platform_marks_with_device_identity():
@@ -112,12 +134,12 @@ def test_overview_and_endpoints_pair_platform_marks_with_device_identity():
     light = LIGHT_THEME.read_text(encoding="utf-8")
     dark = DARK_THEME.read_text(encoding="utf-8")
 
-    assert app.count("<EndpointIdentity endpoint={endpoint} />") == 2
+    assert app.count("<EndpointIdentity endpoint={endpoint} />") == 1
     assert "platform === 'windows'" in app
     assert "platform === 'android'" in app
     assert "platform === 'macos'" in app
     assert "platform === 'ios'" in app
-    assert "endpoint.device_class" not in app
+    assert "endpoint.device_class ?" in app
     assert 'endpoint-identity-platform">{PLATFORM_NAMES[endpoint.platform]}' in app
     assert ".endpoint-identity {" in light
     assert ".platform-mark-windows {" in light
@@ -225,14 +247,14 @@ def test_endpoints_page_has_recent_first_pagination_search_and_refresh():
     assert "sortEndpointsByLastSeen(data)" in endpoints
     assert "refetchInterval: ENDPOINTS_REFRESH_INTERVAL" in endpoints
     assert 'id="endpoint-search"' in endpoints
-    assert "<option value={50}>50 devices</option>" in endpoints
-    assert "<option value={100}>100 devices</option>" in endpoints
+    assert "<option value={50}>50 per page</option>" in endpoints
+    assert "<option value={100}>100 per page</option>" in endpoints
     assert "aria-label=\"Endpoint pages\"" in endpoints
     assert "aria-sort=\"descending\"" in endpoints
     assert "<th>Automation</th>" not in endpoints
     assert "automationMutation" not in endpoints
     assert "formatTimestampWithSeconds(endpoint.last_seen_at)" in endpoints
-    assert "colSpan={9}" in endpoints
+    assert "colSpan={7}" in endpoints
     assert "<RelativeTimestamp value={endpoint.last_seen_at} now={now} />" in dashboard
     assert "Intl.RelativeTimeFormat" in app
     assert "timeStyle: 'medium'" in app

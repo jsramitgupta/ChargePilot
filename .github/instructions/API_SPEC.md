@@ -235,11 +235,14 @@ Create an `agents-v*` release before deploying an API version that uses these
 redirects; without a published agent release, the GitHub asset URLs are not
 available. No application environment variable is required.
 
-The authenticated **Set up a device** page links to the latest GitHub Release
-for agent builds and platform source archives. Tagged releases publish
-Windows `ChargePilotAgent.exe`, Android `app-release.apk`, macOS
-`ChargePilotAgent-<version>.dmg`, and iOS `ChargePilotAgent-<version>.ipa` whether or
-not signing secrets are configured. Each release includes
+The authenticated **Set up a device** page resolves the current Windows
+`ChargePilotAgent.exe`, Android `app-release.apk`, macOS
+`ChargePilotAgent-<version>.dmg`, and iOS `ChargePilotAgent-<version>.ipa`
+assets from GitHub's public latest-release API and lists only these four
+installable package types. It provides a separate platform installation guide;
+source archives remain available through the public endpoints above but are
+not presented as agent installers. Tagged releases publish these packages
+whether or not signing secrets are configured. Each release includes
 `agent-release-manifest.json` and notes identifying each platform as signed
 or unsigned. The iOS signed option is ad-hoc provisioned for included devices,
 not an App Store release. Partially configured signing-secret groups or

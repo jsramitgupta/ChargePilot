@@ -70,9 +70,11 @@ behavior changes so future agents can follow the established design.
 The Overview refreshes fleet data every 30 seconds while the page is visible,
 shows endpoint and switch counts in a responsive summary grid, and lists the
 ten most recently seen endpoints first. The Endpoints page refreshes on the
-same cadence, supports search and 50- or 100-endpoint pages, and sorts by last
-report with missing timestamps last. Both views expose the last successful
-refresh and a manual refresh action. Agent enrollment defaults the label from
+same cadence, shows fleet health counts, supports search, online/offline and
+platform filters, and 50- or 100-endpoint pages. It sorts by last report with
+missing timestamps last; selecting a device label opens its tenant-scoped
+detail drawer. Both views expose the last successful refresh and a manual
+refresh action. Agent enrollment defaults the label from
 the non-serial computer/model name; mobile agents use a generic model name
 rather than a personal device name. Tenant admins, managers, and Super Admins
 can edit the separate endpoint display label on the Endpoints page. The
@@ -89,7 +91,10 @@ Android persists the target but WorkManager enforces a 15-minute minimum, and
 iOS shows the target without guaranteeing background execution. Telemetry
 optionally includes CPU/GPU utilization, used/total memory, and per-volume
 disk usage. Unsupported measurements remain unavailable, not zero. The API
-retains up to 30 days of metric history, exposed with endpoint details.
+retains up to 30 days of metric history, exposed with endpoint details. Agent
+setup presents only the current EXE, DMG, IPA, and APK release assets and
+provides platform installation guidance from a top-right help action; source
+archives are not presented as installers.
 The configured switch inventory loads independently of live connector status
 refreshes, so a failed device read does not block switch management.
 Switch onboarding separates device identity, local access, and command routing.

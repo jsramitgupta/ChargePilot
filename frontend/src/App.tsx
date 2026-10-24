@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDashed,
+  CircleHelp,
   Cpu,
   List,
   KeyRound,
@@ -33,7 +34,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
@@ -69,7 +70,7 @@ const queryClient = new QueryClient({
 })
 
 const AGENT_RELEASE_URL = 'https://github.com/jsramitgupta/ChargePilot/releases/latest'
-const AGENT_RELEASE_DOWNLOAD_URL = `${AGENT_RELEASE_URL}/download`
+const AGENT_RELEASE_API_URL = 'https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest'
 
 type User = {
   id: string
@@ -154,6 +155,7 @@ type EndpointDetails = {
 }
 
 type EndpointPageSize = 50 | 100
+type EndpointStatusFilter = 'all' | 'online' | 'offline'
 
 type TenantReportingSettings = {
   tenant_id: string
@@ -279,11 +281,6 @@ type AccountInvitationInfo = {
   used_at?: string | null
   revoked_at?: string | null
   is_active: boolean
-}
-
-type AgentSetup = {
-  install_command: string
-  is_super_admin: boolean
 }
 
 type EndpointEnrollment = {
@@ -2507,10 +2504,13 @@ function EndpointsPage() {
   const { data: user } = useSession()
   const [endpointSearch, setEndpointSearch] = useState('')
   const [pageSize, setPageSize] = useState<EndpointPageSize>(50)
+  const [statusFilter, setStatusFilter] = useState<EndpointStatusFilter>('all')
+  const [platformFilter, setPlatformFilter] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [assignedTenantId, setAssignedTenantId] = useState('')
   const [editingEndpointId, setEditingEndpointId] = useState<string | null>(null)
   const [selectedEndpointId, setSelectedEndpointId] = useState<string | null>(null)
+  const endpointDetailTriggerRef = useRef<HTMLAnchorElement | null>(null)
   const [labelDraft, setLabelDraft] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
   const canManageEndpoints = user?.role === 'super_admin' || user?.is_admin || user?.role === 'manager'
@@ -2583,6 +2583,8 @@ function EndpointsPage() {
 
   const searchTerm = endpointSearch.trim().toLocaleLowerCase()
   const filteredEndpoints = sortEndpointsByLastSeen(data).filter((endpoint) => {
+    if (statusFilter !== 'all' && endpoint.status !== statusFilter) return false
+    if (platformFilter !== 'all' && endpoint.platform !== platformFilter) return false
     if (!searchTerm) return true
     const searchable = [
       endpoint.display_name ?? '',
@@ -2599,35 +2601,37 @@ function EndpointsPage() {
   const firstRow = filteredEndpoints.length ? (visiblePage - 1) * pageSize + 1 : 0
   const lastRow = Math.min(visiblePage * pageSize, filteredEndpoints.length)
   const visibleEndpoints = filteredEndpoints.slice(firstRow - 1, lastRow)
+  const onlineCount = data.filter((endpoint) => endpoint.status === 'online').length
+  const offlineCount = data.length - onlineCount
+  const mappedEndpointCount = data.filter((endpoint) => Boolean(endpoint.mapped_device)).length
 
   return (
-    <div className="space-y-6">
+    <div className="endpoint-management-page">
       <div className="page-header endpoint-page-header">
         <div>
-          <p className="eyebrow">Fleet</p>
           <h1>Endpoints</h1>
-          <p className="page-description">Review device identity and recent battery reports.</p>
+          <p className="page-description">Manage enrolled devices, check health, and review recent reports.</p>
         </div>
+        <LiveRefreshControl updatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => { void refetch() }} />
       </div>
+      <section className="endpoint-overview-strip" aria-label="Endpoint fleet summary">
+        <div><span>All devices</span><strong>{data.length}</strong></div>
+        <div><span>Online</span><strong className="endpoint-count-online">{onlineCount}</strong></div>
+        <div><span>Offline</span><strong className="endpoint-count-offline">{offlineCount}</strong></div>
+        <div><span>Mapped to switches</span><strong>{mappedEndpointCount}</strong></div>
+      </section>
       {statusMessage && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">{statusMessage}{assignedTenantId && <> <NavLink to={`/agent?tenant_id=${assignedTenantId}`} className="font-semibold underline">Open tenant agent setup</NavLink></>}</p>}
       {assignTenantMutation.error && <ErrorCard message={assignTenantMutation.error.message} />}
       {renameMutation.error && <ErrorCard message={renameMutation.error.message} />}
       {deleteMutation.isError && <ErrorCard message={deleteMutation.error.message} />}
       {revokeCredentialMutation.error && <ErrorCard message={revokeCredentialMutation.error.message} />}
       {error && <ErrorCard message={`Could not refresh endpoints: ${error.message}. Showing the last successful data.`} />}
-      {selectedEndpointId && <EndpointDetailsPanel
-        details={endpointDetailsQuery.data}
-        isLoading={endpointDetailsQuery.isLoading}
-        error={endpointDetailsQuery.error}
-        onClose={() => setSelectedEndpointId(null)}
-      />}
-      <section className="panel table-panel">
+      <section className="panel table-panel endpoint-inventory">
         <div className="panel-header endpoint-panel-header">
           <div className="endpoint-panel-title">
-            <h3>Tracked endpoints</h3>
-            <p>Sorted by most recent report. Refreshes every 30 seconds.</p>
+            <h3>Device inventory</h3>
+            <p>{filteredEndpoints.length} {filteredEndpoints.length === 1 ? 'device' : 'devices'} shown · sorted by most recent report</p>
           </div>
-          <LiveRefreshControl updatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => { void refetch() }} />
         </div>
         <div className="endpoint-list-toolbar">
           <label className="switch-search endpoint-search" htmlFor="endpoint-search">
@@ -2637,42 +2641,70 @@ function EndpointsPage() {
               setCurrentPage(1)
             }} placeholder="Search devices, platform, tenant, IP" />
           </label>
-          <label className="endpoint-page-size">
-            <span>Rows per page</span>
+          <label className="endpoint-filter-select">
+            <span className="sr-only">Filter by platform</span>
             <select value={pageSize} onChange={(event) => {
               setPageSize(event.target.value === '100' ? 100 : 50)
               setCurrentPage(1)
             }}>
-              <option value={50}>50 devices</option>
-              <option value={100}>100 devices</option>
+              <option value={50}>50 per page</option>
+              <option value={100}>100 per page</option>
+            </select>
+          </label>
+          <label className="endpoint-filter-select">
+            <span className="sr-only">Platform</span>
+            <select value={platformFilter} onChange={(event) => { setPlatformFilter(event.target.value); setCurrentPage(1) }}>
+              <option value="all">All platforms</option>
+              {Object.entries(PLATFORM_NAMES).map(([platform, label]) => <option key={platform} value={platform}>{label}</option>)}
             </select>
           </label>
         </div>
+        <div className="endpoint-status-tabs" role="group" aria-label="Filter by device status">
+          {([
+            ['all', 'All devices', data.length],
+            ['online', 'Online', onlineCount],
+            ['offline', 'Offline', offlineCount],
+          ] as const).map(([filter, label, count]) => <button
+            type="button"
+            key={filter}
+            className={statusFilter === filter ? 'is-active' : ''}
+            aria-pressed={statusFilter === filter}
+            onClick={() => { setStatusFilter(filter); setCurrentPage(1) }}
+          >{label}<span>{count}</span></button>)}
+        </div>
         <div className="table-wrap">
-          <table>
-            <thead><tr><th>Device</th><th>Tenant</th><th>Identity</th><th>IP</th><th>Battery</th><th>Power</th><th aria-sort="descending">Last seen</th><th>Status</th><th className="align-right">Actions</th></tr></thead>
+          <table className="endpoint-inventory-table">
+            <thead><tr><th>Device</th><th>Workspace</th><th>Enrollment</th><th>Battery</th><th aria-sort="descending">Last report</th><th>Status</th><th className="align-right">Actions</th></tr></thead>
             <tbody>
               {visibleEndpoints.map((endpoint) => <tr key={endpoint.id}>
-                <td>
-                  <div className="flex min-w-44 flex-col items-start gap-2">
-                    <EndpointIdentity endpoint={endpoint} />
-                    <button
-                      type="button"
-                      className="secondary-btn px-3 py-1.5"
-                      aria-expanded={selectedEndpointId === endpoint.id}
-                      onClick={() => setSelectedEndpointId(endpoint.id)}
-                    >
-                      {selectedEndpointId === endpoint.id ? 'Refresh details' : 'View details'}
-                    </button>
+                <td className="endpoint-device-cell">
+                  <div className="endpoint-device-row">
+                    <PlatformMark platform={endpoint.platform} />
+                    <div className="endpoint-device-copy">
+                      <a
+                        href="#endpoint-details"
+                        className="endpoint-device-link"
+                        aria-haspopup="dialog"
+                        aria-expanded={selectedEndpointId === endpoint.id}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          endpointDetailTriggerRef.current = event.currentTarget
+                          setSelectedEndpointId(endpoint.id)
+                        }}
+                      >{endpoint.display_name || endpoint.hostname}</a>
+                      <span>{PLATFORM_NAMES[endpoint.platform]}{endpoint.device_class ? ` · ${endpoint.device_class}` : ''} · {endpoint.hostname}</span>
+                    </div>
+                  </div>
+                  <div className="endpoint-label-actions">
                     {canManageEndpoints && editingEndpointId === endpoint.id ? (
-                      <form className="flex w-full flex-wrap items-center gap-2" onSubmit={(event) => {
+                      <form className="endpoint-label-form" onSubmit={(event) => {
                         event.preventDefault()
                         renameMutation.mutate({ endpointId: endpoint.id, label: labelDraft })
                       }}>
                         <input
                           autoFocus
                           aria-label={`New label for ${endpoint.display_name || endpoint.hostname}`}
-                          className="field min-w-32 flex-1 py-2"
+                          className="field min-w-32 py-2"
                           maxLength={160}
                           required
                           value={labelDraft}
@@ -2682,7 +2714,7 @@ function EndpointsPage() {
                         <button type="button" className="secondary-btn px-3 py-2" disabled={renameMutation.isPending} onClick={() => setEditingEndpointId(null)}>Cancel</button>
                       </form>
                     ) : canManageEndpoints ? (
-                      <button type="button" className="secondary-btn px-3 py-1.5" onClick={() => {
+                      <button type="button" className="endpoint-row-action" onClick={() => {
                         setEditingEndpointId(endpoint.id)
                         setLabelDraft(endpoint.display_name || endpoint.hostname)
                         renameMutation.reset()
@@ -2690,7 +2722,7 @@ function EndpointsPage() {
                     ) : null}
                   </div>
                 </td>
-                <td>{endpoint.tenant_id ? endpoint.tenant_name ?? 'Unknown tenant' : user?.role === 'super_admin' ? <div className="flex min-w-56 flex-col gap-2"><span className="badge muted w-fit">Unassigned</span><form className="flex items-center gap-2" onSubmit={(event) => {
+                <td>{endpoint.tenant_id ? endpoint.tenant_name ?? 'Unknown workspace' : user?.role === 'super_admin' ? <div className="flex min-w-56 flex-col gap-2"><span className="badge muted w-fit">Unassigned</span><form className="flex items-center gap-2" onSubmit={(event) => {
                   event.preventDefault()
                   const tenantId = String(new FormData(event.currentTarget).get('tenant_id') ?? '')
                   if (tenantId) assignTenantMutation.mutate({ endpointId: endpoint.id, tenantId })
@@ -2698,22 +2730,20 @@ function EndpointsPage() {
                   <select name="tenant_id" aria-label={`Tenant for ${endpoint.hostname}`} required className="field min-w-32 py-2"><option value="">Unassigned</option>{(tenantsQuery.data ?? []).map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select>
                   <button type="submit" className="btn-secondary px-3 py-2" disabled={assignTenantMutation.isPending}>Assign</button>
                 </form></div> : 'Unassigned'}</td>
-                <td className="font-mono text-xs" title={endpoint.hardware_uuid || endpoint.installation_id || undefined}>{endpoint.hardware_uuid || endpoint.installation_id || 'Pending agent update'}</td>
-                <td>{endpoint.ip_address || 'unknown'}</td>
-                <td>{endpoint.battery}%</td>
-                <td><span className={`badge ${endpoint.charging || endpoint.ac_connected ? 'success' : 'muted'}`}>{endpoint.charging ? 'Charging' : endpoint.ac_connected ? 'On AC' : 'On battery'}</span></td>
-                <td><time dateTime={endpoint.last_seen_at ?? undefined}>{formatTimestampWithSeconds(endpoint.last_seen_at)}</time></td>
+                <td><span className={`endpoint-enrollment ${endpoint.credential_enrolled ? 'is-enrolled' : 'is-legacy'}`}><span />{endpoint.credential_enrolled ? 'Managed' : 'Legacy token'}</span></td>
+                <td><div className="endpoint-battery-cell"><BatteryCharging size={16} aria-hidden="true" /><strong>{endpoint.battery}%</strong><span>{endpoint.charging ? 'Charging' : endpoint.ac_connected ? 'On AC' : 'On battery'}</span></div></td>
+                <td className="endpoint-last-seen"><time dateTime={endpoint.last_seen_at ?? undefined}>{formatTimestamp(endpoint.last_seen_at)}</time><small>{formatTimestampWithSeconds(endpoint.last_seen_at)}</small></td>
                 <td><span className={`badge ${endpoint.status === 'online' ? 'success' : 'muted'}`}>{endpoint.status}</span></td>
-                <td className="align-right"><div className="flex flex-col items-end gap-2">
-                  {endpoint.credential_enrolled && <button type="button" className="danger-btn small-btn" disabled={revokeCredentialMutation.isPending} onClick={() => {
+                <td className="align-right"><div className="endpoint-row-actions">
+                  {endpoint.credential_enrolled && <button type="button" className="endpoint-row-action is-danger" disabled={revokeCredentialMutation.isPending} onClick={() => {
                     if (window.confirm(`Revoke the installation credential for ${endpoint.display_name || endpoint.hostname}? Its agent will stop reporting.`)) revokeCredentialMutation.mutate(endpoint.id)
-                  }}>Revoke agent</button>}
-                  <button type="button" className="danger-btn small-btn" disabled={deleteMutation.isPending} onClick={() => {
+                  }}>Revoke</button>}
+                  <button type="button" className="endpoint-row-action is-danger" disabled={deleteMutation.isPending} onClick={() => {
                     if (window.confirm(`Delete endpoint ${endpoint.display_name || endpoint.hostname}? Its mappings and event history will also be removed.`)) deleteMutation.mutate(endpoint.id)
-                  }}>Delete endpoint</button>
+                  }}>Remove</button>
                 </div></td>
               </tr>)}
-              {!filteredEndpoints.length && <tr><td colSpan={9} className="empty-state">{data.length ? 'No endpoints match this search.' : 'No endpoints have reported telemetry yet.'}</td></tr>}
+              {!filteredEndpoints.length && <tr><td colSpan={7} className="empty-state">{data.length ? 'No devices match these filters. Clear a filter or try another search.' : 'No endpoints have reported telemetry yet. Enroll a device to see it here.'}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -2726,8 +2756,37 @@ function EndpointsPage() {
           </nav>
         </div>
       </section>
+      {selectedEndpointId && <EndpointDetailsPanel
+        details={endpointDetailsQuery.data}
+        isLoading={endpointDetailsQuery.isLoading}
+        error={endpointDetailsQuery.error}
+        onClose={() => {
+          setSelectedEndpointId(null)
+          window.requestAnimationFrame(() => endpointDetailTriggerRef.current?.focus())
+        }}
+      />}
     </div>
   )
+}
+
+function trapDialogFocus(event: ReactKeyboardEvent<HTMLElement>) {
+  if (event.key !== 'Tab') return
+  const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )).filter((element) => element.getAttribute('aria-hidden') !== 'true')
+  if (!focusable.length) {
+    event.preventDefault()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && (document.activeElement === first || !event.currentTarget.contains(document.activeElement))) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (document.activeElement === last || !event.currentTarget.contains(document.activeElement))) {
+    event.preventDefault()
+    first.focus()
+  }
 }
 
 function EndpointDetailsPanel({
@@ -2741,11 +2800,15 @@ function EndpointDetailsPanel({
   error: Error | null
   onClose: () => void
 }) {
-  if (isLoading) return <LoadingCard />
-  if (error) return <ErrorCard message={`Could not load device details: ${error.message}`} />
-  if (!details) return <ErrorCard message="The device detail request returned no data." />
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
 
-  const latestReading = details.readings.at(-1)
+  const latestReading = details?.readings.at(-1)
   const metrics = latestReading?.system_metrics
   const memoryPercent = metrics?.memory_used_bytes !== null && metrics?.memory_used_bytes !== undefined &&
     metrics.memory_total_bytes !== null && metrics.memory_total_bytes !== undefined && metrics.memory_total_bytes > 0
@@ -2753,14 +2816,25 @@ function EndpointDetailsPanel({
     : null
 
   return (
-    <section className="panel space-y-6 p-5 sm:p-6" aria-labelledby="endpoint-details-title">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="page-context">Device profile</p>
-          <h2 id="endpoint-details-title" className="text-xl font-bold text-[var(--ink)]">{details.display_name}</h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">{details.hostname} · {PLATFORM_NAMES[details.platform]}{details.device_class ? ` · ${details.device_class}` : ''}</p>
+    <div className="endpoint-detail-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <aside className="endpoint-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="endpoint-details-title" tabIndex={-1} onKeyDown={trapDialogFocus}>
+        <div className="endpoint-detail-heading">
+          <div>
+            <p className="page-context">Device profile</p>
+            <h2 id="endpoint-details-title">{details?.display_name ?? 'Device details'}</h2>
+            {details && <p>{details.hostname} · {PLATFORM_NAMES[details.platform]}{details.device_class ? ` · ${details.device_class}` : ''}</p>}
+          </div>
+          <button type="button" className="secondary-btn" autoFocus onClick={onClose}><X size={16} aria-hidden="true" />Close</button>
         </div>
-        <button type="button" className="secondary-btn" onClick={onClose}><X size={16} aria-hidden="true" />Close details</button>
+        <div className="endpoint-detail-content">
+      {isLoading ? <LoadingCard />
+        : error ? <ErrorCard message={`Could not load device details: ${error.message}`} />
+          : !details ? <ErrorCard message="The device detail request returned no data." />
+            : <>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <p className="text-sm text-[var(--muted)]">Latest device state and reporting history</p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -2841,7 +2915,10 @@ function EndpointDetailsPanel({
           </table>
         </div> : <p className="rounded-lg border border-dashed border-[var(--line)] p-4 text-sm text-[var(--muted)]">No report history is available yet. Updated agents include CPU, memory, and storage details with each report.</p>}
       </section>
-    </section>
+      </>}
+        </div>
+    </aside>
+    </div>
   )
 }
 
@@ -3477,6 +3554,8 @@ function TenantsPage() {
 function AgentSetupPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
+  const [installGuideOpen, setInstallGuideOpen] = useState(false)
+  const installGuideTriggerRef = useRef<HTMLButtonElement | null>(null)
   const tenantId = searchParams.get('tenant_id') ?? ''
   const { data: user } = useSession()
   const isSuperAdmin = user?.role === 'super_admin'
@@ -3486,9 +3565,30 @@ function AgentSetupPage() {
     queryFn: () => apiFetch<TenantInfo[]>('/api/v1/admin/tenants'),
     enabled: isSuperAdmin,
   })
-  const setupQuery = useQuery({
-    queryKey: ['agent-setup', tenantId],
-    queryFn: () => apiFetch<AgentSetup>(`/api/v1/agent/setup${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''}`),
+  const releaseAssetsQuery = useQuery({
+    queryKey: ['latest-agent-release-assets'],
+    queryFn: async () => {
+      const response = await fetch(AGENT_RELEASE_API_URL, {
+        headers: { Accept: 'application/vnd.github+json' },
+      })
+      if (!response.ok) throw new Error(`Could not load the latest agent release (GitHub returned ${response.status}).`)
+      const payload: unknown = await response.json()
+      if (typeof payload !== 'object' || payload === null) throw new Error('GitHub returned an invalid agent release.')
+      const release = payload as { tag_name?: unknown; assets?: unknown }
+      if (typeof release.tag_name !== 'string' || !Array.isArray(release.assets)) {
+        throw new Error('GitHub returned an incomplete agent release.')
+      }
+      const assets = release.assets.flatMap((asset) => {
+        if (typeof asset !== 'object' || asset === null || !('name' in asset) || !('browser_download_url' in asset)) return []
+        const { name, browser_download_url } = asset
+        if (typeof name !== 'string' || typeof browser_download_url !== 'string') return []
+        const url = new URL(browser_download_url)
+        if (url.protocol !== 'https:' || url.hostname !== 'github.com') return []
+        return [{ name, url: url.toString() }]
+      })
+      return { tag: release.tag_name, assets }
+    },
+    staleTime: 60 * 60 * 1000,
   })
   const reportingSettingsQuery = useQuery({
     queryKey: ['tenant-reporting-settings', isSuperAdmin ? tenantId : user?.tenant_id],
@@ -3563,9 +3663,6 @@ function AgentSetupPage() {
       void queryClient.invalidateQueries({ queryKey: ['endpoint-enrollments'] })
     },
   })
-  const data = setupQuery.data
-  if (setupQuery.isLoading) return <LoadingCard />
-  if (setupQuery.error) return <ErrorCard message={setupQuery.error.message} />
   const activeEnrollments = (tokenQuery.data ?? []).filter((token) => Date.parse(token.expires_at) > clockNow)
   const tokenLimitReached = activeEnrollments.length >= 5
   const revealedEnrollmentIsListed = activeEnrollments.some((token) => token.id === revealedEnrollment?.id)
@@ -3577,8 +3674,26 @@ function AgentSetupPage() {
       setCopyStatus('Copy was blocked. Select the text and copy it manually.')
     }
   }
+  const agentPackages = [
+    { platform: 'Windows', format: '.EXE', description: 'Windows service and enrollment window', matches: (name: string) => name.toLowerCase() === 'chargepilotagent.exe' },
+    { platform: 'macOS', format: '.DMG', description: 'Menu-bar app for macOS', matches: (name: string) => name.toLowerCase().endsWith('.dmg') },
+    { platform: 'iPhone and iPad', format: '.IPA', description: 'iOS app package for provisioned devices', matches: (name: string) => name.toLowerCase().endsWith('.ipa') },
+    { platform: 'Android', format: '.APK', description: 'Android app package', matches: (name: string) => name.toLowerCase().endsWith('.apk') },
+  ]
   return <div className="space-y-6">
-    <PageHeader eyebrow="Endpoint setup" title="Enroll a device" description="Create one private token for your workspace, then use it to enroll devices across supported platforms." />
+    <header className="setup-page-header">
+      <div>
+        <p className="page-context">Endpoint setup</p>
+        <h1>Enroll a device</h1>
+        <p>Create one private token for your workspace, then use it to enroll devices across supported platforms.</p>
+      </div>
+      <button type="button" className="secondary-btn" onClick={(event) => {
+        installGuideTriggerRef.current = event.currentTarget
+        setInstallGuideOpen(true)
+      }}>
+        <CircleHelp size={16} aria-hidden="true" />Install instructions
+      </button>
+    </header>
     {isSuperAdmin && <section className="panel max-w-3xl p-5 sm:p-6">
       <h2 className="text-lg font-bold text-slate-900">Choose a workspace</h2>
       <p className="mt-1 text-sm text-slate-600">Every device enrolled with this token will belong to the selected workspace.</p>
@@ -3711,68 +3826,40 @@ function AgentSetupPage() {
         </ul> : <p className="mt-2 text-sm text-[var(--muted)]">No active tokens. Expired and revoked tokens are hidden.</p>}
       </div>}
     </section>}
-    <section className="max-w-3xl space-y-4">
-      <div className="panel p-5 sm:p-6">
-        <h2 className="text-lg font-bold text-slate-900">Windows</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">On the Windows device, run this command in PowerShell. It downloads the agent and opens its setup window; approve the Windows prompt to install the background service.</p>
-        <code className="mt-4 block break-all rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">{data?.install_command}</code>
-        <button type="button" className="btn-secondary mt-3" onClick={() => void copyText(data?.install_command ?? '', 'Windows install command copied.')}>Copy install command</button>
-        <p className="mt-2 min-h-5 text-xs text-[var(--muted)]" role="status">{copyStatus}</p>
-        <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
-          <li>Choose a current enrollment token above. The command does not contain the token.</li>
-          <li>Run the command on Windows and approve the administrator prompt.</li>
-          <li>The API server is fixed to <code>https://api-chargepilot.endusercompute.in</code>. The PC name is used automatically; serial numbers are not collected. Paste the token, choose a device type and reporting interval, then select <strong>Save and start service</strong>.</li>
-        </ol>
-        <a className="btn-secondary mt-2 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/ChargePilotAgent.exe`}>Download Windows executable</a>
-        <p className="mt-3 text-xs text-amber-800">Windows release signing is optional until the Authenticode secrets are configured. Check the latest release notes and signing manifest before installation. The service reports without a signed-in user; use the setup window or CLI to configure, deregister, and re-enroll without reinstalling.</p>
-        <a className="btn-secondary mt-2 inline-flex" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-windows-agent-source.zip`}>Download Windows scripts from GitHub</a>
-        <details className="mt-4 rounded-lg border border-[var(--line)] p-3">
-          <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">Command-line controls</summary>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Open an elevated PowerShell window in the folder containing the executable. Install or update configuration with a hidden enrollment-token prompt:</p>
-          <code className="mt-2 block break-all rounded-lg bg-[var(--surface-muted)] p-3 font-mono text-xs text-[var(--ink)]">.\ChargePilotAgent.exe install --class laptop --interval-minutes 5</code>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Use <code>status</code>, <code>start</code>, <code>stop</code>, <code>deregister</code>, <code>send-once</code>, or <code>uninstall</code> to manage the service. Never put an enrollment token in command-line arguments.</p>
-        </details>
-        <p className="mt-3 text-xs text-amber-800">The setup command downloads the installer over HTTPS and opens the setup window. Run it only if you trust this ChargePilot server.</p>
+    <section className="agent-package-section" aria-labelledby="agent-package-title">
+      <div className="agent-package-heading">
+        <div>
+          <h2 id="agent-package-title">Install a ChargePilot agent</h2>
+          <p>Choose the installer for the device you want to enroll.</p>
+        </div>
+        {releaseAssetsQuery.data && <a href={AGENT_RELEASE_URL} target="_blank" rel="noreferrer">Release {releaseAssetsQuery.data.tag}</a>}
       </div>
-      <div className="panel p-5 sm:p-6">
-        <h2 className="text-lg font-bold text-slate-900">macOS</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">Install the menu-bar app from the DMG. It stores its per-device credential in macOS Keychain and reports every five minutes while the app is running and the Mac is awake. Deregister and reconnect from the app without reinstalling.</p>
-        <a className="btn-secondary mt-3 inline-flex" href={AGENT_RELEASE_URL}>View latest macOS release assets</a>
-        <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
-          <li>Open the downloaded DMG and drag ChargePilotAgent to Applications.</li>
-          <li>The app uses <code>https://api-chargepilot.endusercompute.in</code> and this Mac’s computer name automatically. Paste the enrollment token, then select <strong>Connect this Mac</strong>.</li>
-        </ol>
-        <p className="mt-2 text-sm text-amber-800">Tagged macOS builds are signed and notarized when those secrets are configured; otherwise they are unsigned. Check the release notes before opening the app.</p>
-        <a className="mt-3 inline-flex text-sm font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-macos-agent-source.zip`}>Download macOS source project</a>
-      </div>
-      <div className="panel p-5 sm:p-6">
-        <h2 className="text-lg font-bold text-slate-900">Android</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">Install the release APK on an Android 8 or later device. The app protects its per-device credential with Android Keystore and sends fresh readings on an inexact schedule. Deregister and reconnect in the app without reinstalling.</p>
-        <a className="btn-secondary mt-3 inline-flex" href={AGENT_RELEASE_URL}>View latest Android release assets</a>
-        <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
-          <li>Download the APK on the Android device and open it. If prompted, allow your browser or file manager to install this app.</li>
-          <li>The app uses <code>https://api-chargepilot.endusercompute.in</code> and its non-unique model name automatically. Paste the enrollment token.</li>
-        </ol>
-        <p className="mt-2 text-sm text-[var(--muted)]">Tagged Android APKs are signed when the release key is configured; otherwise they are unsigned and Android may refuse installation. This is not a Play Store release. Android may delay background reports; use <strong>Send reading now</strong> to test a report. <a className="font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-android-agent-source.zip`}>Download Android source</a>.</p>
-      </div>
-      <div className="panel p-5 sm:p-6">
-        <h2 className="text-lg font-bold text-slate-900">iPhone and iPad</h2>
-        <p className="mt-1 text-sm leading-6 text-slate-600">Tagged releases include an IPA. It is ad-hoc signed for provisioned devices only when Apple signing secrets are configured; otherwise it is unsigned and requires signing before installation. It is not an App Store release.</p>
-        <a className="btn-secondary mt-3 inline-flex" href={AGENT_RELEASE_URL}>View latest iOS release assets</a>
-        <a className="mt-3 inline-flex text-sm font-semibold text-[var(--leaf)] underline" href={`${AGENT_RELEASE_DOWNLOAD_URL}/chargepilot-ios-agent-source.zip`}>Download iOS Xcode project</a>
-        <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6 text-[var(--muted)]">
-          <li>On a Mac with Xcode, open <code>ChargePilotAgent.xcodeproj</code>, select your signing team, then build and install the app on your iPhone or iPad.</li>
-          <li>The app uses <code>https://api-chargepilot.endusercompute.in</code> and a generic device type automatically. Paste the enrollment token. The app adds a <strong>Report battery to ChargePilot</strong> action to Shortcuts.</li>
-          <li>In Shortcuts, add that action to a Battery Level automation and a Charger automation set to <strong>Is Connected</strong>.</li>
-        </ol>
-        <p className="mt-2 text-sm text-[var(--muted)]">iOS may delay or skip background automations. They do not guarantee a report or switch action at an exact battery level.</p>
-      </div>
-      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-4 text-sm leading-6 text-[var(--muted)]">
-        Agent releases publish signed or unsigned builds depending on which complete platform signing secrets are configured. Check the release notes and <code>agent-release-manifest.json</code> before installation. iOS signing, when enabled, is ad-hoc for provisioned devices, not App Store distribution. Automation starts enabled for every platform, but the server still requires a fresh report, an allowed platform, and an enabled device-to-switch mapping. Android and iOS background reports may be delayed or skipped. <a className="font-semibold text-[var(--leaf)] underline" href={AGENT_RELEASE_URL}>View all agent builds and signing details on GitHub</a>.
-      </div>
-      {!canManageEnrollments && <p className="text-sm text-[var(--muted)]">An administrator must create an enrollment token for this workspace.</p>}
-      <p className="text-sm text-[var(--muted)]">After the first report, review devices on the <NavLink to="/endpoints" className="font-semibold text-[var(--leaf)] underline">Endpoints</NavLink> page.</p>
+      {releaseAssetsQuery.isLoading && <p className="agent-package-message">Loading the latest agent packages…</p>}
+      {releaseAssetsQuery.error && <div className="agent-package-error" role="alert">
+        <p>{releaseAssetsQuery.error.message}</p>
+        <a href={AGENT_RELEASE_URL} target="_blank" rel="noreferrer">Open the latest agent release</a>
+      </div>}
+      {releaseAssetsQuery.data && <div className="agent-package-grid">
+        {agentPackages.map((agentPackage) => {
+          const asset = releaseAssetsQuery.data.assets.find((candidate) => agentPackage.matches(candidate.name))
+          return <article className="agent-package-card" key={agentPackage.format}>
+            <div className="agent-package-format" aria-hidden="true">{agentPackage.format}</div>
+            <h3>{agentPackage.platform}</h3>
+            <p>{agentPackage.description}</p>
+            {asset
+              ? <a className="btn-secondary" href={asset.url} download>{`Download ${agentPackage.format}`}</a>
+              : <a className="btn-secondary" href={AGENT_RELEASE_URL} target="_blank" rel="noreferrer">Check release assets</a>}
+            {asset && <span className="agent-package-filename">{asset.name}</span>}
+          </article>
+        })}
+      </div>}
+      {!canManageEnrollments && <p className="agent-enrollment-note">An administrator must create an enrollment token for this workspace.</p>}
+      <p className="agent-enrollment-note">After the first report, review devices on the <NavLink to="/endpoints">Endpoints</NavLink> page.</p>
     </section>
+    {installGuideOpen && <AgentInstallInstructions onClose={() => {
+      setInstallGuideOpen(false)
+      window.requestAnimationFrame(() => installGuideTriggerRef.current?.focus())
+    }} />}
   </div>
 }
 
@@ -3929,6 +4016,42 @@ function MetricCard({
       </div>
     </div>
   )
+}
+
+function AgentInstallInstructions({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
+  return <div className="install-guide-backdrop" role="presentation" onMouseDown={(event) => {
+    if (event.target === event.currentTarget) onClose()
+  }}>
+    <section className="install-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="install-guide-title" tabIndex={-1} onKeyDown={trapDialogFocus}>
+      <div className="install-guide-heading">
+        <div>
+          <p className="page-context">Device setup</p>
+          <h2 id="install-guide-title">Install instructions</h2>
+          <p>Install the package on the device, then use an enrollment token created for its workspace.</p>
+        </div>
+        <button type="button" className="secondary-btn" autoFocus onClick={onClose}><X size={16} aria-hidden="true" />Close</button>
+      </div>
+      <ol className="install-guide-steps">
+        <li><strong>Windows (.EXE)</strong><span>Open the executable and follow its setup window. Approve the Windows service prompt, enter the enrollment token, then save and start the service.</span></li>
+        <li><strong>macOS (.DMG)</strong><span>Open the disk image, move ChargePilotAgent to Applications, launch it, and connect with the enrollment token. macOS may require approval for an unsigned or unnotarized build.</span></li>
+        <li><strong>Android (.APK)</strong><span>Open the APK on the device and allow your browser or file manager to install it if asked. Launch ChargePilotAgent and enter the enrollment token. Android WorkManager may delay background reports and enforces a 15-minute minimum.</span></li>
+        <li><strong>iPhone and iPad (.IPA)</strong><span>An IPA is not an App Store install. Install through Apple Configurator or Xcode with a valid provisioning profile; a release IPA can be installed only on devices in its ad-hoc profile. In Shortcuts, add “Report battery to ChargePilot” to both a Battery Level automation and a Charger Connected automation.</span></li>
+      </ol>
+      <p className="install-guide-note">Release signing varies by platform and release. Review the latest release notes before installing. iOS Shortcuts and mobile background reports are best-effort and do not guarantee exact reporting times.</p>
+      <div className="install-guide-footer">
+        <a href={AGENT_RELEASE_URL} target="_blank" rel="noreferrer">Review release notes and signing details</a>
+        <button type="button" className="btn-primary" onClick={onClose}>Done</button>
+      </div>
+    </section>
+  </div>
 }
 
 function PageHeader({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {

@@ -604,6 +604,49 @@ body.theme-dark .switch-meter-validation {
   color: #f0a89b;
 }
 
+body.theme-dark .endpoint-overview-strip,
+body.theme-dark .endpoint-inventory,
+body.theme-dark .endpoint-detail-heading,
+body.theme-dark .install-guide-dialog {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+body.theme-dark .endpoint-status-tabs button:hover,
+body.theme-dark .endpoint-status-tabs button.is-active,
+body.theme-dark .agent-package-card,
+body.theme-dark .install-guide-note {
+  border-color: var(--line);
+  background: var(--surface-muted);
+}
+
+body.theme-dark .agent-package-format {
+  color: var(--leaf);
+  background: var(--surface);
+}
+
+body.theme-dark .endpoint-detail-drawer {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+body.theme-dark .endpoint-device-link,
+body.theme-dark .agent-package-card h3,
+body.theme-dark .agent-package-heading h2,
+body.theme-dark .setup-page-header h1,
+body.theme-dark .endpoint-page-header h1,
+body.theme-dark .install-guide-heading h2,
+body.theme-dark .install-guide-steps strong {
+  color: var(--ink);
+}
+
+body.theme-dark .endpoint-device-link:hover,
+body.theme-dark .agent-package-heading > a,
+body.theme-dark .install-guide-footer > a,
+body.theme-dark .agent-enrollment-note a {
+  color: var(--leaf);
+}
+
 .auth-theme-toggle {
   position: absolute;
   top: 18px;
