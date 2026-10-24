@@ -128,6 +128,19 @@ def test_react_connector_api_creates_revokes_and_deletes_connectors():
     assert listed.json()[0]["id"] == payload["id"]
     assert listed.json()[0]["is_enrolled"] is False
 
+    renamed = client.patch(
+        f"/api/v1/connectors/{payload['id']}",
+        json={"name": "Upper floor LAN"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json() == {"id": payload["id"], "name": "Upper floor LAN"}
+    assert client.get("/api/v1/connectors").json()[0]["name"] == "Upper floor LAN"
+    blank_name = client.patch(
+        f"/api/v1/connectors/{payload['id']}",
+        json={"name": "   "},
+    )
+    assert blank_name.status_code == 422
+
     revoked = client.post(f"/api/v1/connectors/{payload['id']}/revoke")
     assert revoked.status_code == 200, revoked.text
     assert revoked.json() == {"status": "revoked"}
@@ -135,6 +148,32 @@ def test_react_connector_api_creates_revokes_and_deletes_connectors():
     deleted = client.delete(f"/api/v1/connectors/{payload['id']}")
     assert deleted.status_code == 204
     assert client.get("/api/v1/connectors").json() == []
+
+
+def test_connector_rename_requires_admin_and_respects_tenant_scope():
+    owner = _tenant_admin_client("connector_rename_scope_owner")
+    connector = owner.post(
+        "/api/v1/connectors/enrollment-codes",
+        json={"name": "Private LAN"},
+    )
+    assert connector.status_code == 201, connector.text
+    connector_id = connector.json()["id"]
+
+    viewer = TestClient(app)
+    register_standard_user(viewer, "connector_rename_viewer", "standard-user-password")
+    denied = viewer.patch(
+        f"/api/v1/connectors/{connector_id}",
+        json={"name": "Changed by viewer"},
+    )
+    assert denied.status_code == 403
+
+    other_tenant = _tenant_admin_client("connector_rename_other_owner")
+    hidden = other_tenant.patch(
+        f"/api/v1/connectors/{connector_id}",
+        json={"name": "Changed across tenants"},
+    )
+    assert hidden.status_code == 404
+    assert owner.get("/api/v1/connectors").json()[0]["name"] == "Private LAN"
 
 
 def test_connector_enrollment_code_creation_requires_admin_and_tenant():

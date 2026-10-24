@@ -34,7 +34,7 @@ browser interactions:
 | `/devices` | Review switches, channels, connector assignment, device state, and optional meter readings |
 | `/mappings` | Create, edit, and remove endpoint-to-switch battery rules |
 | `/events` | Review automation activity and outcomes |
-| `/connectors` | Enroll and operate site connectors |
+| `/connectors` | Follow deployment steps, enroll site connectors, review status, and rename connectors |
 | `/profile` | Manage account details, display time zone, and password |
 | `/users` | Invite people by email and manage roles and accounts |
 | `/tenants` | Manage tenants as a Super Admin |
@@ -100,11 +100,14 @@ reporting remains best-effort, so explain these platform limits instead of
 promising an exact schedule.
 Endpoint automation is enabled by default for all four platforms, subject to
 server-side platform and freshness checks. The Overview shows last-seen age as
-a live relative time. The Connectors page supports a published
-Docker Compose image with environment-based one-time enrollment and
-Docker-managed persistent storage, and a one-line Python installer that
-prompts locally for the enrollment code. Connector and agent source downloads
-are public; code creation and credential management remain authenticated.
+a live relative time. The Connectors page supports a published Docker Compose image with
+environment-based one-time enrollment and Docker-managed persistent storage,
+and a one-line Python installer that prompts locally for the enrollment code.
+It shows setup readiness and current connector status, lets authorized
+administrators rename a connector without changing its credential or device
+assignments, and requires revoked connectors to be deleted explicitly.
+Connector and agent source downloads are public; code creation and credential
+management remain authenticated.
 Mapping setup advances only on an explicit user action and saves only from its
 explicit create/save action.
 The mapping stepper places each label below its numbered marker; connector
@@ -118,6 +121,10 @@ thresholds remain legible.
 Endpoint automation defaults on separately from an individual mapping's
 enabled state; the server enforces platform eligibility, sample freshness,
 tenant ownership, and battery rules.
+Endpoint details keep the recent-report table and add a graph view for battery,
+CPU, memory utilization, and GPU percentages. Missing platform readings are
+omitted from the graph rather than displayed as zero; the table remains
+available for exact timestamps and reported values.
 
 ## Visual system
 

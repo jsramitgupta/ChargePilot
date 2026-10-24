@@ -100,6 +100,11 @@ provides platform installation guidance from a top-right help action; source
 archives are not presented as installers.
 The configured switch inventory loads independently of live connector status
 refreshes, so a failed device read does not block switch management.
+The Site connectors page guides deployment, summarizes enrollment/online
+status, and allows tenant admins/managers and Super Admins to rename connectors
+without changing credentials or switch assignments. Endpoint detail reports
+can be viewed as a chart of battery, CPU, memory, and GPU percentages or as the
+existing exact-value table; unavailable metrics are not plotted as zero.
 Switch onboarding separates device identity, local access, and command routing.
 The route picker limits tenant users to enrolled connectors for their tenant;
 Super Admins can choose an enrolled connector across tenants and the new device

@@ -45,6 +45,10 @@ class ConnectorCreateRequest(BaseModel):
     tenant_id: str | None = None
 
 
+class ConnectorRenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+
+
 @router.get("")
 async def list_connectors(
     user: User = Depends(get_authenticated_user),
@@ -112,6 +116,34 @@ async def create_enrollment_code(
         "enrollment_code": enrollment_code,
         "expires_at": expires_at,
     }
+
+
+@router.patch("/{connector_id}")
+async def rename_connector(
+    connector_id: UUID,
+    payload: ConnectorRenameRequest,
+    user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db),
+):
+    if not is_super_admin_user(user) and user.role not in {"tenant_admin", "manager"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Connector administration permission required.",
+        )
+    connector = tenant_scoped_query(db.query(SiteConnector), SiteConnector, user).filter(
+        SiteConnector.id == str(connector_id)
+    ).first()
+    if connector is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector not found.")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Connector name is required.",
+        )
+    connector.name = name
+    db.commit()
+    return {"id": connector.id, "name": connector.name}
 
 
 def _connector_from_auth(

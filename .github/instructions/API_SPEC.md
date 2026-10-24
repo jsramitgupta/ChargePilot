@@ -761,6 +761,13 @@ The response includes `id`, `name`, `enrollment_code`, and `expires_at`. Codes
 expire after 15 minutes and are stored only as hashes. The response is marked
 `private, no-store`.
 
+### PATCH /api/v1/connectors/{connector_id}
+
+Renames a connector without changing its tenant, credentials, or device
+assignments. Accepts `{"name":"Warehouse LAN"}`. The name is trimmed and must
+contain 1–160 characters. Super Admins and tenant administrators/managers may
+rename connectors in their authorized tenant scope.
+
 ### POST /api/v1/connectors/heartbeat
 
 Refreshes last-seen time and connector version. The connector sends its
