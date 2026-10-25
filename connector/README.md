@@ -34,9 +34,15 @@ volumes:
   connector-data:
 ```
 
+If the image repository is private, ask the ChargePilot operator for Docker
+Hub pull access and run `docker login` on the connector host before the first
+pull. Do not put the registry token in this Compose file or reuse the
+one-time enrollment code as a registry credential.
+
 For an existing installation, update the image reference and redeploy the
 service while keeping its `connector-data` volume; the saved credential does
-not need to be enrolled again.
+not need to be enrolled again. Authenticate again before a later pull if the
+Docker login session has been removed.
 
 Pass the code only for first enrollment and start the published image:
 

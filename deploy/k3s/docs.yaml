@@ -159,6 +159,8 @@ spec:
       labels:
         app.kubernetes.io/name: docs-cms
     spec:
+      imagePullSecrets:
+        - name: chargepilot-docs-dockerhub
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -241,6 +243,8 @@ spec:
       labels:
         app.kubernetes.io/name: docs-web
     spec:
+      imagePullSecrets:
+        - name: chargepilot-docs-dockerhub
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001

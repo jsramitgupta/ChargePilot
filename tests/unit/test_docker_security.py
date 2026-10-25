@@ -166,3 +166,26 @@ def test_container_workflows_scan_built_images_and_scope_publishing():
         ),
     ):
         assert workflow.index(build_marker) < workflow.index(scan_marker)
+
+
+def test_private_kubernetes_images_reference_namespace_pull_secrets():
+    manifests = (
+        (ROOT / "deploy" / "k3s" / "workloads.yaml", "chargepilot-dockerhub"),
+        (ROOT / "deploy" / "k3s" / "docs.yaml", "chargepilot-docs-dockerhub"),
+    )
+    for manifest_path, secret_name in manifests:
+        deployments = [
+            document
+            for document in manifest_path.read_text().split("\n---")
+            if "kind: Deployment" in document
+            and "image: endusercompute/chargepilot-" in document
+        ]
+        assert deployments, f"No private image deployments in {manifest_path}"
+        for deployment in deployments:
+            assert (
+                "      imagePullSecrets:\n"
+                f"        - name: {secret_name}\n"
+            ) in deployment, (
+                f"{manifest_path.name} deployment is missing its private registry "
+                f"pull secret {secret_name}"
+            )

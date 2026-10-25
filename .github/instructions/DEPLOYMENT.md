@@ -254,12 +254,13 @@ data untouched until the k3s instance has been independently validated.
 
 #### One-time GitHub setup
 
-1. Create Docker Hub repositories `endusercompute/chargepilot-api` and
-   `endusercompute/chargepilot-frontend`, plus a Docker Hub access token with
-   permission to push both images.
+1. Create Docker Hub repositories under `endusercompute`:
+   `chargepilot-api`, `chargepilot-frontend`, `chargepilot-connector`,
+   `chargepilot-docs-web`, and `chargepilot-docs-cms`.
 2. In GitHub **Settings → Secrets and variables → Actions**, add repository
-   secret `DOCKERHUB_TOKEN`. The workflows use Docker Hub username
-   `endusercompute`; never put the token in a workflow or repository file.
+   secret `DOCKERHUB_TOKEN` with permission to push all five images. The
+   workflows use Docker Hub username `endusercompute`; never put the token in
+   a workflow or repository file.
 3. Ensure Actions is allowed to use the repository `GITHUB_TOKEN` with
    **Read and write permissions**. `publish-deploy.yml` needs `contents: write`
    to update the deployed image tag in `deploy/k3s/kustomization.yaml`; the
@@ -268,12 +269,10 @@ data untouched until the k3s instance has been independently validated.
    The CI workflow ignores commits that only change the generated image tag,
    preventing a publish loop.
 5. Before making the repository private, add a read-only SSH deploy key to the
-   GitHub repository and register its private key with Argo CD. The
-   `deploy/argocd/chargepilot.yaml` Application uses the SSH repository URL.
-   After logging in to Argo CD, register it with
-   `argocd repo add git@github.com:jsramitgupta/ChargePilot.git --ssh-private-key-path <private-key-file>`.
-   Keep the key out of Git and Actions secrets; verify the repository is
-   connected in Argo CD before changing repository visibility.
+   GitHub repository and register its private key with Argo CD. Apply the
+   checked-in `deploy/argocd/chargepilot.yaml` so the live Application uses its
+   SSH URL. Verify the repo connection and application sync before changing
+   repository visibility. Keep the key out of Git and Actions secrets.
 6. For public installable agent updates from a private repository, provision a
    fine-grained GitHub token with only Contents: read access as the
    `CHARGEPILOT_AGENT_RELEASE_GITHUB_TOKEN` key in a separate Kubernetes Secret
@@ -282,8 +281,127 @@ data untouched until the k3s instance has been independently validated.
    print the token. Refresh the API Deployment after provisioning. The API
    intentionally makes supported agent binaries public but does not expose
    release source archives.
-7. GitHub Actions checkouts and tagged release publication continue using the
+7. When Docker Hub repositories are private, provision read-only pull
+   credentials as `chargepilot-dockerhub` in `chargepilot` and
+   `chargepilot-docs-dockerhub` in `chargepilot-docs`. The pod templates
+   reference these namespace-local `kubernetes.io/dockerconfigjson` Secrets.
+   Use tokens limited to pulling the corresponding API/frontend or docs
+   images, never the CI push token.
+8. GitHub Actions checkouts and tagged release publication continue using the
    repository-scoped `GITHUB_TOKEN`; they do not need an Actions PAT.
+
+#### Private visibility preflight
+
+The GitHub repository and all five ChargePilot Docker Hub repositories are
+currently public. Do not change either visibility until the preflight below is
+complete. Making the GitHub repository private does not make installable
+release binaries private: the API release proxy intentionally continues to
+serve supported agent binaries publicly.
+
+1. Configure and test the read-only Argo CD SSH deploy key. The live
+   Application currently uses `https://github.com/jsramitgupta/ChargePilot.git`,
+   but `deploy/argocd/chargepilot.yaml` specifies SSH. Register the key with
+   `argocd repo add git@github.com:jsramitgupta/ChargePilot.git --ssh-private-key-path <private-key-file>`,
+   then apply the checked-in Application manifest. Verify the live source URL
+   is `git@github.com:jsramitgupta/ChargePilot.git` and the application remains
+   Synced while the GitHub repository is still public.
+2. Create a fine-grained GitHub token with read-only Contents access to
+   `jsramitgupta/ChargePilot`, and create/update the `chargepilot-agent-release`
+   Secret. Verify `GET /api/v1/agent/releases/latest` through the public API
+   returns the latest release and allow-listed assets before switching. To
+   create the Secret without putting the token in process arguments or logs:
+
+   ```bash
+   set -euo pipefail
+   umask 077
+   read -rsp 'GitHub Contents: read token: ' GH_RELEASE_TOKEN
+   printf '\n'
+   TOKEN_FILE="$(mktemp)"
+   cleanup_token() {
+     unset GH_RELEASE_TOKEN
+     if [ -f "$TOKEN_FILE" ]; then
+       rm "$TOKEN_FILE"
+     fi
+   }
+   trap cleanup_token EXIT
+   printf 'CHARGEPILOT_AGENT_RELEASE_GITHUB_TOKEN=%s\n' \
+     "$GH_RELEASE_TOKEN" > "$TOKEN_FILE"
+   unset GH_RELEASE_TOKEN
+   kubectl create secret generic chargepilot-agent-release \
+     --namespace chargepilot \
+     --from-env-file="$TOKEN_FILE" \
+     --dry-run=client -o yaml |
+     ssh -o BatchMode=yes rootuser@192.168.1.21 \
+       'sudo -n kubectl apply -f -'
+   ```
+3. Create Docker Hub read-only pull tokens and the
+   `chargepilot-dockerhub` and `chargepilot-docs-dockerhub` Secrets. The
+   following example creates namespace-scoped credentials without placing the
+   token in command-line arguments or printing the generated Secret YAML. Run
+   it from a machine with Python, `kubectl`, and SSH access to the k3s host:
+
+   ```bash
+   set -euo pipefail
+   read -rp 'Docker Hub username: ' DOCKERHUB_USERNAME
+   read -rsp 'Docker Hub pull-only token: ' DOCKERHUB_READ_TOKEN
+   printf '\n'
+   namespace=chargepilot
+   secret_name=chargepilot-dockerhub
+   DOCKER_CONFIG_DIR=""
+   cleanup() {
+     unset DOCKERHUB_READ_TOKEN
+     if [ -n "$DOCKER_CONFIG_DIR" ]; then
+       if [ -f "$DOCKER_CONFIG_DIR/config.json" ]; then
+         rm "$DOCKER_CONFIG_DIR/config.json"
+       fi
+       rmdir "$DOCKER_CONFIG_DIR"
+     fi
+   }
+   trap cleanup EXIT
+   DOCKER_CONFIG_DIR="$(mktemp -d)"
+   DOCKERHUB_USERNAME="$DOCKERHUB_USERNAME" \
+   DOCKERHUB_READ_TOKEN="$DOCKERHUB_READ_TOKEN" \
+     python3 - "$DOCKER_CONFIG_DIR/config.json" <<'PY'
+   import base64
+   import json
+   import os
+   import sys
+   from pathlib import Path
+
+   auth = f"{os.environ['DOCKERHUB_USERNAME']}:{os.environ['DOCKERHUB_READ_TOKEN']}"
+   config = {
+       "auths": {
+           "https://index.docker.io/v1/": {
+               "auth": base64.b64encode(auth.encode()).decode("ascii")
+           }
+       }
+   }
+   Path(sys.argv[1]).write_text(json.dumps(config), encoding="utf-8")
+   PY
+   chmod 600 "$DOCKER_CONFIG_DIR/config.json"
+   unset DOCKERHUB_READ_TOKEN
+   kubectl create secret generic "$secret_name" \
+     --namespace "$namespace" \
+     --type=kubernetes.io/dockerconfigjson \
+     --from-file=.dockerconfigjson="$DOCKER_CONFIG_DIR/config.json" \
+     --dry-run=client -o yaml |
+     ssh -o BatchMode=yes rootuser@192.168.1.21 \
+       'sudo -n kubectl apply -f -'
+   ```
+
+   Repeat the block for `namespace=chargepilot-docs` and
+   `secret_name=chargepilot-docs-dockerhub`, using a separate token with
+   read-only access to the docs images. Connector hosts are outside these
+   Kubernetes namespaces; each authorized connector operator needs their own
+   read-only Docker Hub access before pulling a private connector image. Never
+   give customers the CI push token.
+4. Confirm `DOCKERHUB_TOKEN` can push all five private repositories,
+   `GITHUB_TOKEN` can update `main`, and branch protection permits the
+   deployment workflow's GitOps tag commit.
+5. Only after these checks, change the GitHub repository and Docker Hub
+   repositories to private. Then verify GitHub Actions publishing, Argo CD,
+   workload rollouts, public docs/console/API endpoints, and authorized
+   connector image pulls.
 
 #### Workflow security and build best practices
 

@@ -3262,6 +3262,8 @@ volumes:
             <div>
               <h3>Start the published Docker image</h3>
               <p>Save as <code>docker-compose.yml</code> on the connector host. This uses the published image, connects to this ChargePilot server, and creates persistent Docker storage.</p>
+              <p>For a private image, sign in with <code>docker login</code> using an account with read access before the first pull. Keep the registry token out of this file; it is separate from the one-time enrollment code.</p>
+              <p><a href="https://docs-chargepilot.endusercompute.in/guides/private-connector-image-access">Read the private connector image access guide</a>.</p>
               <pre className="connector-command"><code>{composeYaml}</code></pre>
               <button type="button" className="btn-secondary mt-2" onClick={async () => {
                 try {

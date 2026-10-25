@@ -15,11 +15,13 @@ copy credentials from the live cluster into this document or Git.
 - Namespace: `chargepilot`.
 - Cluster: one Ready k3s node, `x64-docker`, running Ubuntu 24.04.5 LTS,
   amd64, k3s/Kubernetes `v1.36.4+k3s1`, containerd `2.3.4-k3s1.36`.
-- Argo CD Application: `argocd/chargepilot`; at inspection it used
+- Argo CD Application: `argocd/chargepilot`; it currently uses
   `https://github.com/jsramitgupta/ChargePilot.git`, branch `main`, path
   `deploy/k3s`; live status `Synced` / `Healthy` at the current `main`
-  revision. The checked-in Application uses SSH; provision a read-only Argo CD
-  deploy key before making the repository private. See the deployment guide.
+  revision. The checked-in Application uses SSH, but no repository credential
+  Secret was present in `argocd` at inspection. Register and verify a read-only
+  SSH deploy key, then update the live Application before making the GitHub
+  repository private.
 - Istio ingress Service: `istio-system/istio-ingressgateway`, type
   `LoadBalancer`, LAN address `192.168.1.21`, ports 80 and 443 (plus status
   port 15021).
@@ -47,10 +49,26 @@ copy credentials from the live cluster into this document or Git.
 - The docs PostgreSQL PVC uses node-local `local-path` storage. No independent
   backup/restore destination has been verified, and the first Strapi editor
   account has not been bootstrapped.
+- All five ChargePilot Docker Hub repositories (API, frontend, connector,
+  docs-web, docs-cms) are currently public. Neither workload namespace has a
+  registry pull Secret, and the `chargepilot-agent-release` token Secret is
+  absent from the API namespace.
 
 The Argo CD Git revision and the immutable application image tags are separate
 revision identifiers. Keep both: Argo CD tracks the GitOps source; the tags
 identify the built API/frontend images.
+
+### Private repository and image prerequisites
+
+The manifests now reference `chargepilot-dockerhub` in `chargepilot` and
+`chargepilot-docs-dockerhub` in `chargepilot-docs`. Create these
+namespace-local pull-only Secrets before private image pulls or a fresh-node
+reschedule. Create `chargepilot-agent-release` separately to let the API read
+private GitHub release metadata while continuing to serve allow-listed agent
+binaries publicly. The live Argo CD Application must also be migrated from
+HTTPS to SSH with a registered read-only deploy key before making the GitHub
+repository private. See the ordered procedure in
+[the deployment guide](../../.github/instructions/DEPLOYMENT.md).
 
 ## Runtime topology
 

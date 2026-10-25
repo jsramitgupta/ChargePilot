@@ -19,6 +19,8 @@ spec:
         app.kubernetes.io/name: chargepilot
         app.kubernetes.io/component: api
     spec:
+      imagePullSecrets:
+        - name: chargepilot-dockerhub
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -124,6 +126,8 @@ spec:
         app.kubernetes.io/name: chargepilot
         app.kubernetes.io/component: frontend
     spec:
+      imagePullSecrets:
+        - name: chargepilot-dockerhub
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -214,6 +218,8 @@ spec:
         app.kubernetes.io/name: chargepilot
         app.kubernetes.io/component: outbox-relay
     spec:
+      imagePullSecrets:
+        - name: chargepilot-dockerhub
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -281,6 +287,8 @@ spec:
         app.kubernetes.io/name: chargepilot
         app.kubernetes.io/component: automation
     spec:
+      imagePullSecrets:
+        - name: chargepilot-dockerhub
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001

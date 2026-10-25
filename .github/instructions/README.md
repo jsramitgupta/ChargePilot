@@ -95,7 +95,7 @@ events use a PostgreSQL outbox and Kafka before asynchronous rule processing.
 - UI pattern: React, TypeScript, and Tailwind provide the full browser UI; FastAPI exposes JSON APIs and file downloads. Frontend design and theme decisions are documented in [FRONTEND_DESIGN.md](FRONTEND_DESIGN.md).
 - The separate public help site is built with Next.js and Strapi in
   `docs-site/`; it is not the ChargePilot management console. Its initial
-  deployment is pending the reviewed main-branch GitOps release.
+  deployment is live in the separate `chargepilot-docs` namespace.
 
 ## File map relevant to AI understanding
 

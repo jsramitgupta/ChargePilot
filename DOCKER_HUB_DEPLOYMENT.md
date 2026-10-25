@@ -2,17 +2,21 @@
 
 This guide covers publishing ChargePilot images from GitHub Actions, deploying
 to k3s with ArgoCD, and using the image in a microservice Compose deployment.
-The API, frontend, and connector images are published to the `endusercompute`
-Docker Hub namespace for `linux/amd64` and `linux/arm64`.
+The API, frontend, connector, docs-web, and docs-cms images are published to
+the `endusercompute` Docker Hub namespace for `linux/amd64` and `linux/arm64`.
 
 ## Continuous integration, publishing, and deployment
 
 ### One-time setup
 
-1. Create the `chargepilot-api`, `chargepilot-frontend`, and
-   `chargepilot-connector` repositories under the `endusercompute` Docker Hub
+1. Create the `chargepilot-api`, `chargepilot-frontend`,
+   `chargepilot-connector`, `chargepilot-docs-web`, and
+   `chargepilot-docs-cms` repositories under the `endusercompute` Docker Hub
    account.
-2. Create a Docker Hub access token with permission to push those images.
+2. Create a Docker Hub access token with permission to push all five images.
+   If the repositories are private, separately create read-only pull
+   credentials for k3s and authorized connector operators. Never share the CI
+   push token.
 3. In GitHub **Settings → Secrets and variables → Actions**, add the
    repository secret `DOCKERHUB_TOKEN`. The workflows use username
    `endusercompute`; do not commit the access token.
@@ -24,10 +28,19 @@ Docker Hub namespace for `linux/amd64` and `linux/arm64`.
    `git@github.com:jsramitgupta/ChargePilot.git`; add its public key as a
    read-only deploy key in GitHub and register its private key with
    `argocd repo add git@github.com:jsramitgupta/ChargePilot.git --ssh-private-key-path <private-key-file>`.
+   The live Application currently uses the public HTTPS URL. Apply the
+   checked-in Application manifest and verify that its live source is SSH
+   while the repository is still public.
 7. To keep agent binary downloads available from a private repository, provision
    a fine-grained Contents: read token as `CHARGEPILOT_AGENT_RELEASE_GITHUB_TOKEN`
    in the separate `chargepilot-agent-release` Kubernetes Secret. The API
    proxies only installable agent binaries; source archives are not exposed.
+8. For private image pulls, the k3s manifests reference
+   `chargepilot-dockerhub` in `chargepilot` and
+   `chargepilot-docs-dockerhub` in `chargepilot-docs`. Provision these
+   namespace-local `kubernetes.io/dockerconfigjson` Secrets before the image
+   repositories are made private; see the private visibility preflight in
+   `.github/instructions/DEPLOYMENT.md`.
 
 ### Main-branch pipeline and security practices
 
@@ -131,8 +144,10 @@ Set `CHARGEPILOT_ADMIN_USERNAME` to the desired initial administrator name.
 Retain the secret and database values for subsequent restarts and upgrades.
 
 For private Docker Hub repositories, sign in first with `docker login` using an
-account that can pull both images. The API/frontend split does not require a
-new database. Back up PostgreSQL before upgrading an existing installation;
+account that has read access to the required images. Each connector host needs
+its own authorized pull credentials for a private connector image; do not
+distribute the CI push token. The API/frontend split does not require a new
+database. Back up PostgreSQL before upgrading an existing installation;
 keep its Compose project and database volume. Validate the Compose configuration. With published image digests configured,
 pull and start or update the project:
 

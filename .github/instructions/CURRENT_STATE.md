@@ -41,6 +41,12 @@ For user-authorized Linux, Docker, or k3s validation, the deployed server is
 not store passwords, private keys, or other credentials in this repository.
 See `.github/instructions/DEPLOYMENT.md` for safe remote validation scope.
 
+Repository/image privacy is not enabled yet. At the 2026-10-25 inspection, the
+live Argo CD Application used the public HTTPS Git URL, while the checked-in
+Application uses SSH. No Docker pull Secrets or private GitHub release token
+were present in the live namespaces. Follow the private-visibility checklist in
+`.github/instructions/DEPLOYMENT.md` before changing either visibility setting.
+
 ## Core runtime stack
 - FastAPI
 - SQLAlchemy

@@ -166,6 +166,33 @@ Online status depends on the workspace's configured reporting cadence. Automatio
 If a device is missing, confirm that it is enrolled in the correct workspace and that the agent can reach the configured ChargePilot API address.`,
   },
   {
+    title: "Use a private connector image",
+    slug: "private-connector-image-access",
+    summary:
+      "Get read-only Docker Hub access and authenticate before pulling a private site connector image.",
+    audience: "tenant_admin",
+    section: "Devices",
+    sortOrder: 50,
+    readingMinutes: 3,
+    body: `## Get access before installing
+
+If your ChargePilot operator has made the site connector image private, ask them to grant your Docker Hub account read access to the connector repository. Use an account authorized by the repository owner. Do not ask for or reuse the CI image-publishing token.
+
+## Sign in on the connector host
+
+On the trusted computer that will run the connector, run \`docker login\` and sign in with your authorized Docker Hub account. Use your Docker Hub access token when prompted for a password. Docker uses this sign-in for image pulls; it is separate from the one-time ChargePilot enrollment code.
+
+Do not put the Docker Hub token in the Compose file, an enrollment code, or a support message. Keep the connector host and its Docker credential store accessible only to trusted operators. Sign in again before a later pull if you have logged out or removed the stored Docker credentials.
+
+## Pull and start the connector
+
+1. In **Site connectors**, create a one-time enrollment code and save the displayed Compose file on the connector host.
+2. Run \`docker compose pull\` to fetch the private image, then start the service using the enrollment instructions on the page.
+3. Keep the Docker-managed \`connector-data\` volume when updating the image; it stores the enrolled connector credential.
+
+If the connector image is public in your installation, no Docker Hub sign-in is needed. For switch discovery and network requirements, follow [Connect a switch](/guides/connect-a-switch).`,
+  },
+  {
     title: "Connect a switch",
     slug: "connect-a-switch",
     summary:

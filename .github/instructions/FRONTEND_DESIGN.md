@@ -104,6 +104,10 @@ Endpoint automation is enabled by default for all four platforms, subject to
 server-side platform and freshness checks. The Overview shows last-seen age as
 a live relative time. The Connectors page supports a published Docker Compose image with
 environment-based one-time enrollment and Docker-managed persistent storage.
+When the connector image is private, explain that users need Docker Hub
+read access and must authenticate with `docker login` before pulling it; never
+put registry credentials in Compose or confuse them with the one-time
+enrollment code. Link to the published private connector image access guide.
 It shows setup readiness and current connector status, lets authorized
 administrators rename a connector without changing its credential or device
 assignments, and requires revoked connectors to be deleted explicitly.

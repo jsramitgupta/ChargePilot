@@ -62,12 +62,16 @@ Before the first deployment:
    `ENCRYPTION_KEY`, and `JWT_SECRET`. Use the same random database password
    for `POSTGRES_PASSWORD` and `DATABASE_PASSWORD`. Do not commit the Secret or
    place values in CI logs.
-2. Confirm independent backup and restore for the docs PostgreSQL PVC.
-3. Confirm DNS and the external TLS/edge proxy route
+2. When docs images are private, provision the
+   `chargepilot-docs-dockerhub` `kubernetes.io/dockerconfigjson` pull Secret in
+   `chargepilot-docs` with a read-only token for both docs repositories. Never
+   use the CI push token.
+3. Confirm independent backup and restore for the docs PostgreSQL PVC.
+4. Confirm DNS and the external TLS/edge proxy route
    `docs-chargepilot.endusercompute.in` to the existing Istio ingress.
-4. Let the documented main-branch CI and GitOps workflow publish and reconcile
+5. Let the documented main-branch CI and GitOps workflow publish and reconcile
    the images.
-5. Create the first Strapi administrator through a trusted port-forward, not
+6. Create the first Strapi administrator through a trusted port-forward, not
    the public documentation hostname. Verify that unauthenticated write
    requests are denied.
 

@@ -441,6 +441,9 @@ def test_connector_page_explains_supported_deployments_and_local_network_needs()
     assert "offlineCount" in connectors_page
     assert "PATCH" in connectors_page
     assert "endusercompute/chargepilot-connector:sha-" in connectors_page
+    assert "docker login" in connectors_page
+    assert "separate from the one-time enrollment code" in connectors_page
+    assert "docs-chargepilot.endusercompute.in/guides/private-connector-image-access" in connectors_page
     assert "/connectors/install.sh" not in connectors_page
     assert "/connectors/download" not in connectors_page
     assert "switch LAN" in connectors_page

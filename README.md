@@ -236,9 +236,14 @@ including the local IP address, come from the LAN scan (or manual entry).
 
 ## Site connector
 
-Create a one-time enrollment code in **Connectors** for the tenant. The
-published Docker image uses the k3s API URL by default:
+Create a one-time enrollment code in **Connectors** for the tenant. The Docker
+image uses the k3s API URL by default:
 `https://api-chargepilot.endusercompute.in`.
+
+If the connector image is private, obtain read-only Docker Hub access from the
+ChargePilot operator and run `docker login` on the connector host before
+pulling it. Keep registry credentials out of the Compose file; they are
+separate from the one-time enrollment code.
 
 ### Docker Compose on Linux
 
