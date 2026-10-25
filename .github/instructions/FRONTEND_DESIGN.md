@@ -223,8 +223,10 @@ operational state colors for explicit status indicators.
   results use the shared theme surfaces and status tokens in both themes.
   Compatible Tuya meters can be configured per switch through a guided
   "find readings" action. Show power/energy descriptions and live samples
-  instead of requiring users to know datapoint IDs or conversion multipliers;
-  keep those values in advanced setup. Only recognized reading names get
+  instead of requiring users to know datapoint IDs or conversion multipliers.
+  Let users select the source units and decimal places for each raw reading;
+  show how a discovered sample changes with that choice. Keep datapoint IDs
+  and custom base scales in advanced setup. Only recognized reading names get
   suggested roles; let users select unknown numeric readings and their units.
   Never guess from device family or treat unsupported readings as zero. Show
   the sample time, connector requirement, and cumulative-counter

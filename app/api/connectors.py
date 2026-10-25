@@ -22,6 +22,7 @@ from app.services.connector_service import (
     hash_connector_token,
 )
 from app.services.broadcaster import publish_event
+from app.services.automation_processor import reconcile_connector_status
 
 router = APIRouter(prefix="/connectors", tags=["site connectors"])
 
@@ -273,11 +274,27 @@ async def submit_command_result(
         result=payload.result,
         error=payload.error,
     )
+    context = json.loads(command.context_json or "{}")
+    result_state = (payload.result or {}).get("state")
+    if (
+        payload.success
+        and command.operation == "get_status"
+        and context.get("automation_reconcile")
+        and command.device_id is not None
+        and command.tenant_id is not None
+        and isinstance(result_state, bool)
+    ):
+        reconcile_connector_status(
+            db,
+            connector_id=command.connector_id,
+            device_id=command.device_id,
+            tenant_id=command.tenant_id,
+            channel_id=command.channel_id,
+            current_state=result_state,
+        )
     connector.last_seen_at = datetime.now(UTC)
     db.commit()
     if command.device_id:
-        context = json.loads(command.context_json or "{}")
-        result_state = (payload.result or {}).get("state")
         new_state = (
             str(result_state).lower()
             if command.operation == "get_status" and isinstance(result_state, bool)

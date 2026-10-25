@@ -216,6 +216,36 @@ type MeterCandidate = {
   suggested_role: 'power' | 'energy' | null
 }
 
+type MeterUnitScale = {
+  unit: string
+  multiplier: number
+}
+
+type MeterScaleParts = {
+  unit: string
+  decimalPlaces: string
+  customBaseScale: string
+}
+
+function meterScaleParts(multiplier: number, units: MeterUnitScale[]): MeterScaleParts {
+  for (const { unit, multiplier: unitMultiplier } of units) {
+    for (let decimalPlaces = 0; decimalPlaces <= 6; decimalPlaces += 1) {
+      const expected = unitMultiplier * (10 ** -decimalPlaces)
+      if (Math.abs(multiplier - expected) <= Math.max(1, Math.abs(multiplier)) * 1e-9) {
+        return { unit, decimalPlaces: String(decimalPlaces), customBaseScale: String(unitMultiplier) }
+      }
+    }
+  }
+  return { unit: 'custom', decimalPlaces: '0', customBaseScale: String(multiplier) }
+}
+
+function meterMultiplier(unit: string, decimalPlaces: string, customBaseScale: string, units: MeterUnitScale[]) {
+  const baseScale = unit === 'custom'
+    ? Number(customBaseScale)
+    : units.find((option) => option.unit === unit)?.multiplier ?? Number.NaN
+  return baseScale * (10 ** -Number(decimalPlaces))
+}
+
 type DeviceChannel = {
   id: string
   device_id: string
@@ -1463,10 +1493,26 @@ function DeviceMeterPanel({
   now: number
   onSave: (settings: DeviceMeterSettings) => void
 }) {
+  const powerUnits: MeterUnitScale[] = [
+    { unit: 'watts', multiplier: 1 },
+    { unit: 'kilowatts', multiplier: 1000 },
+  ]
+  const energyUnits: MeterUnitScale[] = [
+    { unit: 'wh', multiplier: 0.001 },
+    { unit: 'kwh', multiplier: 1 },
+  ]
+  const initialPowerScale = meterScaleParts(device.power_multiplier ?? 1, powerUnits)
+  const initialEnergyScale = meterScaleParts(device.energy_multiplier ?? 0.001, energyUnits)
   const [powerDpId, setPowerDpId] = useState(device.power_dp_id ?? '')
   const [powerMultiplier, setPowerMultiplier] = useState(String(device.power_multiplier ?? 1))
+  const [powerUnit, setPowerUnit] = useState(initialPowerScale.unit)
+  const [powerDecimalPlaces, setPowerDecimalPlaces] = useState(initialPowerScale.decimalPlaces)
+  const [powerCustomBaseScale, setPowerCustomBaseScale] = useState(initialPowerScale.customBaseScale)
   const [energyDpId, setEnergyDpId] = useState(device.energy_dp_id ?? '')
   const [energyMultiplier, setEnergyMultiplier] = useState(String(device.energy_multiplier ?? 0.001))
+  const [energyUnit, setEnergyUnit] = useState(initialEnergyScale.unit)
+  const [energyDecimalPlaces, setEnergyDecimalPlaces] = useState(initialEnergyScale.decimalPlaces)
+  const [energyCustomBaseScale, setEnergyCustomBaseScale] = useState(initialEnergyScale.customBaseScale)
   const [energyCounterType, setEnergyCounterType] = useState<DeviceMeterSettings['energy_counter_type']>(
     device.energy_counter_type ?? 'cumulative',
   )
@@ -1475,6 +1521,68 @@ function DeviceMeterPanel({
   const [isDiscovering, setIsDiscovering] = useState(false)
   const [discoveryMessage, setDiscoveryMessage] = useState('')
   const [discoveryError, setDiscoveryError] = useState('')
+
+  const updatePowerUnit = (unit: string) => {
+    const baseScale = Number(powerMultiplier) * (10 ** Number(powerDecimalPlaces))
+    const customBaseScale = Number.isFinite(baseScale) && baseScale > 0
+      ? String(baseScale)
+      : powerCustomBaseScale
+    if (unit === 'custom' && customBaseScale !== powerCustomBaseScale) {
+      setPowerCustomBaseScale(customBaseScale)
+    }
+    setPowerUnit(unit)
+    setPowerMultiplier(String(meterMultiplier(
+      unit,
+      powerDecimalPlaces,
+      unit === 'custom' ? customBaseScale : powerCustomBaseScale,
+      powerUnits,
+    )))
+  }
+
+  const updatePowerDecimalPlaces = (decimalPlaces: string) => {
+    setPowerDecimalPlaces(decimalPlaces)
+    setPowerMultiplier(String(meterMultiplier(powerUnit, decimalPlaces, powerCustomBaseScale, powerUnits)))
+  }
+
+  const updateEnergyUnit = (unit: string) => {
+    const baseScale = Number(energyMultiplier) * (10 ** Number(energyDecimalPlaces))
+    const customBaseScale = Number.isFinite(baseScale) && baseScale > 0
+      ? String(baseScale)
+      : energyCustomBaseScale
+    if (unit === 'custom' && customBaseScale !== energyCustomBaseScale) {
+      setEnergyCustomBaseScale(customBaseScale)
+    }
+    setEnergyUnit(unit)
+    setEnergyMultiplier(String(meterMultiplier(
+      unit,
+      energyDecimalPlaces,
+      unit === 'custom' ? customBaseScale : energyCustomBaseScale,
+      energyUnits,
+    )))
+  }
+
+  const updateEnergyDecimalPlaces = (decimalPlaces: string) => {
+    setEnergyDecimalPlaces(decimalPlaces)
+    setEnergyMultiplier(String(meterMultiplier(energyUnit, decimalPlaces, energyCustomBaseScale, energyUnits)))
+  }
+
+  const updatePowerCustomBaseScale = (value: string) => {
+    setPowerUnit('custom')
+    setPowerCustomBaseScale(value)
+    const baseScale = Number(value)
+    setPowerMultiplier(Number.isFinite(baseScale) && baseScale > 0
+      ? String(baseScale * (10 ** -Number(powerDecimalPlaces)))
+      : value)
+  }
+
+  const updateEnergyCustomBaseScale = (value: string) => {
+    setEnergyUnit('custom')
+    setEnergyCustomBaseScale(value)
+    const baseScale = Number(value)
+    setEnergyMultiplier(Number.isFinite(baseScale) && baseScale > 0
+      ? String(baseScale * (10 ** -Number(energyDecimalPlaces)))
+      : value)
+  }
 
   const findReadings = async () => {
     setIsDiscovering(true)
@@ -1536,6 +1644,8 @@ function DeviceMeterPanel({
   const energyReading = hasCurrentMonthEnergy && device.meter_energy_month_kwh != null
     ? `${device.meter_energy_month_kwh.toFixed(2)} kWh`
     : device.energy_dp_id ? 'No current-month reading' : 'Not configured'
+  const powerRawExample = candidates.find((candidate) => candidate.id === powerDpId)?.sample ?? 591
+  const energyRawExample = candidates.find((candidate) => candidate.id === energyDpId)?.sample ?? 591
 
   return (
     <section className="switch-meter-panel" aria-label={`Energy readings for ${device.name}`}>
@@ -1580,29 +1690,41 @@ function DeviceMeterPanel({
                 {candidates.map((candidate) => <option key={`energy-${candidate.id}`} value={candidate.id}>{candidate.label} · {candidate.sample.toLocaleString()}</option>)}
               </select>
             </div>
-            <div>
-              <label htmlFor={`meter-power-units-${device.id}`}>Power reading is in</label>
-              <select id={`meter-power-units-${device.id}`} className="field" value={powerMultiplier === '1' ? 'watts' : powerMultiplier === '1000' ? 'kilowatts' : 'custom'} onChange={(event) => {
-                if (event.target.value === 'watts') setPowerMultiplier('1')
-                if (event.target.value === 'kilowatts') setPowerMultiplier('1000')
-              }}>
-                <option value="watts">Watts (W)</option>
-                <option value="kilowatts">Kilowatts (kW)</option>
-                <option value="custom">Custom scale</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor={`meter-energy-units-${device.id}`}>Energy reading is in</label>
-              <select id={`meter-energy-units-${device.id}`} className="field" value={energyMultiplier === '1' ? 'kwh' : energyMultiplier === '0.001' ? 'wh' : 'custom'} onChange={(event) => {
-                if (event.target.value === 'kwh') setEnergyMultiplier('1')
-                if (event.target.value === 'wh') setEnergyMultiplier('0.001')
-              }}>
-                <option value="wh">Watt-hours (Wh)</option>
-                <option value="kwh">Kilowatt-hours (kWh)</option>
-                <option value="custom">Custom scale</option>
-              </select>
-            </div>
           </>}
+          <div>
+            <label htmlFor={`meter-power-units-${device.id}`}>Power reading is in</label>
+            <select id={`meter-power-units-${device.id}`} className="field" value={powerUnit} onChange={(event) => updatePowerUnit(event.target.value)}>
+              <option value="watts">Watts (W)</option>
+              <option value="kilowatts">Kilowatts (kW)</option>
+              <option value="custom">Custom scale</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor={`meter-energy-units-${device.id}`}>Energy reading is in</label>
+            <select id={`meter-energy-units-${device.id}`} className="field" value={energyUnit} onChange={(event) => updateEnergyUnit(event.target.value)}>
+              <option value="wh">Watt-hours (Wh)</option>
+              <option value="kwh">Kilowatt-hours (kWh)</option>
+              <option value="custom">Custom scale</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor={`meter-power-decimals-${device.id}`}>Decimal places in the power reading</label>
+            <select id={`meter-power-decimals-${device.id}`} className="field" value={powerDecimalPlaces} onChange={(event) => updatePowerDecimalPlaces(event.target.value)}>
+              <option value="0">None ({powerRawExample.toLocaleString()} stays unchanged)</option>
+              {Array.from({ length: 6 }, (_, index) => index + 1).map((places) => (
+                <option key={places} value={places}>{places} ({`${powerRawExample.toLocaleString()} becomes ${(powerRawExample / (10 ** places)).toFixed(places)}`})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor={`meter-energy-decimals-${device.id}`}>Decimal places in the energy reading</label>
+            <select id={`meter-energy-decimals-${device.id}`} className="field" value={energyDecimalPlaces} onChange={(event) => updateEnergyDecimalPlaces(event.target.value)}>
+              <option value="0">None ({energyRawExample.toLocaleString()} stays unchanged)</option>
+              {Array.from({ length: 6 }, (_, index) => index + 1).map((places) => (
+                <option key={places} value={places}>{places} ({`${energyRawExample.toLocaleString()} becomes ${(energyRawExample / (10 ** places)).toFixed(places)}`})</option>
+              ))}
+            </select>
+          </div>
           <div className="switch-meter-counter">
             <label htmlFor={`meter-energy-mode-${device.id}`}>How does the switch report energy?</label>
             <select id={`meter-energy-mode-${device.id}`} className="field" value={energyCounterType} onChange={(event) => setEnergyCounterType(event.target.value === 'monthly' ? 'monthly' : 'cumulative')}>
@@ -1613,23 +1735,23 @@ function DeviceMeterPanel({
           <p className="switch-meter-help switch-meter-disclaimer">A running total starts from the first reading this month, so the first monthly total may be partial. Readings update about once a minute.</p>
           <details className="switch-meter-advanced">
             <summary>Advanced setup</summary>
-            <p className="switch-meter-help">Use these fields only when your switch documentation gives you its reading IDs or a custom unit scale.</p>
+            <p className="switch-meter-help">Use these fields when your switch documentation gives you its reading IDs or a custom base scale. Decimal places are applied after this scale.</p>
             <div className="switch-meter-form switch-meter-advanced-fields">
               <div>
                 <label htmlFor={`meter-power-dp-${device.id}`}>Power reading ID</label>
                 <input id={`meter-power-dp-${device.id}`} className="field" value={powerDpId} onChange={(event) => setPowerDpId(event.target.value)} />
               </div>
               <div>
-                <label htmlFor={`meter-power-scale-${device.id}`}>Power scale to watts</label>
-                <input id={`meter-power-scale-${device.id}`} className="field" type="number" min="0.000000001" step="any" value={powerMultiplier} onChange={(event) => setPowerMultiplier(event.target.value)} />
+                <label htmlFor={`meter-power-scale-${device.id}`}>Power base scale to watts</label>
+                <input id={`meter-power-scale-${device.id}`} className="field" type="number" min="0.000000001" step="any" value={powerUnit === 'custom' ? powerCustomBaseScale : String(powerUnits.find((unit) => unit.unit === powerUnit)?.multiplier ?? '')} onChange={(event) => updatePowerCustomBaseScale(event.target.value)} />
               </div>
               <div>
                 <label htmlFor={`meter-energy-dp-${device.id}`}>Energy reading ID</label>
                 <input id={`meter-energy-dp-${device.id}`} className="field" value={energyDpId} onChange={(event) => setEnergyDpId(event.target.value)} />
               </div>
               <div>
-                <label htmlFor={`meter-energy-scale-${device.id}`}>Energy scale to kWh</label>
-                <input id={`meter-energy-scale-${device.id}`} className="field" type="number" min="0.000000001" step="any" value={energyMultiplier} onChange={(event) => setEnergyMultiplier(event.target.value)} />
+                <label htmlFor={`meter-energy-scale-${device.id}`}>Energy base scale to kWh</label>
+                <input id={`meter-energy-scale-${device.id}`} className="field" type="number" min="0.000000001" step="any" value={energyUnit === 'custom' ? energyCustomBaseScale : String(energyUnits.find((unit) => unit.unit === energyUnit)?.multiplier ?? '')} onChange={(event) => updateEnergyCustomBaseScale(event.target.value)} />
               </div>
             </div>
           </details>

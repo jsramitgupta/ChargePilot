@@ -165,6 +165,11 @@ def test_switch_energy_readings_and_datapoint_settings_use_theme_aware_ui():
     assert "This month’s total" in app
     assert "Find readings from switch" in app
     assert "Advanced setup" in app
+    assert "Decimal places in the power reading" in app
+    assert "Decimal places in the energy reading" in app
+    assert "powerDecimalPlaces" in app
+    assert "energyDecimalPlaces" in app
+    assert "meterMultiplier(powerUnit, decimalPlaces" in app
     assert ".switch-meter-panel" in light
     assert "body.theme-dark .switch-meter-readings strong" in dark
     assert "Live power" in endpoint_details

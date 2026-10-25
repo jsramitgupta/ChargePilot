@@ -17,9 +17,36 @@ from app.services.telemetry_policy import (
     telemetry_freshness_limit_seconds,
     tenant_reporting_interval_minutes,
 )
-from app.services.tuya_service import TuyaService
+from app.services.tuya_service import TuyaService, coerce_switch_state
 
 logger = logging.getLogger("chargepilot.automation")
+
+
+def _automation_reason(
+    decision: str,
+    *,
+    battery: int,
+    is_charging: bool,
+    mapping: Mapping,
+) -> str:
+    if decision == "TURN_ON":
+        return (
+            f"Battery {battery}% is at or below "
+            f"the turn-on threshold of {mapping.on_threshold}%."
+        )
+    if (
+        mapping.turn_off_when_charging_enabled
+        and is_charging
+        and battery >= mapping.charging_off_threshold
+    ):
+        return (
+            f"Battery {battery}% is charging and at or above "
+            f"the charging turn-off threshold of {mapping.charging_off_threshold}%."
+        )
+    return (
+        f"Battery {battery}% is at or above "
+        f"the turn-off threshold of {mapping.off_threshold}%."
+    )
 
 
 async def process_telemetry_event(
@@ -99,20 +126,43 @@ async def process_telemetry_event(
             if channel is not None:
                 channel_index = channel.channel_index
 
+        if device.connector_id:
+            try:
+                queue_device_command(
+                    db,
+                    device=device,
+                    operation="get_status",
+                    channel_index=channel_index,
+                    channel_id=mapping.channel_id,
+                    context={"automation_reconcile": True},
+                )
+            except ValueError as exc:
+                logger.warning("Could not queue switch status check for device %s: %s", device.id, exc)
+            continue
+
         current_state = bool(
             channel.current_state if channel is not None else device.current_state
         )
-        if not device.connector_id:
-            live_status = await TuyaService.from_device(device).get_status(
-                device.device_id,
-                channel=channel_index,
+        live_status = await TuyaService.from_device(device).get_status(
+            device.device_id,
+            channel=channel_index,
+        )
+        live_state = (
+            coerce_switch_state(live_status.get("state"))
+            if isinstance(live_status, dict)
+            else None
+        )
+        if (
+            not isinstance(live_status, dict)
+            or live_state is None
+            or not live_status.get("online", True)
+        ):
+            logger.warning(
+                "Skipping battery automation for device %s because live switch status is unavailable.",
+                device.id,
             )
-            if (
-                isinstance(live_status, dict)
-                and "state" in live_status
-                and live_status.get("online", True)
-            ):
-                current_state = bool(live_status["state"])
+            continue
+        current_state = live_state
 
         decision = evaluate_battery_action(
             battery=payload.battery_percentage,
@@ -131,62 +181,12 @@ async def process_telemetry_event(
             continue
 
         new_state = decision == "TURN_ON"
-        if new_state:
-            reason = (
-                f"Battery {payload.battery_percentage}% is at or below "
-                f"the turn-on threshold of {mapping.on_threshold}%."
-            )
-        elif (
-            mapping.turn_off_when_charging_enabled
-            and payload.charging
-            and payload.battery_percentage >= mapping.charging_off_threshold
-        ):
-            reason = (
-                f"Battery {payload.battery_percentage}% is charging and at or above "
-                f"the charging turn-off threshold of {mapping.charging_off_threshold}%."
-            )
-        else:
-            reason = (
-                f"Battery {payload.battery_percentage}% is at or above "
-                f"the turn-off threshold of {mapping.off_threshold}%."
-            )
-
-        if device.connector_id:
-            try:
-                queue_device_command(
-                    db,
-                    device=device,
-                    operation="set_state",
-                    channel_index=channel_index,
-                    channel_id=mapping.channel_id,
-                    desired_state=new_state,
-                    context={
-                        "event_type": decision,
-                        "reason": reason,
-                        "endpoint_id": endpoint.id,
-                        "battery_percentage": payload.battery_percentage,
-                        "previous_state": str(current_state).lower(),
-                        "new_state": str(new_state).lower(),
-                    },
-                )
-            except ValueError as exc:
-                logger.warning("Could not queue automation for device %s: %s", device.id, exc)
-                db.add(
-                    AutomationEvent(
-                        tenant_id=endpoint.tenant_id,
-                        event_type=decision,
-                        reason=reason,
-                        endpoint_id=endpoint.id,
-                        device_id=device.id,
-                        channel_id=mapping.channel_id,
-                        battery_percentage=payload.battery_percentage,
-                        previous_state=str(current_state).lower(),
-                        new_state=str(new_state).lower(),
-                        success=False,
-                        error=str(exc)[:255],
-                    )
-                )
-            continue
+        reason = _automation_reason(
+            decision,
+            battery=payload.battery_percentage,
+            is_charging=payload.charging,
+            mapping=mapping,
+        )
 
         action_result = await TuyaService.from_device(device).set_state(
             device_id=device.device_id,
@@ -253,3 +253,134 @@ async def process_telemetry_event(
     for event in state_changes:
         publish_event(event)
     return True
+
+
+def reconcile_connector_status(
+    db: Session,
+    *,
+    connector_id: str,
+    device_id: str,
+    tenant_id: str,
+    channel_id: str | None,
+    current_state: bool,
+) -> None:
+    device = (
+        db.query(Device)
+        .filter(
+            Device.id == device_id,
+            Device.tenant_id == tenant_id,
+            Device.connector_id == connector_id,
+            Device.enabled.is_(True),
+        )
+        .first()
+    )
+    if device is None:
+        return
+
+    now = datetime.now(UTC)
+    mappings = (
+        db.query(Mapping)
+        .filter(
+            Mapping.device_id == device.id,
+            Mapping.tenant_id == tenant_id,
+            Mapping.channel_id == channel_id,
+            Mapping.enabled.is_(True),
+        )
+        .all()
+    )
+    for mapping in mappings:
+        channel = None
+        if mapping.channel_id:
+            channel = (
+                db.query(DeviceChannel)
+                .filter(
+                    DeviceChannel.id == mapping.channel_id,
+                    DeviceChannel.device_id == device.id,
+                )
+                .first()
+            )
+            if channel is None:
+                continue
+        endpoint = (
+            db.query(Endpoint)
+            .filter(
+                Endpoint.id == mapping.endpoint_id,
+                Endpoint.tenant_id == tenant_id,
+                Endpoint.enabled.is_(True),
+                Endpoint.automation_enabled.is_(True),
+                Endpoint.platform.in_(settings.automation_telemetry_platforms),
+            )
+            .first()
+        )
+        if endpoint is None or endpoint.last_seen_at is None:
+            continue
+        last_seen_at = endpoint.last_seen_at
+        if last_seen_at.tzinfo is None:
+            last_seen_at = last_seen_at.replace(tzinfo=UTC)
+        sample_age_seconds = (now - last_seen_at).total_seconds()
+        reporting_interval_minutes = tenant_reporting_interval_minutes(db, tenant_id)
+        if not (
+            -settings.telemetry_max_future_skew_seconds
+            <= sample_age_seconds
+            <= telemetry_freshness_limit_seconds(reporting_interval_minutes)
+        ):
+            continue
+
+        decision = evaluate_battery_action(
+            battery=endpoint.battery_percentage,
+            current_state=current_state,
+            turn_on_enabled=mapping.turn_on_enabled,
+            is_charging=endpoint.charging,
+            turn_off_when_charging_enabled=mapping.turn_off_when_charging_enabled,
+            on_threshold=mapping.on_threshold,
+            off_threshold=mapping.off_threshold,
+            charging_off_threshold=mapping.charging_off_threshold,
+            minimum_interval_seconds=mapping.minimum_state_change_interval,
+            last_state_change_at=device.last_state_change_at,
+            now=now,
+        )
+        if decision == "NO_ACTION":
+            continue
+
+        new_state = decision == "TURN_ON"
+        reason = _automation_reason(
+            decision,
+            battery=endpoint.battery_percentage,
+            is_charging=endpoint.charging,
+            mapping=mapping,
+        )
+
+        try:
+            queue_device_command(
+                db,
+                device=device,
+                operation="set_state",
+                channel_index=channel.channel_index if channel is not None else 1,
+                channel_id=mapping.channel_id,
+                desired_state=new_state,
+                context={
+                    "event_type": decision,
+                    "reason": reason,
+                    "endpoint_id": endpoint.id,
+                    "battery_percentage": endpoint.battery_percentage,
+                    "previous_state": str(current_state).lower(),
+                    "new_state": str(new_state).lower(),
+                },
+            )
+        except ValueError as exc:
+            logger.warning("Could not queue automation for device %s: %s", device.id, exc)
+            db.add(
+                AutomationEvent(
+                    tenant_id=tenant_id,
+                    event_type=decision,
+                    reason=reason,
+                    endpoint_id=endpoint.id,
+                    device_id=device.id,
+                    channel_id=mapping.channel_id,
+                    battery_percentage=endpoint.battery_percentage,
+                    previous_state=str(current_state).lower(),
+                    new_state=str(new_state).lower(),
+                    success=False,
+                    error=str(exc)[:255],
+                )
+            )

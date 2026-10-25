@@ -1,7 +1,9 @@
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 
 from app.core.database import SessionLocal
+from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device
 from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
@@ -171,4 +173,135 @@ def test_stale_or_non_opted_in_endpoint_samples_never_run_mappings():
             )
         )
         assert processed_delayed is True
+        assert db.query(AutomationEvent).count() == 0
+
+
+def test_connector_automation_checks_live_state_before_queueing_a_decision():
+    now = datetime.now(UTC)
+    with SessionLocal() as db:
+        connector = SiteConnector(
+            tenant_id="connector-automation-tenant",
+            name="Automation LAN",
+            token_hash="connector-automation-token-hash",
+            is_active=True,
+        )
+        endpoint = Endpoint(
+            hostname="CONNECTOR-AUTOMATION-ENDPOINT",
+            tenant_id="connector-automation-tenant",
+            platform="windows",
+            battery_percentage=50,
+            charging=False,
+            last_seen_at=now,
+            enabled=True,
+            automation_enabled=True,
+        )
+        db.add_all([connector, endpoint])
+        db.flush()
+        device = Device(
+            tenant_id=connector.tenant_id,
+            connector_id=connector.id,
+            name="Connector switch",
+            device_id="connector-automation-switch",
+            encrypted_local_key="unused",
+            current_state=True,
+        )
+        db.add(device)
+        db.flush()
+        db.add(
+            Mapping(
+                tenant_id=connector.tenant_id,
+                endpoint_id=endpoint.id,
+                device_id=device.id,
+                enabled=True,
+                on_threshold=80,
+                off_threshold=99,
+            )
+        )
+        db.commit()
+
+        processed = asyncio.run(
+            process_telemetry_event(
+                db,
+                event_id="00000000-0000-0000-0000-000000000005",
+                endpoint_id=endpoint.id,
+                tenant_id=connector.tenant_id,
+                payload=TelemetryPayload(
+                    hostname=endpoint.hostname,
+                    battery_percentage=50,
+                    charging=False,
+                    ac_connected=False,
+                    timestamp=now,
+                    agent_version="1.0.0",
+                ),
+            )
+        )
+
+        command = db.query(DeviceCommand).filter(DeviceCommand.device_id == device.id).one()
+        assert processed is True
+        assert command.operation == "get_status"
+        assert json.loads(command.context_json)["automation_reconcile"] is True
+        assert db.query(DeviceCommand).filter(DeviceCommand.operation == "set_state").count() == 0
+
+
+def test_local_automation_skips_decision_when_live_switch_status_is_unavailable(monkeypatch):
+    now = datetime.now(UTC)
+
+    class OfflineTuyaService:
+        @staticmethod
+        def from_device(_device):
+            return OfflineTuyaService()
+
+        async def get_status(self, _device_id, channel=1):
+            return {"online": False, "state": False, "channel": channel}
+
+        async def set_state(self, **_kwargs):
+            raise AssertionError("Automation must not act on an unknown switch state.")
+
+    monkeypatch.setattr("app.services.automation_processor.TuyaService", OfflineTuyaService)
+    with SessionLocal() as db:
+        endpoint = Endpoint(
+            hostname="OFFLINE-SWITCH-ENDPOINT",
+            battery_percentage=50,
+            charging=False,
+            last_seen_at=now,
+            enabled=True,
+            automation_enabled=True,
+        )
+        device = Device(
+            name="Offline switch",
+            device_id="offline-switch-device",
+            encrypted_local_key="unused",
+            current_state=True,
+        )
+        db.add_all([endpoint, device])
+        db.flush()
+        db.add(
+            Mapping(
+                endpoint_id=endpoint.id,
+                device_id=device.id,
+                enabled=True,
+                on_threshold=80,
+                off_threshold=99,
+            )
+        )
+        db.commit()
+
+        processed = asyncio.run(
+            process_telemetry_event(
+                db,
+                event_id="00000000-0000-0000-0000-000000000006",
+                endpoint_id=endpoint.id,
+                tenant_id=None,
+                payload=TelemetryPayload(
+                    hostname=endpoint.hostname,
+                    battery_percentage=50,
+                    charging=False,
+                    ac_connected=False,
+                    timestamp=now,
+                    agent_version="1.0.0",
+                ),
+            )
+        )
+
+        assert processed is True
         assert db.query(AutomationEvent).count() == 0

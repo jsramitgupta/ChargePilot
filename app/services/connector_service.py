@@ -3,20 +3,28 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import or_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device, DeviceChannel
+from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
+from app.models.mapping import Mapping
 from app.services.local_key_service import decrypt_local_key
 from app.services.tuya_energy import apply_meter_result
+from app.services.telemetry_policy import (
+    telemetry_freshness_limit_seconds,
+    tenant_reporting_interval_minutes,
+)
 
 COMMAND_TTL = timedelta(minutes=5)
 COMMAND_LEASE = timedelta(seconds=60)
 MAX_COMMAND_ATTEMPTS = 5
 CONNECTOR_ONLINE_WINDOW = timedelta(seconds=90)
 METER_POLL_INTERVAL = timedelta(seconds=60)
+MAPPING_STATUS_POLL_INTERVAL = timedelta(seconds=60)
 
 
 def hash_connector_token(token: str) -> str:
@@ -68,6 +76,10 @@ def queue_device_command(
         )
         if outstanding is not None:
             if operation == "get_status":
+                if context:
+                    existing_context = json.loads(outstanding.context_json or "{}")
+                    existing_context.update(context)
+                    outstanding.context_json = json.dumps(existing_context)
                 return outstanding
             if outstanding.desired_state == desired_state:
                 return outstanding
@@ -170,6 +182,114 @@ def _queue_due_meter_poll(db: Session, connector: SiteConnector, now: datetime) 
     return True
 
 
+def _queue_due_automation_status_poll(
+    db: Session,
+    connector: SiteConnector,
+    now: datetime,
+) -> bool:
+    cutoff = now - MAPPING_STATUS_POLL_INTERVAL
+    channel_matches = or_(
+        and_(
+            Mapping.channel_id.is_(None),
+            DeviceCommand.channel_id.is_(None),
+        ),
+        DeviceCommand.channel_id == Mapping.channel_id,
+    )
+    latest_status_at = (
+        select(func.max(DeviceCommand.completed_at))
+        .where(
+            DeviceCommand.device_id == Mapping.device_id,
+            DeviceCommand.operation == "get_status",
+            channel_matches,
+        )
+        .correlate(Mapping)
+        .scalar_subquery()
+    )
+    pending_status = (
+        select(DeviceCommand.id)
+        .where(
+            DeviceCommand.device_id == Mapping.device_id,
+            DeviceCommand.operation == "get_status",
+            DeviceCommand.status.in_(("queued", "leased")),
+            DeviceCommand.expires_at > now,
+            channel_matches,
+        )
+        .exists()
+    )
+    candidates = (
+        db.query(Mapping, Device, Endpoint)
+        .join(
+            Device,
+            and_(
+                Device.id == Mapping.device_id,
+                Device.tenant_id == Mapping.tenant_id,
+            ),
+        )
+        .join(
+            Endpoint,
+            and_(
+                Endpoint.id == Mapping.endpoint_id,
+                Endpoint.tenant_id == Mapping.tenant_id,
+            ),
+        )
+        .filter(
+            Mapping.tenant_id == connector.tenant_id,
+            Mapping.enabled.is_(True),
+            Device.connector_id == connector.id,
+            Device.enabled.is_(True),
+            Endpoint.enabled.is_(True),
+            Endpoint.automation_enabled.is_(True),
+            Endpoint.platform.in_(settings.automation_telemetry_platforms),
+            Endpoint.last_seen_at.is_not(None),
+            Endpoint.last_seen_at >= now - timedelta(seconds=settings.telemetry_max_age_seconds),
+            ~pending_status,
+            or_(latest_status_at.is_(None), latest_status_at <= cutoff),
+        )
+        .order_by(latest_status_at.asc().nullsfirst(), Mapping.created_at.asc())
+        .limit(100)
+        .all()
+    )
+
+    for mapping, device, endpoint in candidates:
+        last_seen_at = endpoint.last_seen_at
+        if last_seen_at.tzinfo is None:
+            last_seen_at = last_seen_at.replace(tzinfo=UTC)
+        sample_age_seconds = (now - last_seen_at).total_seconds()
+        reporting_interval_minutes = tenant_reporting_interval_minutes(db, endpoint.tenant_id)
+        if not (
+            -settings.telemetry_max_future_skew_seconds
+            <= sample_age_seconds
+            <= telemetry_freshness_limit_seconds(reporting_interval_minutes)
+        ):
+            continue
+
+        channel_index = 1
+        if mapping.channel_id:
+            channel = (
+                db.query(DeviceChannel)
+                .filter(
+                    DeviceChannel.id == mapping.channel_id,
+                    DeviceChannel.device_id == device.id,
+                )
+                .first()
+            )
+            if channel is None:
+                continue
+            channel_index = channel.channel_index
+
+        queue_device_command(
+            db,
+            device=device,
+            operation="get_status",
+            channel_index=channel_index,
+            channel_id=mapping.channel_id,
+            context={"automation_reconcile": True},
+        )
+        db.flush()
+        return True
+    return False
+
+
 def claim_next_command(db: Session, connector: SiteConnector) -> dict | None:
     now = datetime.now(UTC)
     expired = (
@@ -197,6 +317,9 @@ def claim_next_command(db: Session, connector: SiteConnector) -> dict | None:
         ),
     )
     command = eligible.order_by(DeviceCommand.created_at.asc()).with_for_update(skip_locked=True).first()
+    if command is None:
+        if _queue_due_automation_status_poll(db, connector, now):
+            command = eligible.order_by(DeviceCommand.created_at.asc()).with_for_update(skip_locked=True).first()
     if command is None:
         if _queue_due_meter_poll(db, connector, now):
             command = eligible.order_by(DeviceCommand.created_at.asc()).with_for_update(skip_locked=True).first()
@@ -324,6 +447,8 @@ def finalize_command(
         device.updated_at = now
     elif success and command.operation == "get_status" and isinstance((result or {}).get("state"), bool):
         state = result["state"]
+        previous_state = channel.current_state if channel is not None else device.current_state
+        had_previous_status = device.last_seen_at is not None
         if channel is not None:
             channel.current_state = state
             device.current_state = any(
@@ -332,6 +457,8 @@ def finalize_command(
             )
         else:
             device.current_state = state
+        if had_previous_status and previous_state != state:
+            device.last_state_change_at = now
         device.last_seen_at = now
         device.updated_at = now
 

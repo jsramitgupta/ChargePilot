@@ -129,7 +129,10 @@ Switches can be configured with device-specific Tuya power and energy readings
 through a one-time discovery action. The assigned site connector returns at
 most 32 numeric reading candidates, never the complete device status map;
 recognized names are suggested, while unknown readings require user selection.
-Configured meters are polled about once a minute and return normalized values.
+The guided setup lets users choose source units and up to six implied decimal
+places per reading, converting raw values such as `591` to `59.1 W` before
+storage. Configured meters are polled about once a minute and return normalized
+values.
 The guided discovery action requires connector version 0.1.4+; regular meter
 polling requires connector version 0.1.3+ and the explicit
 `20261022_tuya_energy_monitoring.sql` migration for existing PostgreSQL schemas.

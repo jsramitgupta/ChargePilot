@@ -70,10 +70,18 @@ def _mock_tuya_service(monkeypatch):
     class FakeTuyaService:
         @staticmethod
         def from_device(device):
-            return FakeTuyaService()
+            return FakeTuyaService(device.current_state)
+
+        def __init__(self, current_state):
+            self.current_state = current_state
 
         async def get_status(self, device_id, channel=1):
-            return {"device_id": device_id, "channel": channel, "online": False}
+            return {
+                "device_id": device_id,
+                "channel": channel,
+                "online": True,
+                "state": "ON" if self.current_state else "OFF",
+            }
 
         async def set_state(self, device_id, on, channel=1):
             return {"device_id": device_id, "channel": channel, "success": True, "state": "ON" if on else "OFF"}

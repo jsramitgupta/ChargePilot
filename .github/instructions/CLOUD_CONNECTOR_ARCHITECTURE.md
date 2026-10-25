@@ -91,18 +91,33 @@ HTTP contract versioned for later connector upgrades.
 
 1. Existing endpoint agents submit their platform-aware telemetry
    payload and token.
-2. ChargePilot saves endpoint telemetry and evaluates the mapping's
-   hysteresis and cooldown rules. Automatic turn-on can be disabled
+2. ChargePilot saves endpoint telemetry and validates that the endpoint and
+   sample are eligible for automation. Direct-local switches are checked
+   against live status before evaluating the mapping's hysteresis and cooldown
+   rules; if status is offline or unrecognized, it skips the decision rather
+   than using cached state. Automatic turn-on can be disabled
    independently of turn-off behavior. A separate charging-completion cutoff
    can turn an on switch off at its configured battery threshold only when
    telemetry reports `charging=true`; `ac_connected` alone is not sufficient.
-3. If an action is required, ChargePilot creates a durable command for the
-   device's assigned connector. Avoid duplicate outstanding commands for the
-   same device/channel.
-4. The connector claims authorized work, performs the local TinyTuya operation,
+3. For connector-assigned switches, telemetry requests a live `get_status`
+   before making a battery decision. Successful status results are reconciled
+   against the endpoint's latest fresh battery/charging sample and the same
+   mapping rules; idle connector polling also checks enabled mapped switches
+   about once per minute when their endpoints remain automation-eligible.
+   Stale, disabled, or disallowed endpoint telemetry does not trigger status
+   reconciliation or corrective commands.
+4. If an action is required, ChargePilot creates a durable desired-state
+   command for the device's assigned connector. Avoid duplicate outstanding
+   commands for the same device/channel.
+5. The connector claims authorized work, performs the local TinyTuya operation,
    verifies/report results, then acknowledges using the command ID.
-5. ChargePilot updates device/channel state, creates the automation event,
+6. ChargePilot updates device/channel state, creates the automation event,
    broadcasts the update, and exposes failures or pending work in the UI.
+
+Successful status checks update the last-observed state. If a later check
+finds a state change, that observation starts the existing device cooldown;
+status polling must not bypass the mapping's hysteresis, turn-on setting,
+charging cutoff, or minimum state-change interval.
 
 Manual switch controls use the connector path for connector-assigned devices.
 The connector normalizes generic `switch`, `plug`, and `outlet` labels to

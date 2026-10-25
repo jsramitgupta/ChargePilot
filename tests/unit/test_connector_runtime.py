@@ -147,8 +147,17 @@ def test_connector_reads_selected_channel_from_unfiltered_status():
     assert chargepilot_connector._read_device_state(device, 2) is True
 
 
-def test_connector_returns_only_configured_meter_datapoints(monkeypatch):
-    device = _FakeDevice({"1": True, "cur_power": "845", "add_ele": "12500", "other": "secret"})
+@pytest.mark.parametrize(
+    ("power_raw", "power_multiplier", "expected_watts"),
+    [(845, 0.1, 84.5), (591, 0.1, 59.1)],
+)
+def test_connector_returns_only_configured_meter_datapoints(
+    monkeypatch,
+    power_raw,
+    power_multiplier,
+    expected_watts,
+):
+    device = _FakeDevice({"1": True, "cur_power": str(power_raw), "add_ele": "12500", "other": "secret"})
     monkeypatch.setattr(chargepilot_connector, "OutletDevice", lambda *args, **kwargs: device)
 
     result = chargepilot_connector._execute_device_command(
@@ -159,14 +168,14 @@ def test_connector_returns_only_configured_meter_datapoints(monkeypatch):
                 "ip_address": "192.168.1.15",
                 "local_key": "not-returned",
                 "power_dp_id": "cur_power",
-                "power_multiplier": 0.1,
+                "power_multiplier": power_multiplier,
                 "energy_dp_id": "add_ele",
                 "energy_multiplier": 0.001,
             },
         }
     )
 
-    assert result == {"state": True, "power_watts": 84.5, "energy_total_kwh": 12.5}
+    assert result == {"state": True, "power_watts": expected_watts, "energy_total_kwh": 12.5}
 
 
 def test_connector_ignores_invalid_meter_datapoint_values(monkeypatch):

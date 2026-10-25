@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
@@ -7,7 +8,9 @@ from app.core.database import SessionLocal
 from app.main import app
 from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device
+from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
+from app.models.mapping import Mapping
 from app.services.local_key_service import decrypt_local_key
 from conftest import api_login, register_standard_user, register_tenant_admin
 
@@ -30,6 +33,194 @@ def _enroll_connector(client: TestClient, name: str = "Office LAN") -> tuple[str
     )
     assert response.status_code == 200, response.text
     return response.json()["connector_id"], response.json()["token"]
+
+
+@pytest.mark.parametrize(
+    ("battery", "physical_state", "cached_state", "desired_state"),
+    [
+        (50, False, True, True),
+        (95, True, False, False),
+    ],
+)
+def test_live_connector_status_reconciles_manual_switch_changes(
+    battery: int,
+    physical_state: bool,
+    cached_state: bool,
+    desired_state: bool,
+):
+    owner = _tenant_admin_client(f"connector_reconcile_{battery}")
+    connector_id, token = _enroll_connector(owner, "Reconciliation LAN")
+    device_response = owner.post(
+        "/api/v1/devices",
+        json={
+            "name": "Reconciliation switch",
+            "device_id": f"reconcile-device-{battery}-{physical_state}",
+            "ip_address": "192.168.1.44",
+            "device_type": "switch",
+            "protocol_version": "3.5",
+            "encrypted_local_key": "reconcile-local-key",
+        },
+    )
+    assert device_response.status_code == 201, device_response.text
+    device_id = device_response.json()["id"]
+    assigned = owner.put(
+        f"/api/v1/devices/{device_id}/connector",
+        json={"connector_id": connector_id},
+    )
+    assert assigned.status_code == 200, assigned.text
+
+    with SessionLocal() as db:
+        connector = db.query(SiteConnector).filter(SiteConnector.id == connector_id).one()
+        device = db.query(Device).filter(Device.id == device_id).one()
+        device.current_state = cached_state
+        endpoint = Endpoint(
+            tenant_id=connector.tenant_id,
+            hostname=f"reconcile-endpoint-{battery}-{physical_state}",
+            platform="windows",
+            battery_percentage=battery,
+            charging=False,
+            last_seen_at=datetime.now(UTC),
+            enabled=True,
+            automation_enabled=True,
+        )
+        db.add(endpoint)
+        db.flush()
+        db.add(
+            Mapping(
+                tenant_id=connector.tenant_id,
+                endpoint_id=endpoint.id,
+                device_id=device.id,
+                enabled=True,
+                on_threshold=80,
+                off_threshold=90,
+                minimum_state_change_interval=300,
+            )
+        )
+        db.commit()
+
+    headers = {"Authorization": f"Bearer {token}"}
+    claim = owner.post("/api/v1/connectors/commands/claim", headers=headers, json={})
+    assert claim.status_code == 200, claim.text
+    status_command = claim.json()["command"]
+    assert status_command["operation"] == "get_status"
+
+    result = owner.post(
+        f"/api/v1/connectors/commands/{status_command['id']}/result",
+        headers=headers,
+        json={"success": True, "result": {"state": physical_state}},
+    )
+    assert result.status_code == 200, result.text
+
+    with SessionLocal() as db:
+        correction = (
+            db.query(DeviceCommand)
+            .filter(
+                DeviceCommand.device_id == device_id,
+                DeviceCommand.operation == "set_state",
+            )
+            .one()
+        )
+        assert correction.status == "queued"
+        assert correction.desired_state is desired_state
+        assert correction.context_json
+        device = db.query(Device).filter(Device.id == device_id).one()
+        assert device.current_state is physical_state
+
+
+def test_connector_status_poll_is_deduplicated_and_skips_stale_telemetry():
+    owner = _tenant_admin_client("connector_status_poll_freshness")
+    connector_id, token = _enroll_connector(owner, "Freshness LAN")
+    device_response = owner.post(
+        "/api/v1/devices",
+        json={
+            "name": "Freshness switch",
+            "device_id": "freshness-poll-device",
+            "ip_address": "192.168.1.45",
+            "device_type": "switch",
+            "protocol_version": "3.5",
+            "encrypted_local_key": "freshness-local-key",
+        },
+    )
+    assert device_response.status_code == 201, device_response.text
+    device_id = device_response.json()["id"]
+    assigned = owner.put(
+        f"/api/v1/devices/{device_id}/connector",
+        json={"connector_id": connector_id},
+    )
+    assert assigned.status_code == 200, assigned.text
+
+    with SessionLocal() as db:
+        connector = db.query(SiteConnector).filter(SiteConnector.id == connector_id).one()
+        device = db.query(Device).filter(Device.id == device_id).one()
+        endpoint = Endpoint(
+            tenant_id=connector.tenant_id,
+            hostname="freshness-poll-endpoint",
+            platform="windows",
+            battery_percentage=90,
+            charging=False,
+            last_seen_at=datetime.now(UTC) - timedelta(minutes=20),
+            enabled=True,
+            automation_enabled=True,
+        )
+        db.add(endpoint)
+        db.flush()
+        db.add(
+            Mapping(
+                tenant_id=connector.tenant_id,
+                endpoint_id=endpoint.id,
+                device_id=device.id,
+                enabled=True,
+            )
+        )
+        db.commit()
+
+    headers = {"Authorization": f"Bearer {token}"}
+    stale_claim = owner.post("/api/v1/connectors/commands/claim", headers=headers, json={})
+    assert stale_claim.status_code == 200, stale_claim.text
+    assert stale_claim.json()["command"] is None
+
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter(Endpoint.hostname == "freshness-poll-endpoint").one()
+        endpoint.last_seen_at = datetime.now(UTC)
+        endpoint.automation_enabled = False
+        db.commit()
+
+    disabled_claim = owner.post("/api/v1/connectors/commands/claim", headers=headers, json={})
+    assert disabled_claim.status_code == 200, disabled_claim.text
+    assert disabled_claim.json()["command"] is None
+
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter(Endpoint.hostname == "freshness-poll-endpoint").one()
+        endpoint.automation_enabled = True
+        db.commit()
+
+    fresh_claim = owner.post("/api/v1/connectors/commands/claim", headers=headers, json={})
+    assert fresh_claim.status_code == 200, fresh_claim.text
+    status_command = fresh_claim.json()["command"]
+    assert status_command["operation"] == "get_status"
+
+    repeated_claim = owner.post("/api/v1/connectors/commands/claim", headers=headers, json={})
+    assert repeated_claim.status_code == 200, repeated_claim.text
+    assert repeated_claim.json()["command"] is None
+
+    result = owner.post(
+        f"/api/v1/connectors/commands/{status_command['id']}/result",
+        headers=headers,
+        json={"success": True, "result": {"state": False}},
+    )
+    assert result.status_code == 200, result.text
+    no_early_repoll = owner.post("/api/v1/connectors/commands/claim", headers=headers, json={})
+    assert no_early_repoll.status_code == 200, no_early_repoll.text
+    assert no_early_repoll.json()["command"] is None
+
+    with SessionLocal() as db:
+        completed_status = db.query(DeviceCommand).filter(DeviceCommand.id == status_command["id"]).one()
+        completed_status.completed_at = datetime.now(UTC) - timedelta(seconds=61)
+        db.commit()
+
+    due_repoll = owner.post("/api/v1/connectors/commands/claim", headers=headers, json={})
+    assert due_repoll.status_code == 200, due_repoll.text
+    assert due_repoll.json()["command"]["operation"] == "get_status"
 
 
 def test_connector_api_lists_status_for_authenticated_tenant():

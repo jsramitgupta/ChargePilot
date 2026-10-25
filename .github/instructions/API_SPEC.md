@@ -640,10 +640,15 @@ Request:
 Reading IDs are stored internally. Use the discovery operation below to find
 numeric readings from the configured switch; recognizable names are suggested
 as power or energy, and other readings can be selected by their live sample.
-Multipliers convert raw values to watts and kWh. `energy_counter_type` is
-`cumulative` (the API derives monthly deltas) or `monthly` (the API uses the
-device's reported month counter). Each setting may be disabled by sending a
-`null` datapoint ID. The response includes configuration, latest power,
+Multipliers convert raw values to watts and kWh. The guided setup can shift a
+raw reading by up to six decimal places and saves that choice in the existing
+multiplier field. For example, raw power `591` with a one-place decimal shift
+uses `power_multiplier: 0.1` and is recorded as `59.1 W`. No additional API
+field or database migration is required for this scale adjustment.
+`energy_counter_type` is `cumulative` (the API derives monthly deltas) or
+`monthly` (the API uses the device's reported month counter). Each setting may
+be disabled by sending a `null` datapoint ID. The response includes
+configuration, latest power,
 current UTC-month energy, independent `meter_power_sample_at` /
 `meter_energy_sample_at` timestamps, and cumulative tracking start.
 Unconfigured values are `null`, not zero.
@@ -782,11 +787,21 @@ device APIs.
 Commands are persisted, leased, expire, and are eligible for bounded reclaim
 after connection loss. Operations are allowlisted (`set_state`, `get_status`,
 `inspect_meter`, `discover`) and device commands are scoped to the authenticating connector.
-For devices with meter datapoints configured, idle command polling schedules a
-`get_status` command about once per minute. The command includes only the
-configured datapoint IDs and conversion multipliers; the connector returns
-normalized `power_watts` and `energy_total_kwh` values, never the arbitrary DPS
-map. Meter data is ignored unless its corresponding datapoint is configured.
+For a connector-assigned switch with an enabled mapping and fresh,
+automation-eligible endpoint telemetry, telemetry processing requests a live
+`get_status` before evaluating battery rules. Idle command polling also
+schedules mapped-switch status checks about once per minute. A successful
+status result is reconciled using the endpoint's latest fresh battery and
+charging sample, and any corrective `set_state` command still observes the
+mapping's hysteresis, turn-on setting, charging cutoff, and cooldown. Stale,
+disabled, or platform-disallowed telemetry cannot trigger reconciliation.
+
+For devices with meter datapoints configured, idle command polling schedules
+`get_status` work about once per minute when no other command is waiting. The
+command includes only the configured datapoint IDs and conversion multipliers;
+the connector returns normalized `power_watts` and `energy_total_kwh` values,
+never the arbitrary DPS map. Meter data is ignored unless its corresponding
+datapoint is configured.
 
 ### POST /api/v1/connectors/commands/{command_id}/result
 

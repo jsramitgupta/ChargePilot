@@ -12,6 +12,20 @@ logger = logging.getLogger("chargepilot.tuya")
 DISCOVERY_LOCK = asyncio.Lock()
 
 
+def coerce_switch_state(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "on", "yes", "open"}:
+            return True
+        if normalized in {"false", "0", "off", "no", "closed", "close"}:
+            return False
+    return None
+
+
 class TuyaService:
     """Local Tuya abstraction used by the rest of the application."""
 
@@ -51,18 +65,8 @@ class TuyaService:
         )
 
     @staticmethod
-    def _coerce_bool(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            normalized = value.strip().lower()
-            if normalized in {"true", "1", "on", "yes", "open"}:
-                return True
-            if normalized in {"false", "0", "off", "no", "closed", "close"}:
-                return False
-        return False
+    def _coerce_bool(value: Any) -> bool | None:
+        return coerce_switch_state(value)
 
     @staticmethod
     def _extract_dps(payload: Any) -> dict[str, Any]:
@@ -200,17 +204,34 @@ class TuyaService:
     async def get_status(self, device_id: str, channel: int = 1) -> dict[str, Any]:
         device = self._build_device() if self.device_id == device_id else None
         if device is None:
-            return {"device_id": device_id, "channel": channel, "online": True, "state": False}
+            logger.warning(
+                "TinyTuya status check skipped because switch connection details are incomplete: device_id=%s",
+                device_id,
+            )
+            return {
+                "device_id": device_id,
+                "channel": channel,
+                "online": False,
+                "state": False,
+                "error": "Switch connection details are incomplete.",
+            }
 
         try:
             data = await asyncio.to_thread(device.status)
             state = False
             dps = self._extract_dps(data)
-            if dps:
-                channel_value = dps.get(str(channel), dps.get(channel))
-                if channel_value is None and channel != 1:
-                    channel_value = dps.get("1") if "1" in dps else None
-                state = self._coerce_bool(channel_value)
+            channel_value = dps.get(str(channel), dps.get(channel))
+            if channel_value is None and channel != 1:
+                channel_value = dps.get("1") if "1" in dps else None
+            state = self._coerce_bool(channel_value)
+            if state is None:
+                return {
+                    "device_id": device_id,
+                    "channel": channel,
+                    "online": True,
+                    "state": None,
+                    "error": "The local device did not report a supported channel state.",
+                }
             return {"device_id": device_id, "channel": channel, "online": True, "state": state}
         except Exception as exc:  # pragma: no cover - defensive fallback
             return {"device_id": device_id, "channel": channel, "online": False, "state": False, "error": str(exc)}
