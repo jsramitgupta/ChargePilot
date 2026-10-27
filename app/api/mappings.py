@@ -107,7 +107,10 @@ async def create_mapping(
         device_id=device_id,
         channel_id=channel_id,
         enabled=payload.enabled,
-        turn_on_enabled=payload.turn_on_enabled,
+        use_case=payload.use_case,
+        turn_on_enabled=(
+            False if payload.use_case == "switch_off_only" else payload.turn_on_enabled
+        ),
         on_threshold=payload.on_threshold,
         off_threshold=payload.off_threshold,
         turn_off_when_charging_enabled=payload.turn_off_when_charging_enabled,
@@ -155,6 +158,8 @@ async def update_mapping(
                 setattr(mapping, field, str(value))
         else:
             setattr(mapping, field, value)
+    if mapping.use_case == "switch_off_only":
+        mapping.turn_on_enabled = False
     mapping.tenant_id = endpoint.tenant_id
     db.commit()
     db.refresh(mapping)

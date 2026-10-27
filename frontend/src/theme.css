@@ -459,6 +459,7 @@ body.theme-dark .mapping-total,
 body.theme-dark .switch-inventory-count,
 body.theme-dark .mapping-choice-card,
 body.theme-dark .mapping-switch-option,
+body.theme-dark .mapping-use-case-option,
 body.theme-dark .mapping-number-input,
 body.theme-dark .mapping-rule-preview,
 body.theme-dark .switch-search,
@@ -472,10 +473,46 @@ body.theme-dark .switch-card-actions {
 }
 
 body.theme-dark .mapping-choice-card.is-selected,
-body.theme-dark .mapping-switch-option.is-selected {
+body.theme-dark .mapping-switch-option.is-selected,
+body.theme-dark .mapping-use-case-option.is-selected {
   border-color: #83b18e;
   background: #22372c;
   box-shadow: 0 0 0 2px rgba(131, 177, 142, .22);
+}
+
+body.theme-dark .mapping-use-case-option.is-unavailable {
+  border-color: #34463e;
+  color: #a4b5ac;
+  background: #17231f;
+}
+
+body.theme-dark .mapping-use-case-confirmation {
+  color: #e1ece5;
+  background: #20352b;
+}
+
+body.theme-dark .mapping-use-case-icon {
+  color: #c8e0cd;
+  background: #25372f;
+}
+
+body.theme-dark .mapping-use-case-copy strong {
+  color: #e1ece5;
+}
+
+body.theme-dark .mapping-use-case-option.is-unavailable .mapping-use-case-copy strong,
+body.theme-dark .mapping-use-case-copy small,
+body.theme-dark .mapping-use-case-confirmation > span,
+body.theme-dark .mapping-use-case-confirmation small {
+  color: #a4b5ac;
+}
+
+body.theme-dark .mapping-use-case-indicator {
+  border-color: #587063;
+}
+
+body.theme-dark .mapping-use-case-option.is-selected .mapping-use-case-indicator {
+  border-color: #83b18e;
 }
 
 body.theme-dark .mapping-step-number,
@@ -548,6 +585,7 @@ body.theme-dark .switch-state-label,
 body.theme-dark .channel-state-label,
 body.theme-dark .mapping-enabled-state,
 body.theme-dark .mapping-tenant-label,
+body.theme-dark .mapping-use-case-label,
 body.theme-dark .mapping-choice-battery,
 body.theme-dark .mapping-switch-state,
 body.theme-dark .channel-number {
@@ -573,6 +611,11 @@ body.theme-dark .mapping-threshold-legend .is-charging {
 
 body.theme-dark .mapping-tenant-label {
   color: #add0df;
+}
+
+body.theme-dark .mapping-use-case-label {
+  color: #c8e0cd;
+  background: #25372f;
 }
 
 body.theme-dark .mapping-choice-battery.is-low {

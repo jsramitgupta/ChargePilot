@@ -74,6 +74,7 @@ def test_mapping_wizard_and_switch_inventory_have_tenant_safe_theme_support():
 
     assert "Choose device" in app
     assert "Choose switch" in app
+    assert "Choose use case" in app
     assert "Set battery rules" in app
     assert 'className="mapping-step-title"' in app
     assert "switch-filter-group" in app
@@ -81,7 +82,11 @@ def test_mapping_wizard_and_switch_inventory_have_tenant_safe_theme_support():
     assert "connector.tenant_id === device.tenant_id" in app
     assert "channel_id: channelId || null" in app
     assert ".mapping-stepper" in light
+    assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in css_rule(light, ".mapping-stepper")
     assert "flex-direction: column;" in css_rule(light, ".mapping-stepper button")
+    assert ".mapping-use-case-option.is-selected" in light
+    assert ".mapping-use-case-option.is-unavailable" in light
+    assert "body.theme-dark .mapping-use-case-option.is-unavailable" in dark
     assert "top: 21px;" in css_rule(light, ".mapping-stepper li:not(:last-child)::after")
     assert ".mapping-step-title" in light
     assert ".switch-inventory-grid" in light

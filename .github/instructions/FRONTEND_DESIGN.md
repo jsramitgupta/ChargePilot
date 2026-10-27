@@ -115,8 +115,13 @@ Only installable agent binaries are available through the public API proxy;
 agent and connector source archives are not distributed. The Site Connectors
 page documents the published Docker Compose image only. Code creation and
 credential management remain authenticated.
-Mapping setup advances only on an explicit user action and saves only from its
-explicit create/save action.
+Mapping setup has four explicit steps: choose an endpoint, choose a switch,
+choose a supported use case, and set battery rules. The use-case choice offers
+battery-managed switch cycling and switch-off-only behavior. Switch-off-only
+always disables automatic turn-on. Show the Windows/macOS switch-and-device
+shutdown choice as unavailable until agents can securely receive shutdown
+commands; do not imply that selecting a label can power off an endpoint.
+Continue advances without saving; create/save remains the only mutation action.
 The mapping stepper places each label below its numbered marker; connector
 segments join the markers only and never run behind step text. Keep this layout
 at narrow widths so longer step names wrap without crossing the progress line.

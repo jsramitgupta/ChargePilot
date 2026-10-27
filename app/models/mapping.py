@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -9,7 +9,13 @@ from app.core.database import Base
 
 class Mapping(Base):
     __tablename__ = "mappings"
-    __table_args__ = (UniqueConstraint("endpoint_id", "device_id", name="uq_mapping_endpoint_device"),)
+    __table_args__ = (
+        UniqueConstraint("endpoint_id", "device_id", name="uq_mapping_endpoint_device"),
+        CheckConstraint(
+            "use_case IN ('battery_cycle', 'switch_off_only')",
+            name="ck_mappings_use_case",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     owner_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -18,6 +24,7 @@ class Mapping(Base):
     device_id: Mapped[str] = mapped_column(String(36), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
     channel_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("device_channels.id", ondelete="SET NULL"), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    use_case: Mapped[str] = mapped_column(String(32), default="battery_cycle", server_default="battery_cycle")
     turn_on_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="TRUE")
     on_threshold: Mapped[int] = mapped_column(Integer, default=79)
     off_threshold: Mapped[int] = mapped_column(Integer, default=99)

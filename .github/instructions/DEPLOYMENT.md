@@ -848,6 +848,23 @@ system metrics; take a backup and confirm that data loss is acceptable before
 using it. Test upgrade and rollback against a restored backup before
 production.
 
+Automation-map use cases add `mappings.use_case` with a
+`battery_cycle` default for existing rows and a check constraint allowing
+`battery_cycle` or `switch_off_only`. Before deploying the updated API to an
+existing PostgreSQL installation:
+
+1. Take and verify a database backup.
+2. Apply `deploy/migrations/20261028_mapping_use_case.sql` through the private
+   database service.
+3. Deploy the backend and frontend, then verify creating and editing both
+   supported mapping use cases.
+
+The rollback script is
+`deploy/migrations/20261028_mapping_use_case_rollback.sql`. Roll back the
+application first; the script removes the use-case selection from mappings,
+so preserve the database backup and confirm that loss is acceptable. Test the
+upgrade and rollback scripts against a restored backup before production.
+
 Legacy Windows endpoints are identified by the
 `Win32_ComputerSystemProduct.UUID`; hostname remains mutable display and
 diagnostic data. The endpoint `hardware_uuid` column is nullable for existing

@@ -384,6 +384,7 @@ def test_reporting_schedule_and_endpoint_details_are_tenant_scoped():
     assert response.json()["display_name"] == "schedule-device"
     mapped_switch = response.json()["mappings"][0]
     assert mapped_switch["name"] == "schedule-switch"
+    assert mapped_switch["use_case"] == "battery_cycle"
     assert mapped_switch["meter_power_watts"] == 84.5
     assert mapped_switch["meter_energy_month_kwh"] == 2.75
     assert mapped_switch["power_dp_id"] == "cur_power"

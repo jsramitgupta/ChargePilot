@@ -161,6 +161,7 @@ def test_ensure_table_columns_adds_mapping_power_options():
         column["name"]: column
         for column in inspect(engine).get_columns("mappings")
     }
+    assert columns["use_case"]["nullable"] is False
     assert columns["turn_on_enabled"]["nullable"] is False
     assert columns["turn_off_when_charging_enabled"]["nullable"] is False
     assert columns["charging_off_threshold"]["nullable"] is False
@@ -223,6 +224,8 @@ def test_device_and_mapping_crud_flow():
             "device_id": device["id"],
             "channel_id": None,
             "enabled": True,
+            "use_case": "switch_off_only",
+            "turn_on_enabled": True,
             "on_threshold": 20,
             "off_threshold": 99,
             "minimum_state_change_interval": 300,
@@ -232,6 +235,8 @@ def test_device_and_mapping_crud_flow():
     assert mapping_response.status_code == 201, mapping_response.text
     mapping = mapping_response.json()
     assert mapping["device_id"] == device["id"]
+    assert mapping["use_case"] == "switch_off_only"
+    assert mapping["turn_on_enabled"] is False
 
     list_response = client.get("/api/v1/mappings")
     assert list_response.status_code == 200
@@ -560,6 +565,7 @@ def test_mappings_page_exposes_editable_threshold_controls():
             "device_id": device["id"],
             "channel_id": channel["id"],
             "enabled": True,
+            "use_case": "switch_off_only",
             "turn_on_enabled": False,
             "on_threshold": 35,
             "off_threshold": 90,
@@ -571,6 +577,7 @@ def test_mappings_page_exposes_editable_threshold_controls():
     assert mapping_response.status_code == 201, mapping_response.text
     mapping = mapping_response.json()
     assert mapping["tenant_name"] == "threshold_admin tenant"
+    assert mapping["use_case"] == "switch_off_only"
     assert mapping["turn_on_enabled"] is False
     assert mapping["turn_off_when_charging_enabled"] is True
     assert mapping["charging_off_threshold"] == 85
@@ -578,6 +585,7 @@ def test_mappings_page_exposes_editable_threshold_controls():
     updated = client.put(
         f"/api/v1/mappings/{mapping['id']}",
         json={
+            "use_case": "battery_cycle",
             "turn_on_enabled": True,
             "turn_off_when_charging_enabled": False,
             "charging_off_threshold": 88,
@@ -588,11 +596,26 @@ def test_mappings_page_exposes_editable_threshold_controls():
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()["turn_on_enabled"] is True
+    assert updated.json()["use_case"] == "battery_cycle"
     assert updated.json()["turn_off_when_charging_enabled"] is False
     assert updated.json()["charging_off_threshold"] == 88
     assert updated.json()["on_threshold"] == 40
     assert updated.json()["off_threshold"] == 85
     assert updated.json()["minimum_state_change_interval"] == 420
+    switch_off = client.put(
+        f"/api/v1/mappings/{mapping['id']}",
+        json={"use_case": "switch_off_only", "turn_on_enabled": True},
+    )
+    assert switch_off.status_code == 200, switch_off.text
+    assert switch_off.json()["turn_on_enabled"] is False
+    assert client.put(
+        f"/api/v1/mappings/{mapping['id']}",
+        json={"use_case": "unsupported_shutdown"},
+    ).status_code == 422
+    assert client.put(
+        f"/api/v1/mappings/{mapping['id']}",
+        json={"use_case": None},
+    ).status_code == 422
     assert client.put(
         f"/api/v1/mappings/{mapping['id']}",
         json={"charging_off_threshold": 101},

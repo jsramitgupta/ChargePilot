@@ -145,15 +145,21 @@ Cumulative energy uses observed monthly deltas from the first sample of each
 month; monthly counters use the device's month-to-date value. Power and energy
 retain separate valid-sample timestamps so an unavailable datapoint cannot
 make the other reading appear fresh.
-The mapping wizard has no form submission side effect: Continue only advances
-the setup, and creating or editing a mapping requires its explicit save button.
-Step 3 reviews the selected device and switch alongside editable battery rules.
-Mappings can disable automatic turn-on independently and can enable a separate
-charging-completion shutoff threshold. The charging cutoff uses telemetry's
-`charging` flag, not `ac_connected`, and does not replace the ordinary turn-off
-threshold. Existing mappings can be edited or deleted; clearing a channel
-during an edit restores whole-switch control. Table text, emphasized cells,
-and status badges retain readable contrast in dark mode.
+The mapping wizard advances only on explicit actions and saves only from its
+create/save button. It now has four steps: choose an endpoint, choose a switch,
+choose a supported use case, then set battery rules. `battery_cycle` retains
+the existing threshold-controlled switch behavior; `switch_off_only` disables
+automatic turn-on in both the API and UI. The requested combined switch and
+Windows/macOS shutdown option is visibly unavailable because endpoint agents
+currently report telemetry only and cannot receive shutdown commands. The
+rule editor can still disable automatic turn-on independently in the
+battery-cycle use case and can enable a separate charging-completion cutoff.
+The charging cutoff uses telemetry's `charging` flag, not `ac_connected`, and
+does not replace the ordinary turn-off threshold. Existing mappings can be
+edited or deleted; clearing a channel during an edit restores whole-switch
+control. The selected use case is returned by mapping and endpoint-detail APIs.
+Table text, emphasized cells, and status badges retain readable contrast in
+dark mode.
 The Site Connectors page presents the prebuilt Docker Compose deployment for
 Linux hosts. It accepts the one-time enrollment code through
 `CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE` and persists the connector credential

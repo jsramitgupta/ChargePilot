@@ -90,6 +90,7 @@ def _ensure_table_columns() -> None:
             "owner_id": "VARCHAR(36)",
             "tenant_id": "VARCHAR(36)",
             "updated_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+            "use_case": "VARCHAR(32) NOT NULL DEFAULT 'battery_cycle'",
             "turn_on_enabled": "BOOLEAN NOT NULL DEFAULT TRUE",
             "turn_off_when_charging_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
             "charging_off_threshold": "INTEGER NOT NULL DEFAULT 99",

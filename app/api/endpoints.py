@@ -221,6 +221,7 @@ async def get_endpoint_details(
                 "id": mapping.id,
                 "name": device.name,
                 "enabled": mapping.enabled,
+                "use_case": mapping.use_case,
                 "on_threshold": mapping.on_threshold,
                 "off_threshold": mapping.off_threshold,
                 "minimum_state_change_interval": mapping.minimum_state_change_interval,

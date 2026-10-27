@@ -2957,7 +2957,7 @@ button, a {
 
 .mapping-stepper {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin: 24px 0 0;
   padding: 0;
@@ -3109,6 +3109,118 @@ button, a {
   border-color: var(--leaf);
   background: color-mix(in srgb, var(--surface) 88%, var(--leaf));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--leaf) 32%, transparent);
+}
+
+.mapping-use-case-options {
+  display: grid;
+  max-width: 880px;
+  gap: 10px;
+}
+
+.mapping-use-case-option {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.mapping-use-case-option:hover:not(:disabled) {
+  border-color: var(--leaf);
+}
+
+.mapping-use-case-option:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--leaf) 65%, transparent);
+  outline-offset: 2px;
+}
+
+.mapping-use-case-option.is-selected {
+  border-color: var(--leaf);
+  background: color-mix(in srgb, var(--surface) 90%, var(--leaf));
+}
+
+.mapping-use-case-option.is-unavailable {
+  color: var(--muted);
+  background: var(--surface-muted);
+  cursor: not-allowed;
+}
+
+.mapping-use-case-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--forest);
+  background: color-mix(in srgb, var(--surface) 74%, var(--leaf));
+}
+
+.mapping-use-case-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.mapping-use-case-copy strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.4;
+}
+
+.mapping-use-case-copy small {
+  max-width: 68ch;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mapping-use-case-option.is-unavailable .mapping-use-case-copy strong {
+  color: var(--muted);
+}
+
+.mapping-use-case-indicator {
+  width: 17px;
+  height: 17px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+
+.mapping-use-case-option.is-selected .mapping-use-case-indicator {
+  border: 5px solid var(--leaf);
+}
+
+.mapping-use-case-confirmation {
+  display: grid;
+  max-width: 880px;
+  gap: 3px;
+  padding: 13px 15px;
+  border-left: 3px solid var(--leaf);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-muted) 78%, var(--leaf));
+}
+
+.mapping-use-case-confirmation > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.mapping-use-case-confirmation strong {
+  font-size: 13px;
+}
+
+.mapping-use-case-confirmation small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .mapping-choice-copy {
@@ -3599,7 +3711,8 @@ button, a {
 }
 
 .mapping-enabled-state,
-.mapping-tenant-label {
+.mapping-tenant-label,
+.mapping-use-case-label {
   padding: 5px 8px;
   border-radius: 99px;
   color: var(--muted);
@@ -3616,6 +3729,11 @@ button, a {
 .mapping-tenant-label {
   color: #356b86;
   background: #eaf3f7;
+}
+
+.mapping-use-case-label {
+  color: var(--forest);
+  background: color-mix(in srgb, var(--surface) 78%, var(--leaf));
 }
 
 .mapping-id {
@@ -5275,6 +5393,17 @@ button, a {
   .mapping-stepper button {
     gap: 5px;
     font-size: 10px;
+  }
+
+  .mapping-use-case-option {
+    grid-template-columns: 38px minmax(0, 1fr) 16px;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .mapping-use-case-icon {
+    width: 36px;
+    height: 36px;
   }
 
   .mapping-empty-inline,

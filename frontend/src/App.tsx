@@ -143,6 +143,7 @@ type EndpointDetails = {
     id: string
     name: string
     enabled: boolean
+    use_case: 'battery_cycle' | 'switch_off_only'
     on_threshold: number
     off_threshold: number
     minimum_state_change_interval: number
@@ -348,6 +349,7 @@ type Mapping = {
   endpoint_id: string
   device_id: string
   channel_id?: string | null
+  use_case: 'battery_cycle' | 'switch_off_only'
   turn_on_enabled: boolean
   on_threshold: number
   off_threshold: number
@@ -361,6 +363,7 @@ type MappingFormValues = {
   endpoint_id: string
   device_id: string
   channel_id: string
+  use_case: 'battery_cycle' | 'switch_off_only' | ''
   turn_on_enabled: boolean
   on_threshold: number
   off_threshold: number
@@ -2271,6 +2274,7 @@ function MappingsPage() {
       endpoint_id: '',
       device_id: '',
       channel_id: '',
+      use_case: '',
       turn_on_enabled: true,
       on_threshold: 79,
       off_threshold: 99,
@@ -2282,6 +2286,7 @@ function MappingsPage() {
   })
   const selectedDeviceId = useWatch({ control: form.control, name: 'device_id' })
   const selectedEndpointId = useWatch({ control: form.control, name: 'endpoint_id' })
+  const useCase = useWatch({ control: form.control, name: 'use_case' })
   const turnOnEnabled = useWatch({ control: form.control, name: 'turn_on_enabled' })
   const onThreshold = useWatch({ control: form.control, name: 'on_threshold' })
   const offThreshold = useWatch({ control: form.control, name: 'off_threshold' })
@@ -2324,15 +2329,15 @@ function MappingsPage() {
   if (mappingsLoading || endpointsLoading || devicesLoading) return <LoadingCard />
 
   async function advanceStep() {
-    const fieldsByStep = {
-      1: ['endpoint_id'],
-      2: ['device_id'],
-    } as const
-    const valid = await form.trigger(fieldsByStep[step as 1 | 2])
+    const valid = step === 1
+      ? await form.trigger('endpoint_id')
+      : step === 2
+        ? await form.trigger('device_id')
+        : await form.trigger('use_case')
     if (!valid) return
     if (step === 1 && matchingDevices.length === 0) return
     setStatusMessage('')
-    setStep((current) => Math.min(current + 1, 3))
+    setStep((current) => Math.min(current + 1, 4))
   }
 
   function editMapping(mapping: Mapping) {
@@ -2343,6 +2348,7 @@ function MappingsPage() {
       endpoint_id: mapping.endpoint_id,
       device_id: mapping.device_id,
       channel_id: mapping.channel_id ?? '',
+      use_case: mapping.use_case,
       turn_on_enabled: mapping.turn_on_enabled,
       on_threshold: mapping.on_threshold,
       off_threshold: mapping.off_threshold,
@@ -2351,7 +2357,7 @@ function MappingsPage() {
       minimum_state_change_interval: mapping.minimum_state_change_interval,
       enabled: mapping.enabled,
     })
-    setStep(3)
+    setStep(4)
     document.getElementById('mapping-builder-title')?.scrollIntoView({
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
       block: 'start',
@@ -2370,8 +2376,8 @@ function MappingsPage() {
     <div className="mapping-workspace">
       <PageHeader
         eyebrow="Automation"
-        title="Device to switch mappings"
-        description="Link a device to a switch, then set the battery levels that control it."
+        title="Automation maps"
+        description="Choose the device, switch and response that should follow its battery."
       />
 
       <section className="mapping-builder" aria-labelledby="mapping-builder-title">
@@ -2380,14 +2386,15 @@ function MappingsPage() {
             <h2 id="mapping-builder-title">{editingMappingId ? 'Edit mapping' : 'Create a mapping'}</h2>
             <p>{editingMappingId ? 'Review the linked device and switch, then adjust the automation rules.' : 'Choose what should be connected, then set how the battery should control it.'}</p>
           </div>
-          <span className="mapping-step-count">Step {step} of 3</span>
+          <span className="mapping-step-count">Step {step} of 4</span>
         </div>
 
         <ol className="mapping-stepper" aria-label="Mapping setup">
           {[
             { number: 1, title: 'Choose device' },
             { number: 2, title: 'Choose switch' },
-            { number: 3, title: 'Set battery rules' },
+            { number: 3, title: 'Choose use case' },
+            { number: 4, title: 'Set battery rules' },
           ].map((item) => (
             <li key={item.number} className={step === item.number ? 'is-current' : step > item.number ? 'is-complete' : ''}>
               <button
@@ -2493,15 +2500,80 @@ function MappingsPage() {
 
           {step === 3 && <div className="mapping-step-content">
             <div className="mapping-step-copy">
-              <span className="mapping-step-kicker">03 / Battery rules</span>
+              <span className="mapping-step-kicker">03 / Use case</span>
+              <h3>What should happen to the switch?</h3>
+              <p>Choose the switch behavior first. Battery thresholds are set in the next step.</p>
+            </div>
+            <div className="mapping-use-case-options" role="radiogroup" aria-label="Automation use case">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={useCase === 'battery_cycle'}
+                className={`mapping-use-case-option ${useCase === 'battery_cycle' ? 'is-selected' : ''}`}
+                onClick={() => {
+                  form.setValue('use_case', 'battery_cycle', { shouldValidate: true })
+                  form.setValue('turn_on_enabled', true)
+                  form.clearErrors('use_case')
+                }}
+              >
+                <span className="mapping-use-case-icon"><BatteryCharging size={21} aria-hidden="true" /></span>
+                <span className="mapping-use-case-copy">
+                  <strong>Cycle switch power with battery levels</strong>
+                  <small>Turn the switch on at a low battery level and off at your chosen charge target.</small>
+                </span>
+                <span className="mapping-use-case-indicator" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={useCase === 'switch_off_only'}
+                className={`mapping-use-case-option ${useCase === 'switch_off_only' ? 'is-selected' : ''}`}
+                onClick={() => {
+                  form.setValue('use_case', 'switch_off_only', { shouldValidate: true })
+                  form.setValue('turn_on_enabled', false)
+                  form.clearErrors('use_case')
+                }}
+              >
+                <span className="mapping-use-case-icon"><PlugZap size={21} aria-hidden="true" /></span>
+                <span className="mapping-use-case-copy">
+                  <strong>Only turn off the smart switch</strong>
+                  <small>Keep automatic turn-on disabled; switch-off thresholds still apply.</small>
+                </span>
+                <span className="mapping-use-case-indicator" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="mapping-use-case-option is-unavailable"
+                disabled
+                aria-describedby="mapping-shutdown-support"
+              >
+                <span className="mapping-use-case-icon"><MonitorSmartphone size={21} aria-hidden="true" /></span>
+                <span className="mapping-use-case-copy">
+                  <strong>Turn off the switch and the Windows or macOS device</strong>
+                  <small id="mapping-shutdown-support">Unavailable: agents currently report telemetry but cannot receive shutdown commands.</small>
+                </span>
+                <span className="mapping-use-case-indicator" aria-hidden="true" />
+              </button>
+            </div>
+            {form.formState.errors.use_case && <FieldError>Select a supported use case to continue.</FieldError>}
+          </div>}
+
+          {step === 4 && <div className="mapping-step-content">
+            <div className="mapping-step-copy">
+              <span className="mapping-step-kicker">04 / Battery rules</span>
               <h3>{editingMappingId ? 'Review and adjust the battery rules' : 'Set when the switch should change'}</h3>
               <p>These values are only applied when you save. Separate thresholds prevent rapid toggling around one battery level.</p>
+            </div>
+            <div className="mapping-use-case-confirmation" role="status">
+              <span>Selected use case</span>
+              <strong>{useCase === 'switch_off_only' ? 'Only turn off the smart switch' : 'Cycle switch power with battery levels'}</strong>
+              <small>{useCase === 'switch_off_only' ? 'Automatic turn-on is disabled. The switch turns off at the thresholds below.' : 'The switch turns on at the low-battery threshold and off at the charge target below.'}</small>
             </div>
             <div className="mapping-rule-layout">
               <div className="mapping-rule-fields">
                 <label className="mapping-enable-control" htmlFor="mapping-turn-on-enabled">
-                  <input id="mapping-turn-on-enabled" type="checkbox" {...form.register('turn_on_enabled')} />
-                  <span><strong>Enable automatic turn-on</strong><small>Turn the switch on when battery reaches the selected low threshold.</small></span>
+                  <input id="mapping-turn-on-enabled" type="checkbox" disabled={useCase === 'switch_off_only'} {...form.register('turn_on_enabled')} />
+                  <span><strong>Enable automatic turn-on</strong><small>{useCase === 'switch_off_only' ? 'Disabled by the switch-off-only use case.' : 'Turn the switch on when battery reaches the selected low threshold.'}</small></span>
                 </label>
                 <label className="mapping-rule-field" htmlFor="on-threshold"><span>Turn on at or below</span><span className="mapping-number-input"><input id="on-threshold" type="number" min={0} max={100} required={turnOnEnabled} disabled={!turnOnEnabled} {...form.register('on_threshold', { valueAsNumber: true, required: turnOnEnabled, min: 0, max: 100 })} /><b>%</b></span></label>
                 <label className="mapping-enable-control" htmlFor="mapping-charging-off-enabled">
@@ -2548,15 +2620,15 @@ function MappingsPage() {
               {step > 1 ? <button type="button" className="btn-secondary" onClick={() => setStep((current) => current - 1)}><ChevronLeft size={16} />Back</button> : <span />}
               {editingMappingId && <button type="button" className="mapping-cancel-edit" onClick={cancelEditing}>Cancel edit</button>}
             </div>
-            {step < 3 ? (
-              <button type="button" className="btn-primary" onClick={() => void advanceStep()} disabled={(step === 1 && !selectedEndpointId) || (step === 2 && !tenantsMatch)}>
+            {step < 4 ? (
+              <button type="button" className="btn-primary" onClick={() => void advanceStep()} disabled={(step === 1 && !selectedEndpointId) || (step === 2 && !tenantsMatch) || (step === 3 && !useCase)}>
                 Continue <ChevronRight size={16} />
               </button>
             ) : (
               <button
                 type="button"
                 className="btn-primary"
-                disabled={mutation.isPending || !tenantsMatch || (turnOnEnabled && offThreshold <= onThreshold)}
+                disabled={mutation.isPending || !tenantsMatch || !useCase || (turnOnEnabled && offThreshold <= onThreshold)}
                 onClick={() => void form.handleSubmit((values) => mutation.mutate({ mappingId: editingMappingId, values }))()}
               >
                 {mutation.isPending ? 'Saving…' : editingMappingId ? 'Save changes' : 'Create mapping'}
@@ -2595,6 +2667,7 @@ function MappingsPage() {
                   <div className="mapping-rule-summary"><span>Turn off</span><strong>{mapping.off_threshold}%</strong><small>or above</small></div>
                   {mapping.turn_off_when_charging_enabled && <div className="mapping-rule-summary"><span>Charging cutoff</span><strong>{mapping.charging_off_threshold}%</strong><small>or above while charging</small></div>}
                   <div className="mapping-rule-summary"><span>Cooldown</span><strong>{mapping.minimum_state_change_interval}s</strong><small>between changes</small></div>
+                  <span className="mapping-use-case-label">{mapping.use_case === 'switch_off_only' ? 'Switch off only' : 'Battery-managed cycle'}</span>
                   <span className={`mapping-enabled-state ${mapping.enabled ? 'is-enabled' : ''}`}>{mapping.enabled ? 'Automation on' : 'Paused'}</span>
                   <span className="mapping-tenant-label">{mapping.tenant_name ?? 'Unassigned tenant'}</span>
                 </div>
@@ -2608,7 +2681,7 @@ function MappingsPage() {
               </div>
             </article>
           })}
-          {!mappings?.length && <div className="mapping-empty-state"><Cable size={22} aria-hidden="true" /><h3>No mappings yet</h3><p>Use the three steps above to connect a device with a switch.</p></div>}
+          {!mappings?.length && <div className="mapping-empty-state"><Cable size={22} aria-hidden="true" /><h3>No mappings yet</h3><p>Use the four steps above to connect a device with a switch.</p></div>}
         </div>
       </section>
     </div>
@@ -3033,7 +3106,7 @@ function EndpointDetailsPanel({
               : mapping.energy_dp_id ? 'No current-month reading' : 'Not configured'
             return <li key={mapping.id} className="rounded-lg border border-[var(--line)] px-3 py-3">
               <div className="flex items-start justify-between gap-3">
-                <div><p className="font-medium text-[var(--ink)]">{mapping.name}</p><p className="mt-1 text-xs text-[var(--muted)]">{mapping.enabled ? 'Mapping active' : 'Mapping paused'} · Switch {mapping.switch_state ? 'on' : 'off'}</p></div>
+                <div><p className="font-medium text-[var(--ink)]">{mapping.name}</p><p className="mt-1 text-xs text-[var(--muted)]">{mapping.enabled ? 'Mapping active' : 'Mapping paused'} · {mapping.use_case === 'switch_off_only' ? 'switch off only' : 'battery-managed switch cycle'} · Switch {mapping.switch_state ? 'on' : 'off'}</p></div>
                 <span className="shrink-0 text-right text-xs text-[var(--muted)]">On ≤ {mapping.on_threshold}%<br />Off ≥ {mapping.off_threshold}%</span>
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-[var(--line)] pt-3">

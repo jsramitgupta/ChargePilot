@@ -874,6 +874,7 @@ Example body:
   "device_id": "<device-uuid>",
   "channel_id": "<channel-uuid>",
   "enabled": true,
+  "use_case": "battery_cycle",
   "turn_on_enabled": true,
   "on_threshold": 79,
   "off_threshold": 99,
@@ -882,6 +883,14 @@ Example body:
   "minimum_state_change_interval": 300
 }
 ```
+
+`use_case` is either `battery_cycle` (the existing battery-threshold
+turn-on/turn-off behavior) or `switch_off_only`. The latter always disables
+automatic turn-on, including when a client submits `turn_on_enabled: true`.
+Existing mappings receive `battery_cycle` when the compatibility schema adds
+the field. Turning off the switch and shutting down a Windows/macOS endpoint
+is not supported: telemetry agents do not currently receive or execute
+shutdown commands, so the management UI presents that choice as unavailable.
 
 `turn_on_enabled` controls only automatic switch turn-on; when false, the
 mapping may still turn an on switch off at `off_threshold`. The optional
