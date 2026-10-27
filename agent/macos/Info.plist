@@ -24,6 +24,8 @@
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>ChargePilot uses System Events to carry out a shutdown request only after you confirm it on this Mac.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

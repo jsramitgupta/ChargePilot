@@ -102,6 +102,64 @@ public sealed class ChargePilotApiClient(HttpClient httpClient)
             : options.IntervalMinutes * 60;
     }
 
+    public async Task<ShutdownCommand?> ClaimShutdownCommandAsync(
+        AgentOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            new Uri(options.ServerUri, "/api/v1/endpoint-commands/claim"))
+        {
+            Content = JsonContent.Create(new { }),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Credential);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"Endpoint command check failed with HTTP {(int)response.StatusCode}.",
+                null,
+                response.StatusCode);
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<EndpointCommandResponse>(
+            cancellationToken: cancellationToken);
+        if (result?.Command is not { } command)
+        {
+            return null;
+        }
+        if (command.Id == Guid.Empty ||
+            command.Operation != "shutdown" ||
+            command.GracePeriodSeconds is < 30 or > 120)
+        {
+            throw new InvalidDataException("The server returned an unsupported endpoint command.");
+        }
+        return command;
+    }
+
+    public async Task AcknowledgeShutdownCommandAsync(
+        AgentOptions options,
+        Guid commandId,
+        ShutdownAcknowledgement acknowledgement,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            new Uri(options.ServerUri, $"/api/v1/endpoint-commands/{commandId:D}/acknowledge"))
+        {
+            Content = JsonContent.Create(acknowledgement),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Credential);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"Endpoint command acknowledgement failed with HTTP {(int)response.StatusCode}.",
+                null,
+                response.StatusCode);
+        }
+    }
+
     private static void EnsureSecureOrigin(Uri serverUri)
     {
         var isLocalhost = serverUri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||

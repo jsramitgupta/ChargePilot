@@ -18,6 +18,57 @@ internal sealed class ConfigurationStore
         "Agent",
         "config.json");
 
+    private string ShutdownCommandStatePath => Path.Combine(
+        Path.GetDirectoryName(ConfigurationPath)!,
+        "shutdown-command-state.json");
+
+    public string? GetShutdownCommandState(Guid commandId)
+    {
+        if (!File.Exists(ShutdownCommandStatePath))
+        {
+            return null;
+        }
+
+        var states = JsonSerializer.Deserialize<Dictionary<string, string>>(
+            File.ReadAllText(ShutdownCommandStatePath),
+            JsonOptions) ?? throw new InvalidDataException("The shutdown command state file is empty.");
+        return states.GetValueOrDefault(commandId.ToString("D"));
+    }
+
+    public void SaveShutdownCommandState(Guid commandId, string state)
+    {
+        if (state is not ("in_progress" or "scheduled" or "failed"))
+        {
+            throw new ArgumentException("Unsupported shutdown command state.", nameof(state));
+        }
+
+        var directory = Path.GetDirectoryName(ConfigurationPath)
+            ?? throw new InvalidOperationException("Unable to determine the configuration directory.");
+        Directory.CreateDirectory(directory);
+        RestrictDirectoryAccess(directory);
+        Dictionary<string, string> states = File.Exists(ShutdownCommandStatePath)
+            ? JsonSerializer.Deserialize<Dictionary<string, string>>(
+                File.ReadAllText(ShutdownCommandStatePath),
+                JsonOptions) ?? []
+            : [];
+        states[commandId.ToString("D")] = state;
+        states = states.TakeLast(128).ToDictionary(pair => pair.Key, pair => pair.Value);
+        var temporaryPath = ShutdownCommandStatePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(states, JsonOptions), new UTF8Encoding(false));
+            RestrictDirectoryAccess(directory);
+            File.Move(temporaryPath, ShutdownCommandStatePath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
+        }
+    }
+
     public AgentOptions? Load()
     {
         if (!File.Exists(ConfigurationPath))

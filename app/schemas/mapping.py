@@ -11,7 +11,7 @@ class MappingBase(BaseModel):
     device_id: UUID | str
     channel_id: UUID | str | None = None
     enabled: bool = True
-    use_case: Literal["battery_cycle", "switch_off_only"] = "battery_cycle"
+    use_case: Literal["battery_cycle", "switch_off_only", "switch_and_shutdown"] = "battery_cycle"
     turn_on_enabled: bool = True
     on_threshold: int = Field(default=79, ge=0, le=100)
     off_threshold: int = Field(default=99, ge=0, le=100)
@@ -29,7 +29,7 @@ class MappingUpdate(BaseModel):
     device_id: UUID | str | None = None
     channel_id: UUID | str | None = None
     enabled: bool | None = None
-    use_case: Literal["battery_cycle", "switch_off_only"] | None = None
+    use_case: Literal["battery_cycle", "switch_off_only", "switch_and_shutdown"] | None = None
     turn_on_enabled: bool | None = None
     on_threshold: int | None = Field(default=None, ge=0, le=100)
     off_threshold: int | None = Field(default=None, ge=0, le=100)

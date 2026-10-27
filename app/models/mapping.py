@@ -12,7 +12,7 @@ class Mapping(Base):
     __table_args__ = (
         UniqueConstraint("endpoint_id", "device_id", name="uq_mapping_endpoint_device"),
         CheckConstraint(
-            "use_case IN ('battery_cycle', 'switch_off_only')",
+            "use_case IN ('battery_cycle', 'switch_off_only', 'switch_and_shutdown')",
             name="ck_mappings_use_case",
         ),
     )

@@ -12,6 +12,7 @@ from app.models.messaging import TelemetryAutomationCursor
 from app.schemas.telemetry import TelemetryPayload
 from app.services.broadcaster import publish_event
 from app.services.connector_service import queue_device_command
+from app.services.endpoint_shutdown_service import queue_shutdown_command
 from app.services.rule_engine import evaluate_battery_action
 from app.services.telemetry_policy import (
     telemetry_freshness_limit_seconds,
@@ -134,7 +135,11 @@ async def process_telemetry_event(
                     operation="get_status",
                     channel_index=channel_index,
                     channel_id=mapping.channel_id,
-                    context={"automation_reconcile": True},
+                    context={
+                        "automation_reconcile": True,
+                        "automation_event_id": event_id,
+                        "mapping_id": mapping.id,
+                    },
                 )
             except ValueError as exc:
                 logger.warning("Could not queue switch status check for device %s: %s", device.id, exc)
@@ -203,8 +208,7 @@ async def process_telemetry_event(
             if channel is not None:
                 channel.current_state = new_state
 
-        db.add(
-            AutomationEvent(
+        automation_event = AutomationEvent(
                 tenant_id=endpoint.tenant_id,
                 event_type=decision,
                 reason=reason,
@@ -221,7 +225,15 @@ async def process_telemetry_event(
                     else str(action_result.get("error") or "Local device command failed.")[:255]
                 ),
             )
-        )
+        db.add(automation_event)
+        if success and decision == "TURN_OFF":
+            db.flush()
+            queue_shutdown_command(
+                db,
+                endpoint=endpoint,
+                mapping=mapping,
+                automation_event_id=automation_event.id,
+            )
         if success:
             state_changes.append(
                 {
@@ -263,6 +275,8 @@ def reconcile_connector_status(
     tenant_id: str,
     channel_id: str | None,
     current_state: bool,
+    automation_event_id: str | None = None,
+    mapping_id: str | None = None,
 ) -> None:
     device = (
         db.query(Device)
@@ -362,6 +376,12 @@ def reconcile_connector_status(
                     "event_type": decision,
                     "reason": reason,
                     "endpoint_id": endpoint.id,
+                    "automation_event_id": automation_event_id,
+                    "mapping_id": mapping.id if mapping_id is None else mapping_id,
+                    "shutdown_after": (
+                        decision == "TURN_OFF"
+                        and mapping.use_case == "switch_and_shutdown"
+                    ),
                     "battery_percentage": endpoint.battery_percentage,
                     "previous_state": str(current_state).lower(),
                     "new_state": str(new_state).lower(),

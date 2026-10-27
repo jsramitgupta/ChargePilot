@@ -87,6 +87,12 @@ def test_mapping_wizard_and_switch_inventory_have_tenant_safe_theme_support():
     assert ".mapping-use-case-option.is-selected" in light
     assert ".mapping-use-case-option.is-unavailable" in light
     assert "body.theme-dark .mapping-use-case-option.is-unavailable" in dark
+    assert "switch_and_shutdown" in app
+    assert "Windows shows a 60-second countdown" in app
+    assert "The Mac asks for local confirmation." in app
+    assert "<summary>More options</summary>" in app
+    assert "useCase === 'battery_cycle' && turnOnEnabled" in app
+    assert "Selected use case" not in app
     assert "top: 21px;" in css_rule(light, ".mapping-stepper li:not(:last-child)::after")
     assert ".mapping-step-title" in light
     assert ".switch-inventory-grid" in light

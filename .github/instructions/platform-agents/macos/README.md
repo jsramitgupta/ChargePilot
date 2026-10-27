@@ -10,6 +10,8 @@ tenant-scoped 24-hour enrollment tokens, and a per-install Keychain credential.
 - identify the endpoint using a random per-installation UUID; do not collect a
   serial number
 - upload through the current ChargePilot telemetry contract
+- while reporting is active, poll for only the fixed shutdown request; show a
+  local confirmation before calling System Events
 - report every five minutes while the menu-bar app is running and the Mac is
   awake
 - optionally launch in the user's session at sign-in through macOS
@@ -24,6 +26,7 @@ tenant-scoped 24-hour enrollment tokens, and a per-install Keychain credential.
 ## Non-goals
 
 - no direct switch-control logic inside the app
+- no execution of generic commands from the server
 - no bypass of backend rule evaluation
 - no promise of telemetry while the Mac is sleeping, powered off, or the agent is disabled
 

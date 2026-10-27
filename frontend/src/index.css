@@ -3197,32 +3197,6 @@ button, a {
   border: 5px solid var(--leaf);
 }
 
-.mapping-use-case-confirmation {
-  display: grid;
-  max-width: 880px;
-  gap: 3px;
-  padding: 13px 15px;
-  border-left: 3px solid var(--leaf);
-  color: var(--ink);
-  background: color-mix(in srgb, var(--surface-muted) 78%, var(--leaf));
-}
-
-.mapping-use-case-confirmation > span {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.mapping-use-case-confirmation strong {
-  font-size: 13px;
-}
-
-.mapping-use-case-confirmation small {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
 .mapping-choice-copy {
   display: grid;
   min-width: 0;
@@ -3328,6 +3302,38 @@ button, a {
 .mapping-rule-fields {
   display: grid;
   gap: 10px;
+}
+
+.mapping-advanced-rules {
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.mapping-advanced-rules summary {
+  width: fit-content;
+  padding: 9px 2px 4px;
+  color: var(--leaf);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mapping-advanced-rules summary:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--leaf);
+  outline-offset: 3px;
+}
+
+.mapping-advanced-rule-fields {
+  display: grid;
+  gap: 10px;
+  padding-top: 7px;
+}
+
+.mapping-advanced-note {
+  margin: -5px 0 0 32px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .mapping-rule-field {

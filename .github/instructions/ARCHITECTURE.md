@@ -41,10 +41,12 @@ iOS SwiftUI source projects are also implemented. Android has a debug APK
 build and emulator smoke test; iOS has an unsigned device IPA build and
 simulator smoke test. Physical-device validation remains pending for both
 mobile platforms.
-Every agent sends readings only; it must not replace the site connector or own
-automation decisions. New installations default to automation enabled; the
-backend enforces platform allow-list, freshness, tenant ownership, mapping
-state, hysteresis, and cooldown before any command. See
+Agents never control Tuya devices or own automation decisions. An enrolled
+Windows/macOS agent may receive the fixed shutdown intent only when the
+backend's opted-in mapping has successfully turned off its switch. New
+installations default to automation enabled; the backend enforces platform
+allow-list, freshness, tenant ownership, mapping state, hysteresis, and
+cooldown before any command. See
 [platform-agents/README.md](platform-agents/README.md).
 
 A second local onboarding path also exists:

@@ -13,6 +13,8 @@ from app.core.database import get_db
 from app.core.security import get_bearer_token, generate_token
 from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device
+from app.models.endpoint import Endpoint
+from app.models.mapping import Mapping
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.connector_service import (
@@ -23,6 +25,7 @@ from app.services.connector_service import (
 )
 from app.services.broadcaster import publish_event
 from app.services.automation_processor import reconcile_connector_status
+from app.services.endpoint_shutdown_service import queue_shutdown_command
 
 router = APIRouter(prefix="/connectors", tags=["site connectors"])
 
@@ -291,7 +294,37 @@ async def submit_command_result(
             tenant_id=command.tenant_id,
             channel_id=command.channel_id,
             current_state=result_state,
+            automation_event_id=context.get("automation_event_id"),
+            mapping_id=context.get("mapping_id"),
         )
+    if (
+        payload.success
+        and command.operation == "set_state"
+        and command.desired_state is False
+        and context.get("shutdown_after") is True
+        and command.tenant_id is not None
+    ):
+        endpoint_id = context.get("endpoint_id")
+        mapping_id = context.get("mapping_id")
+        automation_event_id = context.get("automation_event_id")
+        endpoint = db.query(Endpoint).filter(
+            Endpoint.id == endpoint_id,
+            Endpoint.tenant_id == command.tenant_id,
+        ).first()
+        mapping = db.query(Mapping).filter(
+            Mapping.id == mapping_id,
+            Mapping.endpoint_id == endpoint_id,
+            Mapping.tenant_id == command.tenant_id,
+            Mapping.enabled.is_(True),
+            Mapping.use_case == "switch_and_shutdown",
+        ).first()
+        if endpoint is not None and mapping is not None and automation_event_id:
+            queue_shutdown_command(
+                db,
+                endpoint=endpoint,
+                mapping=mapping,
+                automation_event_id=automation_event_id,
+            )
     connector.last_seen_at = datetime.now(UTC)
     db.commit()
     if command.device_id:

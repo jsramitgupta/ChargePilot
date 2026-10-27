@@ -74,6 +74,12 @@ report. Tenant admins and managers configure this value from ChargePilot's
 Agent setup page; a change takes effect when the service receives the next
 successful response. The backend remains authoritative for freshness,
 automation eligibility, hysteresis, cooldowns, and switch commands.
+The enrolled service also polls for the fixed endpoint shutdown request every
+15 seconds while configured. It schedules only Windows shutdown, with the
+server-specified 60-second countdown visible to signed-in users; a local user
+can cancel it with `shutdown /a`. It never accepts arbitrary command text.
+The server issues this request only when a mapping explicitly selects
+switch-and-shutdown and its switch-off action succeeds.
 
 Every report also includes the resource values Windows can read: CPU and
 available GPU utilization, used/total physical memory, and fixed local-disk

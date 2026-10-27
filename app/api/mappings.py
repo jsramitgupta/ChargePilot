@@ -71,6 +71,22 @@ def _ensure_unique_mapping(db: Session, endpoint_id: str, device_id: str, mappin
         )
 
 
+def _validate_use_case(endpoint: Endpoint, use_case: str) -> None:
+    if use_case == "switch_and_shutdown" and (
+        endpoint.platform not in {"windows", "macos"}
+        or endpoint.installation_id is None
+        or endpoint.token_hash is None
+        or endpoint.tenant_id is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "Switch and endpoint shutdown requires an enrolled Windows or macOS "
+                "installation with a tenant-scoped credential."
+            ),
+        )
+
+
 @router.get("", response_model=list[MappingRead])
 async def list_mappings(
     user: User = Depends(get_authenticated_user),
@@ -98,6 +114,7 @@ async def create_mapping(
     device_id = str(payload.device_id)
     channel_id = str(payload.channel_id) if payload.channel_id is not None else None
     endpoint, device, _ = _get_mapping_resources(db, user, endpoint_id, device_id, channel_id)
+    _validate_use_case(endpoint, payload.use_case)
     _ensure_unique_mapping(db, endpoint_id, device_id)
 
     mapping = Mapping(
@@ -109,7 +126,7 @@ async def create_mapping(
         enabled=payload.enabled,
         use_case=payload.use_case,
         turn_on_enabled=(
-            False if payload.use_case == "switch_off_only" else payload.turn_on_enabled
+            False if payload.use_case in {"switch_off_only", "switch_and_shutdown"} else payload.turn_on_enabled
         ),
         on_threshold=payload.on_threshold,
         off_threshold=payload.off_threshold,
@@ -148,6 +165,7 @@ async def update_mapping(
     device_id = str(device_value) if device_value is not None else mapping.device_id
     channel_id = str(channel_value) if channel_value is not None else None
     endpoint, _, _ = _get_mapping_resources(db, user, endpoint_id, device_id, channel_id)
+    _validate_use_case(endpoint, updates.get("use_case", mapping.use_case))
     _ensure_unique_mapping(db, endpoint_id, device_id, str(mapping_id))
 
     for field, value in updates.items():
@@ -158,7 +176,7 @@ async def update_mapping(
                 setattr(mapping, field, str(value))
         else:
             setattr(mapping, field, value)
-    if mapping.use_case == "switch_off_only":
+    if mapping.use_case in {"switch_off_only", "switch_and_shutdown"}:
         mapping.turn_on_enabled = False
     mapping.tenant_id = endpoint.tenant_id
     db.commit()

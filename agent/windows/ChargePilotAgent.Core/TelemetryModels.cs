@@ -70,3 +70,16 @@ public sealed record TelemetryResponse(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("message")] string Message,
     [property: JsonPropertyName("reporting_interval_seconds")] int ReportingIntervalSeconds = 300);
+
+public sealed record EndpointCommandResponse(
+    [property: JsonPropertyName("command")] ShutdownCommand? Command);
+
+public sealed record ShutdownCommand(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("operation")] string Operation,
+    [property: JsonPropertyName("grace_period_seconds")] int GracePeriodSeconds,
+    [property: JsonPropertyName("expires_at")] DateTimeOffset ExpiresAt);
+
+public sealed record ShutdownAcknowledgement(
+    [property: JsonPropertyName("outcome")] string Outcome,
+    [property: JsonPropertyName("error")] string? Error = null);

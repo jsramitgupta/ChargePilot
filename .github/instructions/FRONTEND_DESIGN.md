@@ -117,19 +117,24 @@ page documents the published Docker Compose image only. Code creation and
 credential management remain authenticated.
 Mapping setup has four explicit steps: choose an endpoint, choose a switch,
 choose a supported use case, and set battery rules. The use-case choice offers
-battery-managed switch cycling and switch-off-only behavior. Switch-off-only
-always disables automatic turn-on. Show the Windows/macOS switch-and-device
-shutdown choice as unavailable until agents can securely receive shutdown
-commands; do not imply that selecting a label can power off an endpoint.
+battery-managed switch cycling, switch-off-only, and switch-and-shutdown for
+enrolled Windows/macOS endpoints. Both switch-off use cases disable automatic
+turn-on. The server requests endpoint shutdown only after a successful switch
+off. Explain the visible, locally cancellable Windows countdown and the local
+macOS confirmation; do not imply that an acknowledgement proves shutdown
+completed.
 Continue advances without saving; create/save remains the only mutation action.
 The mapping stepper places each label below its numbered marker; connector
 segments join the markers only and never run behind step text. Keep this layout
 at narrow widths so longer step names wrap without crossing the progress line.
-The mapping rule editor can disable automatic turn-on independently from the
-regular turn-off threshold, and can enable a separate charging-completion
-cutoff that uses the selected device's `charging` telemetry flag. Show threshold labels
-in a wrapping legend rather than overlaid on the battery scale so coincident
-thresholds remain legible.
+The rule editor asks only for the selected use case's core thresholds:
+battery-cycle mappings show turn-on and turn-off thresholds, while switch-off
+mappings show only the turn-off threshold. Keep automatic turn-on, the separate
+charging-completion cutoff, change cooldown, and mapping enable state under a
+collapsed **More options** disclosure. The charging cutoff uses the selected
+device's `charging` telemetry flag. Show threshold labels in a wrapping legend
+rather than overlaid on the battery scale so coincident thresholds remain
+legible. Do not repeat the selected use case in a separate confirmation panel.
 Endpoint automation defaults on separately from an individual mapping's
 enabled state; the server enforces platform eligibility, sample freshness,
 tenant ownership, and battery rules.

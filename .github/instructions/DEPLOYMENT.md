@@ -865,6 +865,20 @@ application first; the script removes the use-case selection from mappings,
 so preserve the database backup and confirm that loss is acceptable. Test the
 upgrade and rollback scripts against a restored backup before production.
 
+The opt-in endpoint shutdown flow adds a command table and expands the
+`mappings.use_case` constraint. Before deploying its API:
+
+1. Back up PostgreSQL and test both scripts against a restored copy.
+2. Apply `deploy/migrations/20261028_endpoint_shutdown_commands.sql`.
+3. Deploy the backend and frontend, then release updated Windows/macOS agents.
+4. Verify a switch-off command is acknowledged before allowing shutdown
+   mappings in production.
+
+The matching rollback script removes queued command/audit state and converts
+`switch_and_shutdown` mappings to `battery_cycle`; stop using the feature and
+back up first. Do not rely on startup `create_all()` to expand the existing
+PostgreSQL mapping constraint.
+
 Legacy Windows endpoints are identified by the
 `Win32_ComputerSystemProduct.UUID`; hostname remains mutable display and
 diagnostic data. The endpoint `hardware_uuid` column is nullable for existing

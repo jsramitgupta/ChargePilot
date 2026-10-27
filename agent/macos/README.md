@@ -59,6 +59,12 @@ Both are user-controlled. The app is a menu-bar process, not a system daemon.
 Sleep and logout interrupt reporting, and macOS scheduling does not provide a
 real-time guarantee.
 
+While reporting is active, the app checks for the fixed shutdown request every
+15 seconds. The local user must confirm it in a macOS warning dialog; System
+Events then requests OS shutdown, which may prompt applications to save work.
+The Mac must be awake and the menu-bar app running. ChargePilot never sends
+shell text or arbitrary commands to this client.
+
 The development DMG is universal for Apple Silicon and Intel and may be
 unsigned. Tagged release DMGs are Developer ID-signed and notarized when the
 complete macOS signing and notarization secret group is configured. Without

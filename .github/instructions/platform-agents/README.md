@@ -44,7 +44,10 @@ The existing backend contract is described in:
 Key rules to preserve:
 
 - endpoint control remains server-authoritative and site-connector-driven
-- telemetry agents send readings only; they do not issue switch commands
+- endpoint agents never control Tuya switches. Enrolled Windows/macOS agents
+  can receive only the fixed, user-opted-in shutdown request after the mapped
+  switch is confirmed off; Windows has a local cancellation countdown and
+  macOS requires local confirmation.
 - tenant boundaries and bearer-token assignment remain enforced by the server
 - New Windows installs use the universal tenant-bound enrollment token and
   per-install credential; existing Windows installs can retain the

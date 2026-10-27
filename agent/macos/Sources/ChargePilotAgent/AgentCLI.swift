@@ -112,6 +112,39 @@ private struct TelemetryResponse: Decodable {
     }
 }
 
+struct EndpointCommandEnvelope: Decodable {
+    let command: ShutdownCommand?
+}
+
+struct ShutdownCommand: Decodable {
+    let id: UUID
+    let operation: String
+    let gracePeriodSeconds: Int
+    let expiresAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case operation
+        case gracePeriodSeconds = "grace_period_seconds"
+        case expiresAt = "expires_at"
+    }
+
+    func validate() throws {
+        guard id.uuidString != "00000000-0000-0000-0000-000000000000",
+              operation == "shutdown",
+              (30...120).contains(gracePeriodSeconds),
+              expiresAt > Date()
+        else {
+            throw AgentError.invalidServerResponse
+        }
+    }
+}
+
+struct ShutdownAcknowledgement: Encodable {
+    let outcome: String
+    let error: String?
+}
+
 struct CPUTickSnapshot {
     let user: UInt64
     let system: UInt64
@@ -327,6 +360,66 @@ struct ChargePilotAgent {
         )
     }
 
+    static func claimShutdownCommand(
+        configuration: LocalConfiguration
+    ) async throws -> ShutdownCommand? {
+        let credential = try loadCredential(installationID: configuration.installationID)
+        let serverURL = try validatedServerURL(configuration.serverURL)
+        let data = try await postAccepted(
+            to: serverURL.appendingPathComponent("api/v1/endpoint-commands/claim"),
+            body: EmptyRequest(),
+            credential: credential
+        )
+        let envelope: EndpointCommandEnvelope
+        do {
+            envelope = try endpointCommandDecoder.decode(
+                EndpointCommandEnvelope.self,
+                from: data
+            )
+        } catch {
+            throw AgentError.invalidServerResponse
+        }
+        guard let command = envelope.command else { return nil }
+        try command.validate()
+        return command
+    }
+
+    static func acknowledgeShutdownCommand(
+        _ command: ShutdownCommand,
+        outcome: String,
+        error: String? = nil,
+        configuration: LocalConfiguration
+    ) async throws {
+        guard ["scheduled", "cancelled", "failed"].contains(outcome) else {
+            throw AgentError.invalidServerResponse
+        }
+        let credential = try loadCredential(installationID: configuration.installationID)
+        let serverURL = try validatedServerURL(configuration.serverURL)
+        _ = try await postAccepted(
+            to: serverURL.appendingPathComponent(
+                "api/v1/endpoint-commands/\(command.id.uuidString)/acknowledge"
+            ),
+            body: ShutdownAcknowledgement(outcome: outcome, error: error),
+            credential: credential
+        )
+    }
+
+    static func requestSystemShutdown() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = [
+            "-e",
+            "tell application \"System Events\" to shut down",
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw AgentError.shutdownRejected
+        }
+    }
+
     static func clearLocalEnrollment(configuration: LocalConfiguration) throws {
         if FileManager.default.fileExists(atPath: configurationURL.path) {
             try FileManager.default.removeItem(at: configurationURL)
@@ -463,8 +556,15 @@ struct ChargePilotAgent {
         else {
             throw AgentError.httpRejected((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
+
         return data
     }
+
+    private static let endpointCommandDecoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
 
     private static func validatedServerURL(_ value: String) throws -> URL {
         guard let components = URLComponents(string: value),
@@ -592,6 +692,7 @@ private enum AgentError: LocalizedError {
     case invalidEnrollmentCode
     case invalidServerResponse
     case batteryUnavailable
+    case shutdownRejected
     case httpRejected(Int)
     case notEnrolled
     case invalidConfiguration
@@ -615,6 +716,8 @@ private enum AgentError: LocalizedError {
             return "The server returned an invalid enrollment response."
         case .batteryUnavailable:
             return "A usable battery reading is unavailable; no sample was sent."
+        case .shutdownRejected:
+            return "macOS did not accept the shutdown request. Check Automation permissions for ChargePilot Agent."
         case let .httpRejected(statusCode):
             return "The server rejected the request with HTTP \(statusCode)."
         case .notEnrolled:

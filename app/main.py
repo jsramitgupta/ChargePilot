@@ -23,6 +23,7 @@ from app.api.auth import router as auth_router
 from app.api.connectors import router as connectors_router
 from app.api.devices import router as devices_router
 from app.api.endpoints import router as endpoints_router
+from app.api.endpoint_commands import router as endpoint_commands_router
 from app.api.endpoint_enrollment import router as endpoint_enrollment_router
 from app.api.events import router as events_router
 from app.api.health import router as health_router
@@ -38,6 +39,7 @@ from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.connector_service import expire_overdue_commands
 from app.services.event_retention import purge_expired_events, purge_expired_telemetry
+from app.services.endpoint_shutdown_service import maintain_shutdown_commands
 
 BASE_DIR = Path(__file__).resolve().parent
 AGENT_RELEASE_API_URL = (
@@ -184,6 +186,13 @@ async def connector_maintenance_loop() -> None:
                 expired = expire_overdue_commands(db)
                 if expired:
                     logger.info("Expired %s uncompleted site connector commands.", expired)
+                expired_shutdowns, purged_shutdowns = maintain_shutdown_commands(db)
+                if expired_shutdowns or purged_shutdowns:
+                    logger.info(
+                        "Expired %s pending shutdown requests and purged %s requests older than 30 days.",
+                        expired_shutdowns,
+                        purged_shutdowns,
+                    )
         except SQLAlchemyError:
             logger.exception("Could not expire site connector commands.")
         await asyncio.sleep(30)
@@ -196,6 +205,7 @@ app.include_router(admin_router, prefix=settings.api_v1_prefix)
 app.include_router(connectors_router, prefix=settings.api_v1_prefix)
 app.include_router(endpoints_router, prefix=settings.api_v1_prefix)
 app.include_router(endpoint_enrollment_router, prefix=settings.api_v1_prefix)
+app.include_router(endpoint_commands_router, prefix=settings.api_v1_prefix)
 app.include_router(devices_router, prefix=settings.api_v1_prefix)
 app.include_router(onboarding_router)
 app.include_router(mappings_router, prefix=settings.api_v1_prefix)

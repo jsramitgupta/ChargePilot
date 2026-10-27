@@ -1,4 +1,6 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -737,3 +739,98 @@ def test_revoked_connector_can_be_deleted_with_its_commands():
     with SessionLocal() as db:
         assert db.query(SiteConnector).filter(SiteConnector.id == connector_id).first() is None
         assert db.query(DeviceCommand).filter(DeviceCommand.connector_id == connector_id).count() == 0
+
+
+@pytest.mark.parametrize(("switch_off_succeeds", "expected_shutdowns"), [(True, 1), (False, 0)])
+def test_connector_shutdown_request_is_queued_only_after_successful_switch_off(
+    switch_off_succeeds: bool,
+    expected_shutdowns: int,
+):
+    owner = _tenant_admin_client(f"connector_shutdown_{str(switch_off_succeeds).lower()}")
+    connector_id, connector_token = _enroll_connector(owner, "Shutdown LAN")
+    device_response = owner.post(
+        "/api/v1/devices",
+        json={
+            "name": "Shutdown switch",
+            "device_id": f"connector-shutdown-{switch_off_succeeds}",
+            "ip_address": "192.168.1.48",
+            "device_type": "switch",
+            "protocol_version": "3.5",
+            "encrypted_local_key": "shutdown-local-key",
+        },
+    )
+    assert device_response.status_code == 201, device_response.text
+    device_id = device_response.json()["id"]
+    assert owner.put(
+        f"/api/v1/devices/{device_id}/connector",
+        json={"connector_id": connector_id},
+    ).status_code == 200
+    endpoint_response = owner.post(
+        "/api/v1/endpoints",
+        json={"hostname": f"connector-shutdown-{switch_off_succeeds}"},
+    )
+    assert endpoint_response.status_code == 201, endpoint_response.text
+    endpoint_id = endpoint_response.json()["id"]
+    endpoint_credential = f"shutdown-endpoint-{uuid4()}"
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).one()
+        endpoint.platform = "windows"
+        endpoint.device_class = "laptop"
+        endpoint.installation_id = str(uuid4())
+        endpoint.token_hash = hashlib.sha256(endpoint_credential.encode()).hexdigest()
+        endpoint.battery_percentage = 99
+        endpoint.last_seen_at = datetime.now(UTC)
+        endpoint.automation_enabled = True
+        db.commit()
+        tenant_id = endpoint.tenant_id
+
+    mapping = owner.post(
+        "/api/v1/mappings",
+        json={
+            "endpoint_id": endpoint_id,
+            "device_id": device_id,
+            "use_case": "switch_and_shutdown",
+            "off_threshold": 90,
+        },
+    )
+    assert mapping.status_code == 201, mapping.text
+    with SessionLocal() as db:
+        from app.services.automation_processor import reconcile_connector_status
+
+        reconcile_connector_status(
+            db,
+            connector_id=connector_id,
+            device_id=device_id,
+            tenant_id=tenant_id,
+            channel_id=None,
+            current_state=True,
+            automation_event_id=str(uuid4()),
+            mapping_id=mapping.json()["id"],
+        )
+        db.commit()
+
+    connector_headers = {"Authorization": f"Bearer {connector_token}"}
+    claim = owner.post(
+        "/api/v1/connectors/commands/claim",
+        headers=connector_headers,
+        json={},
+    )
+    assert claim.status_code == 200, claim.text
+    switch_command = claim.json()["command"]
+    assert switch_command["operation"] == "set_state"
+    assert switch_command["desired_state"] is False
+    result = owner.post(
+        f"/api/v1/connectors/commands/{switch_command['id']}/result",
+        headers=connector_headers,
+        json={
+            "success": switch_off_succeeds,
+            "result": {},
+            "error": None if switch_off_succeeds else "Switch did not turn off.",
+        },
+    )
+    assert result.status_code == 200, result.text
+
+    with SessionLocal() as db:
+        from app.models.endpoint_shutdown_command import EndpointShutdownCommand
+
+        assert db.query(EndpointShutdownCommand).count() == expected_shutdowns

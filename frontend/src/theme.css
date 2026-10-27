@@ -486,11 +486,6 @@ body.theme-dark .mapping-use-case-option.is-unavailable {
   background: #17231f;
 }
 
-body.theme-dark .mapping-use-case-confirmation {
-  color: #e1ece5;
-  background: #20352b;
-}
-
 body.theme-dark .mapping-use-case-icon {
   color: #c8e0cd;
   background: #25372f;
@@ -502,8 +497,7 @@ body.theme-dark .mapping-use-case-copy strong {
 
 body.theme-dark .mapping-use-case-option.is-unavailable .mapping-use-case-copy strong,
 body.theme-dark .mapping-use-case-copy small,
-body.theme-dark .mapping-use-case-confirmation > span,
-body.theme-dark .mapping-use-case-confirmation small {
+body.theme-dark .mapping-advanced-note {
   color: #a4b5ac;
 }
 

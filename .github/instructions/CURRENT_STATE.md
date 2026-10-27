@@ -149,11 +149,14 @@ The mapping wizard advances only on explicit actions and saves only from its
 create/save button. It now has four steps: choose an endpoint, choose a switch,
 choose a supported use case, then set battery rules. `battery_cycle` retains
 the existing threshold-controlled switch behavior; `switch_off_only` disables
-automatic turn-on in both the API and UI. The requested combined switch and
-Windows/macOS shutdown option is visibly unavailable because endpoint agents
-currently report telemetry only and cannot receive shutdown commands. The
-rule editor can still disable automatic turn-on independently in the
-battery-cycle use case and can enable a separate charging-completion cutoff.
+automatic turn-on in both the API and UI. `switch_and_shutdown` is limited to
+tenant-enrolled Windows/macOS agents and sends a fixed shutdown request only
+after a successful switch-off. Windows shows a cancellable 60-second OS
+countdown; macOS asks the local user and requires the menu-bar agent to be
+running while the Mac is awake. These are best-effort endpoint requests, not a
+guarantee that the OS completed shutdown. The rule editor can still disable
+automatic turn-on independently in the battery-cycle use case and can enable a
+separate charging-completion cutoff.
 The charging cutoff uses telemetry's `charging` flag, not `ac_connected`, and
 does not replace the ordinary turn-off threshold. Existing mappings can be
 edited or deleted; clearing a channel during an edit restores whole-switch

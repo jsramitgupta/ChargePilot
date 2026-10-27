@@ -305,7 +305,10 @@ internal static class Program
         builder.Services.AddSingleton<ConfigurationStore>();
         builder.Services.AddSingleton<WindowsTelemetryReader>();
         builder.Services.AddSingleton<ChargePilotApiClient>();
+        builder.Services.AddSingleton<ChargePilotAgent.Core.IShutdownScheduler, WindowsShutdownScheduler>();
+        builder.Services.AddSingleton<ChargePilotAgent.Core.ShutdownCommandHandler>();
         builder.Services.AddHostedService<TelemetryWorker>();
+        builder.Services.AddHostedService<EndpointCommandWorker>();
         await builder.Build().RunAsync();
         return 0;
     }

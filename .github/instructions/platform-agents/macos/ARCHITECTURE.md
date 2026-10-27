@@ -30,7 +30,10 @@ not the ChargePilot process, and is sampled only when a report is sent.
 - telemetry is uploaded over HTTPS using an additive backend contract; the
   legacy Windows payload/auth behavior remains unchanged
 - app state should never replace backend validation or mapping rules
-- no local auto-control logic should exist in the app
+- no local battery-rule or switch-control logic should exist in the app
+- accept only the fixed, authenticated shutdown request for an enrolled
+  endpoint; require confirmation in the menu-bar app before calling System
+  Events. Never run shell text or arbitrary commands received from the server.
 
 ## 4. Data flow
 
@@ -41,6 +44,9 @@ not the ChargePilot process, and is sampled only when a report is sent.
 5. send authenticated JSON through the enrolled per-install credential
 6. update local success/failure state
 7. retry later if upload fails
+8. while reporting is active, poll for fixed shutdown requests, deduplicate
+   handled request IDs locally, ask the logged-in user, and acknowledge the
+   result using the same per-install credential
 
 ## 5. Acceptance criteria
 
@@ -50,3 +56,5 @@ not the ChargePilot process, and is sampled only when a report is sent.
   server logic
 - login-item, sleep, and background behavior are documented as best-effort
   limitations
+- shutdown is not received while the app is paused, stopped, logged out, or the
+  Mac is asleep; a scheduled acknowledgement is not proof of OS shutdown

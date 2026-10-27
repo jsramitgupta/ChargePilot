@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.account_invitation import AccountInvitation
 from app.models.system_setting import SystemSetting
 from app.models.connector import SiteConnector, DeviceCommand
+from app.models.endpoint_shutdown_command import EndpointShutdownCommand
 
 __all__ = [
     "User",
@@ -22,4 +23,5 @@ __all__ = [
     "SystemSetting",
     "SiteConnector",
     "DeviceCommand",
+    "EndpointShutdownCommand",
 ]

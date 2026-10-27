@@ -884,13 +884,17 @@ Example body:
 }
 ```
 
-`use_case` is either `battery_cycle` (the existing battery-threshold
-turn-on/turn-off behavior) or `switch_off_only`. The latter always disables
-automatic turn-on, including when a client submits `turn_on_enabled: true`.
-Existing mappings receive `battery_cycle` when the compatibility schema adds
-the field. Turning off the switch and shutting down a Windows/macOS endpoint
-is not supported: telemetry agents do not currently receive or execute
-shutdown commands, so the management UI presents that choice as unavailable.
+`use_case` is `battery_cycle` (the existing battery-threshold
+turn-on/turn-off behavior), `switch_off_only`, or `switch_and_shutdown`.
+The latter two always disable automatic turn-on, including when a client
+submits `turn_on_enabled: true`. `switch_and_shutdown` is limited to enrolled,
+tenant-assigned Windows and macOS installations. It creates a fixed shutdown
+request only after the mapped switch has successfully turned off. Windows
+starts a visible 60-second countdown that a local user can cancel with
+`shutdown /a`; macOS requires confirmation in the running menu-bar agent and
+the operating system may ask applications to save work. The server does not
+send arbitrary commands. Existing mappings receive `battery_cycle` when the
+compatibility schema adds the field.
 
 `turn_on_enabled` controls only automatic switch turn-on; when false, the
 mapping may still turn an on switch off at `off_threshold`. The optional
@@ -914,6 +918,23 @@ selected switch, or to `null` to target the whole switch.
 ### 5.5 DELETE /api/v1/mappings/{mapping_id}
 
 Deletes one mapping.
+
+### 5.6 Endpoint shutdown request delivery
+
+The endpoint command API accepts only enrolled per-install credentials; the
+legacy tenant-wide Windows token is not authorized:
+
+- `POST /api/v1/endpoint-commands/claim` returns one fixed `shutdown` request
+  for the authenticated Windows/macOS endpoint or `{ "command": null }`.
+- `POST /api/v1/endpoint-commands/{command_id}/acknowledge` accepts
+  `{ "outcome": "scheduled" | "cancelled" | "failed", "error": null }`.
+
+Requests are tenant-scoped, expire after ten minutes, are created only after
+the mapping's switch-off action succeeds, and are audited. Agents poll while
+active; Windows schedules a 60-second OS shutdown, while macOS asks the local
+user before asking System Events to shut down. Paused/offline clients do not
+receive timely delivery, and the server never treats a scheduled response as
+proof that the operating system completed shutdown.
 
 ## 6. Events API
 

@@ -1,7 +1,7 @@
 import asyncio
+import hashlib
 import json
-from datetime import timedelta
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -16,6 +16,8 @@ from app.core.database import (
 )
 from app.core.security import hash_password
 from app.main import app, generate_unique_agent_token
+from app.models.device import Device
+from app.models.endpoint import Endpoint
 from app.models.tenant import Tenant
 from app.models.user import User
 from conftest import TEST_GLOBAL_AGENT_TOKEN, api_login, register_tenant_admin
@@ -241,6 +243,191 @@ def test_device_and_mapping_crud_flow():
     list_response = client.get("/api/v1/mappings")
     assert list_response.status_code == 200
     assert any(item["device_id"] == device["id"] for item in list_response.json())
+
+
+def test_shutdown_use_case_requires_enrolled_windows_or_macos_installation():
+    client, tenant_id, _, _ = _create_tenant_client("Shutdown-Eligibility")
+    endpoint_id = _create_endpoint(client, "shutdown-unenrolled")
+    device = client.post(
+        "/api/v1/devices",
+        json={
+            "name": "Shutdown switch",
+            "device_id": f"shutdown-device-{uuid4().hex[:8]}",
+            "encrypted_local_key": "test-local-key",
+        },
+    ).json()
+
+    response = client.post(
+        "/api/v1/mappings",
+        json={
+            "endpoint_id": endpoint_id,
+            "device_id": device["id"],
+            "use_case": "switch_and_shutdown",
+        },
+    )
+    assert response.status_code == 422
+
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).one()
+        endpoint.platform = "android"
+        endpoint.installation_id = str(uuid4())
+        endpoint.token_hash = hashlib.sha256(b"shutdown-credential").hexdigest()
+        db.commit()
+        assert endpoint.tenant_id == tenant_id
+
+    response = client.post(
+        "/api/v1/mappings",
+        json={
+            "endpoint_id": endpoint_id,
+            "device_id": device["id"],
+            "use_case": "switch_and_shutdown",
+        },
+    )
+    assert response.status_code == 422
+
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).one()
+        endpoint.platform = "macos"
+        db.commit()
+
+    response = client.post(
+        "/api/v1/mappings",
+        json={
+            "endpoint_id": endpoint_id,
+            "device_id": device["id"],
+            "use_case": "switch_and_shutdown",
+            "turn_on_enabled": True,
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["turn_on_enabled"] is False
+
+
+def test_shutdown_command_requires_enrolled_endpoint_and_is_acknowledged(monkeypatch):
+    client, _, _, tenant_agent_token = _create_tenant_client("Shutdown-Delivery")
+    endpoint_id = _create_endpoint(client, "shutdown-delivery")
+    device = client.post(
+        "/api/v1/devices",
+        json={
+            "name": "Shutdown delivery switch",
+            "device_id": f"shutdown-delivery-{uuid4().hex[:8]}",
+            "encrypted_local_key": "test-local-key",
+        },
+    ).json()
+    credential = "shutdown-agent-test-credential"
+    installation_id = str(uuid4())
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).one()
+        endpoint.platform = "windows"
+        endpoint.device_class = "laptop"
+        endpoint.installation_id = installation_id
+        endpoint.token_hash = hashlib.sha256(credential.encode()).hexdigest()
+        endpoint.last_seen_at = datetime.now(timezone.utc)
+        endpoint.battery_percentage = 99
+        endpoint.enabled = True
+        db.query(Device).filter(Device.id == device["id"]).update({"current_state": True})
+        db.commit()
+
+    mapping = client.post(
+        "/api/v1/mappings",
+        json={
+            "endpoint_id": endpoint_id,
+            "device_id": device["id"],
+            "use_case": "switch_and_shutdown",
+            "off_threshold": 90,
+        },
+    )
+    assert mapping.status_code == 201, mapping.text
+    _mock_tuya_service(monkeypatch)
+    telemetry = client.post(
+        "/api/v1/telemetry",
+        json={
+            "hostname": "shutdown-delivery",
+            "installation_id": installation_id,
+            "platform": "windows",
+            "device_class": "laptop",
+            "battery_percentage": 99,
+            "charging": False,
+            "ac_connected": False,
+            "timestamp": _recent_timestamp(),
+            "agent_version": "1.0.0",
+        },
+        headers={"Authorization": f"Bearer {credential}"},
+    )
+    assert telemetry.status_code == 200, telemetry.text
+    with SessionLocal() as db:
+        _process_telemetry_outbox(db, "shutdown-delivery")
+
+    no_credential = client.post("/api/v1/endpoint-commands/claim", json={})
+    assert no_credential.status_code == 401
+    legacy_claim = client.post(
+        "/api/v1/endpoint-commands/claim",
+        json={},
+        headers={"Authorization": f"Bearer {tenant_agent_token}"},
+    )
+    assert legacy_claim.status_code == 401
+    headers = {"Authorization": f"Bearer {credential}"}
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).one()
+        endpoint.last_seen_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.commit()
+    stale_claim = client.post("/api/v1/endpoint-commands/claim", json={}, headers=headers)
+    assert stale_claim.status_code == 200
+    assert stale_claim.json()["command"] is None
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).one()
+        endpoint.last_seen_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        db.commit()
+    future_claim = client.post("/api/v1/endpoint-commands/claim", json={}, headers=headers)
+    assert future_claim.status_code == 200
+    assert future_claim.json()["command"] is None
+    with SessionLocal() as db:
+        endpoint = db.query(Endpoint).filter(Endpoint.id == endpoint_id).one()
+        endpoint.last_seen_at = datetime.now(timezone.utc)
+        db.commit()
+    claim = client.post("/api/v1/endpoint-commands/claim", json={}, headers=headers)
+    assert claim.status_code == 200, claim.text
+    command = claim.json()["command"]
+    assert command["operation"] == "shutdown"
+    assert command["grace_period_seconds"] == 60
+
+    other_endpoint_id = _create_endpoint(client, "other-shutdown-endpoint")
+    other_credential = "different-enrolled-endpoint"
+    with SessionLocal() as db:
+        other_endpoint = db.query(Endpoint).filter(Endpoint.id == other_endpoint_id).one()
+        other_endpoint.platform = "windows"
+        other_endpoint.device_class = "laptop"
+        other_endpoint.installation_id = str(uuid4())
+        other_endpoint.token_hash = hashlib.sha256(other_credential.encode()).hexdigest()
+        db.commit()
+    cross_endpoint_ack = client.post(
+        f"/api/v1/endpoint-commands/{command['id']}/acknowledge",
+        json={"outcome": "scheduled"},
+        headers={"Authorization": f"Bearer {other_credential}"},
+    )
+    assert cross_endpoint_ack.status_code == 404
+
+    acknowledged = client.post(
+        f"/api/v1/endpoint-commands/{command['id']}/acknowledge",
+        json={"outcome": "scheduled"},
+        headers=headers,
+    )
+    assert acknowledged.status_code == 200, acknowledged.text
+    assert acknowledged.json()["status"] == "scheduled"
+    assert client.post(
+        "/api/v1/endpoint-commands/claim",
+        json={},
+        headers=headers,
+    ).json()["command"] is None
+
+    with SessionLocal() as db:
+        from app.models.endpoint_shutdown_command import EndpointShutdownCommand
+        from app.models.event import AutomationEvent
+
+        assert db.query(EndpointShutdownCommand).filter_by(status="scheduled").count() == 1
+        assert db.query(AutomationEvent).filter_by(
+            event_type="ENDPOINT_SHUTDOWN_SCHEDULED"
+        ).count() == 1
 
 
 def test_assigning_endpoint_to_tenant_restores_tenant_scoped_telemetry_and_mapping_flow():

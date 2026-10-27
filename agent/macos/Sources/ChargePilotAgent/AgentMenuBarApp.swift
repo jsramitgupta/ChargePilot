@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import ServiceManagement
 import SwiftUI
 
@@ -77,6 +78,10 @@ private final class AgentStatusModel: ObservableObject {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
 
     private var reportingTask: Task<Void, Never>?
+    private var commandPollingTask: Task<Void, Never>?
+    private let shutdownCommandStateKey = "handledShutdownCommandOutcomes"
+    private var handledShutdownCommandOutcomes: [String: String] =
+        UserDefaults.standard.dictionary(forKey: "handledShutdownCommandOutcomes") as? [String: String] ?? [:]
 
     var isEnrolled: Bool { configuration != nil }
     var updateAvailable: Bool {
@@ -196,6 +201,7 @@ private final class AgentStatusModel: ObservableObject {
     func startReporting() {
         guard !isReporting, let configuration else { return }
         isReporting = true
+        startCommandPolling(configuration: configuration)
         reportingTask = Task {
             while !Task.isCancelled {
                 await sendReport(configuration: configuration)
@@ -211,6 +217,8 @@ private final class AgentStatusModel: ObservableObject {
     func stopReporting() {
         reportingTask?.cancel()
         reportingTask = nil
+        commandPollingTask?.cancel()
+        commandPollingTask = nil
         isReporting = false
         statusMessage = "Reporting is paused."
         statusIsError = false
@@ -291,6 +299,103 @@ private final class AgentStatusModel: ObservableObject {
             statusMessage = error.localizedDescription
             statusIsError = true
         }
+    }
+
+    private func startCommandPolling(configuration: LocalConfiguration) {
+        guard commandPollingTask == nil else { return }
+        commandPollingTask = Task {
+            while !Task.isCancelled {
+                do {
+                    guard let command = try await ChargePilotAgent.claimShutdownCommand(
+                        configuration: configuration
+                    ) else {
+                        try await Task.sleep(for: .seconds(15))
+                        continue
+                    }
+                    if let priorOutcome = handledShutdownCommandOutcomes[command.id.uuidString] {
+                        try await ChargePilotAgent.acknowledgeShutdownCommand(
+                            command,
+                            outcome: priorOutcome == "in_progress" ? "failed" : priorOutcome,
+                            error: priorOutcome == "in_progress"
+                                ? "The agent stopped while processing this shutdown request."
+                                : nil,
+                            configuration: configuration
+                        )
+                        continue
+                    }
+
+                    saveShutdownCommandOutcome("in_progress", for: command.id)
+                    let approved = await confirmShutdown()
+                    if approved {
+                        do {
+                            try await Task.detached(priority: .userInitiated) {
+                                try ChargePilotAgent.requestSystemShutdown()
+                            }.value
+                            saveShutdownCommandOutcome("scheduled", for: command.id)
+                            statusMessage = "macOS accepted the shutdown request."
+                            statusIsError = false
+                        } catch {
+                            saveShutdownCommandOutcome("failed", for: command.id)
+                            statusMessage = error.localizedDescription
+                            statusIsError = true
+                        }
+                    } else {
+                        saveShutdownCommandOutcome("cancelled", for: command.id)
+                        statusMessage = "Shutdown cancelled on this Mac."
+                        statusIsError = false
+                    }
+                    let outcome = handledShutdownCommandOutcomes[command.id.uuidString] ?? "failed"
+                    try await ChargePilotAgent.acknowledgeShutdownCommand(
+                        command,
+                        outcome: outcome == "in_progress" ? "failed" : outcome,
+                        configuration: configuration
+                    )
+                } catch is CancellationError {
+                    break
+                } catch {
+                    statusMessage = "Could not check or complete a shutdown request: \(error.localizedDescription)"
+                    statusIsError = true
+                }
+
+                do {
+                    try await Task.sleep(for: .seconds(15))
+                } catch {
+                    break
+                }
+            }
+            commandPollingTask = nil
+        }
+    }
+
+    private func confirmShutdown() async -> Bool {
+        await MainActor.run {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "ChargePilot requested a Mac shutdown"
+            alert.informativeText = """
+            The mapped smart switch has been turned off. Save your work before macOS closes apps and shuts down this Mac.
+            """
+            alert.addButton(withTitle: "Shut Down")
+            alert.addButton(withTitle: "Keep Mac On")
+            return alert.runModal() == .alertFirstButtonReturn
+        }
+    }
+
+    private func saveShutdownCommandOutcome(_ outcome: String, for commandID: UUID) {
+        handledShutdownCommandOutcomes[commandID.uuidString] = outcome
+        if handledShutdownCommandOutcomes.count > 128 {
+            var recent: [String: String] = [:]
+            for (key, value) in handledShutdownCommandOutcomes
+                .sorted(by: { $0.key > $1.key })
+                .prefix(128) {
+                recent[key] = value
+            }
+            handledShutdownCommandOutcomes = recent
+        }
+        UserDefaults.standard.set(
+            handledShutdownCommandOutcomes,
+            forKey: shutdownCommandStateKey
+        )
     }
 }
 
