@@ -87,6 +87,12 @@ usage. GPU readings remain unavailable when Windows WMI does not expose them.
 The server stores this optional history for 30 days; it does not affect
 automation decisions.
 
+The Windows service also polls for tenant-assigned Smart Group sensor work.
+It supports only the fixed read-only `os_version`, `uptime_seconds`, and
+`system_disk_free_bytes` sensors. Collection uses native .NET APIs in the
+service and works without a signed-in user. The server returns a sensor ID,
+not PowerShell or another script, and validates each typed result.
+
 ## Configure and manage from the CLI
 
 Open an elevated PowerShell window in the executable directory:

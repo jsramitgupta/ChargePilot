@@ -18,6 +18,8 @@ The root app is served by `app.main` and the main routes are registered as:
 - `/api/v1/connectors`
 - `/api/v1/mappings`
 - `/api/v1/events`
+- `/api/v1/smart-groups`
+- `/api/v1/endpoint-sensors`
 
 ## 2. Authentication model
 
@@ -577,7 +579,55 @@ foreground/Shortcuts triggers; it cannot guarantee a repeating background
 schedule. The API scales endpoint online and automation freshness windows to
 at least twice the configured interval, bounded by configured server limits.
 
-## 4. Device API
+## 4. Smart Groups and read-only sensors
+
+The authenticated console uses tenant-scoped Smart Groups to target enrolled
+Windows and macOS endpoints. Group membership can be dynamic (platform, device
+name, and optional battery range) or an explicit selection of up to 500
+endpoint IDs. Both modes are limited to enabled, enrolled endpoints in the
+group's tenant; only fresh reports are included when a run is queued.
+
+The sensor catalog is fixed and read-only. The agents do not accept uploaded
+PowerShell, zsh, Python, shell, or other command payloads.
+Group create/update/delete and run-now operations require a tenant admin,
+manager, or Super Admin. Other authenticated users can review visible groups
+and results.
+
+- `GET /api/v1/smart-groups/catalog` returns the supported sensor IDs,
+  descriptions, and result types.
+- `GET /api/v1/smart-groups/tenants` returns the caller's tenant or, for Super
+  Admins, tenant IDs and names. It never includes credentials.
+- `GET /api/v1/smart-groups` lists visible groups, their fresh matching
+  endpoints, and up to 100 recent executions per group.
+- `POST /api/v1/smart-groups` creates a group with `name`, `criteria`, and a
+  non-empty `sensor_ids` list. Super Admins must provide `tenant_id` as a query
+  parameter.
+- `PUT /api/v1/smart-groups/{group_id}` replaces a group's name, criteria, and
+  enabled sensor selections. Removed sensor assignments are retained but
+  disabled so historical results remain auditable.
+- `DELETE /api/v1/smart-groups/{group_id}` removes the group and its associated
+  assignments and result history.
+- `POST /api/v1/smart-groups/{group_id}/run` queues at most 500 fresh endpoints
+  and three fixed sensors per endpoint. Existing queued or leased work is not
+  duplicated.
+- `POST /api/v1/endpoint-sensors/claim` is called by an installed endpoint
+  credential and returns one fixed sensor ID, an execution ID, and a short
+  lease token. Work is tenant-, endpoint-, platform-, and membership-checked.
+- `POST /api/v1/endpoint-sensors/{execution_id}/report` accepts the result
+  matching the sensor's declared type or a bounded error string. Results are
+  accepted only from the endpoint that claimed the job and with the current
+  lease token. Claims expire after two minutes and unclaimed work after
+  24 hours.
+
+The initial catalog contains `os_version` (string),
+`uptime_seconds` (non-negative integer), and `system_disk_free_bytes`
+(non-negative integer). Result strings are limited to 512 characters; errors
+are limited to 255. Results are retained for 30 days. Windows collects through
+its Windows service, including when no user is signed in. macOS collects only
+while its menu-bar app or CLI agent is running in a signed-in user session;
+system-daemon collection is not implemented.
+
+## 5. Device API
 
 Authenticated JSON device operations:
 
@@ -589,12 +639,12 @@ Authenticated JSON device operations:
 - `DELETE /api/v1/devices/{device_id}` removes the switch and its mappings and
   channels.
 
-### 4.1 GET /api/v1/devices
+### 5.1 GET /api/v1/devices
 
 Returns visible devices ordered by creation time, including `tenant_id` and
 `tenant_name`.
 
-### 4.2 POST /api/v1/devices
+### 5.2 POST /api/v1/devices
 
 Creates a device record.
 
@@ -616,11 +666,11 @@ Super Admins may include `tenant_id` to create a switch in a selected tenant;
 the tenant must exist. Other users always create devices in their own tenant,
 regardless of any supplied `tenant_id`.
 
-### 4.3 GET /api/v1/devices/{device_id}
+### 5.3 GET /api/v1/devices/{device_id}
 
 Retrieves one device by UUID.
 
-### 4.4 PUT /api/v1/devices/{device_id}/meter-settings
+### 5.4 PUT /api/v1/devices/{device_id}/meter-settings
 
 Saves optional per-device Tuya meter datapoint configuration. The operation is
 tenant-scoped and requires an authenticated session.
@@ -653,7 +703,7 @@ current UTC-month energy, independent `meter_power_sample_at` /
 `meter_energy_sample_at` timestamps, and cumulative tracking start.
 Unconfigured values are `null`, not zero.
 
-### 4.4.1 POST /api/v1/devices/{device_id}/meter-discovery
+### 5.4.1 POST /api/v1/devices/{device_id}/meter-discovery
 
 Finds meter reading candidates from the current status of an enabled switch.
 For a switch assigned to a site connector, the API returns `202 Accepted` with
@@ -684,11 +734,11 @@ API does not infer their units or meter meaning. Direct reads require the
 ChargePilot host to reach the switch. In cloud hosting, assign an online site
 connector on the switch LAN.
 
-### 4.5 GET /api/v1/devices/{device_id}/channels
+### 5.5 GET /api/v1/devices/{device_id}/channels
 
 Lists all channels for a device.
 
-### 4.6 POST /api/v1/devices/{device_id}/channels
+### 5.6 POST /api/v1/devices/{device_id}/channels
 
 Creates a new device channel.
 
@@ -703,27 +753,27 @@ Example body:
 }
 ```
 
-### 4.7 PUT /api/v1/devices/{device_id}
+### 5.7 PUT /api/v1/devices/{device_id}
 
 Updates device metadata.
 
-### 4.8 DELETE /api/v1/devices/{device_id}
+### 5.8 DELETE /api/v1/devices/{device_id}
 
 Deletes a device.
 
-### 4.9 GET /api/v1/devices/channels/{channel_id}
+### 5.9 GET /api/v1/devices/channels/{channel_id}
 
 Gets one channel.
 
-### 4.10 PUT /api/v1/devices/channels/{channel_id}
+### 5.10 PUT /api/v1/devices/channels/{channel_id}
 
 Updates one channel.
 
-### 4.11 DELETE /api/v1/devices/channels/{channel_id}
+### 5.11 DELETE /api/v1/devices/channels/{channel_id}
 
 Deletes one channel.
 
-## 5. Site connector API
+## 6. Site connector API
 
 Connector endpoints are mounted at `/api/v1/connectors`. Enrollment uses a
 one-time enrollment code. Connector heartbeat and command routes use the
@@ -855,13 +905,13 @@ Both paths return normalized switch metadata without local keys. The server
 scan requires the app host/container to have LAN access and permit TinyTuya
 discovery traffic.
 
-## 6. Mapping API
+## 7. Mapping API
 
-### 5.1 GET /api/v1/mappings
+### 7.1 GET /api/v1/mappings
 
 Returns all endpoint-to-device mappings.
 
-### 5.2 POST /api/v1/mappings
+### 7.2 POST /api/v1/mappings
 
 Creates a mapping only when the endpoint and switch belong to the same
 tenant. `GET /api/v1/mappings` includes the mapping's tenant name.
@@ -906,20 +956,20 @@ thresholds must be between 0 and 100, and the minimum interval cannot be
 negative. Existing mappings default to turn-on enabled and charging cutoff
 disabled.
 
-### 5.3 GET /api/v1/mappings/{mapping_id}
+### 7.3 GET /api/v1/mappings/{mapping_id}
 
 Gets one mapping.
 
-### 5.4 PUT /api/v1/mappings/{mapping_id}
+### 7.4 PUT /api/v1/mappings/{mapping_id}
 
 Updates one mapping. `channel_id` may be set to a channel belonging to the
 selected switch, or to `null` to target the whole switch.
 
-### 5.5 DELETE /api/v1/mappings/{mapping_id}
+### 7.5 DELETE /api/v1/mappings/{mapping_id}
 
 Deletes one mapping.
 
-### 5.6 Endpoint shutdown request delivery
+### 7.6 Endpoint shutdown request delivery
 
 The endpoint command API accepts only enrolled per-install credentials; the
 legacy tenant-wide Windows token is not authorized:
@@ -936,9 +986,9 @@ user before asking System Events to shut down. Paused/offline clients do not
 receive timely delivery, and the server never treats a scheduled response as
 proof that the operating system completed shutdown.
 
-## 6. Events API
+## 8. Events API
 
-### 6.1 GET /api/v1/events
+### 8.1 GET /api/v1/events
 
 Lists automation events ordered by newest first.
 
@@ -961,7 +1011,7 @@ Example response:
 ]
 ```
 
-## 7. Data model notes
+## 9. Data model notes
 
 The main persisted models are:
 
@@ -973,7 +1023,7 @@ The main persisted models are:
 
 The app stores the last-seen timestamp, current switch state, last state change timestamp, and event reasons for later debugging.
 
-## 8. Important implementation nuances
+## 10. Important implementation nuances
 
 - `switch_state` may be explicit in the telemetry payload, but the service still applies rule evaluation when it is `null`.
 - Device state is often nested under `dps` rather than a flat boolean field.

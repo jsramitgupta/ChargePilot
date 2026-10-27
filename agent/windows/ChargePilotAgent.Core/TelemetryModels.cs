@@ -83,3 +83,16 @@ public sealed record ShutdownCommand(
 public sealed record ShutdownAcknowledgement(
     [property: JsonPropertyName("outcome")] string Outcome,
     [property: JsonPropertyName("error")] string? Error = null);
+
+public sealed record SensorClaimEnvelope(
+    [property: JsonPropertyName("sensor")] SensorClaim? Sensor);
+
+public sealed record SensorClaim(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("sensor_id")] string SensorId,
+    [property: JsonPropertyName("claim_token")] string ClaimToken);
+
+public sealed record SensorReport(
+    [property: JsonPropertyName("claim_token")] string ClaimToken,
+    [property: JsonPropertyName("value")] object? Value,
+    [property: JsonPropertyName("error")] string? Error = null);

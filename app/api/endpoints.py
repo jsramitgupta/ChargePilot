@@ -135,6 +135,7 @@ async def list_endpoints(
                 ),
                 "reporting_interval_minutes": interval_minutes,
                 "credential_enrolled": endpoint.token_hash is not None,
+                "enabled": endpoint.enabled,
                 "automation_enabled": endpoint.automation_enabled,
                 "automation_available": (
                     endpoint.platform in settings.automation_telemetry_platforms

@@ -30,6 +30,7 @@ from app.api.health import router as health_router
 from app.api.mappings import router as mappings_router
 from app.api.onboarding import router as onboarding_router
 from app.api.support import router as support_router
+from app.api.smart_groups import router as smart_groups_router
 from app.api.telemetry import router as telemetry_router
 from app.core.authorization import get_authenticated_user, is_super_admin_user
 from app.core.config import settings
@@ -40,6 +41,7 @@ from app.models.user import User
 from app.services.connector_service import expire_overdue_commands
 from app.services.event_retention import purge_expired_events, purge_expired_telemetry
 from app.services.endpoint_shutdown_service import maintain_shutdown_commands
+from app.services.sensor_service import purge_expired_sensor_executions
 
 BASE_DIR = Path(__file__).resolve().parent
 AGENT_RELEASE_API_URL = (
@@ -174,6 +176,9 @@ async def event_retention_loop() -> None:
                 deleted_readings = purge_expired_telemetry(db)
                 if deleted_readings:
                     logger.info("Purged %s telemetry readings older than 30 days.", deleted_readings)
+                deleted_sensors = purge_expired_sensor_executions(db)
+                if deleted_sensors:
+                    logger.info("Purged %s sensor results older than 30 days.", deleted_sensors)
         except SQLAlchemyError:
             logger.exception("Could not purge expired automation events.")
         await asyncio.sleep(24 * 60 * 60)
@@ -211,6 +216,7 @@ app.include_router(onboarding_router)
 app.include_router(mappings_router, prefix=settings.api_v1_prefix)
 app.include_router(events_router, prefix=settings.api_v1_prefix)
 app.include_router(support_router, prefix=settings.api_v1_prefix)
+app.include_router(smart_groups_router, prefix=settings.api_v1_prefix)
 
 
 @app.get(f"{settings.api_v1_prefix}/agent/setup")

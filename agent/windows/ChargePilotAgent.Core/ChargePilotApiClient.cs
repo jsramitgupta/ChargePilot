@@ -160,6 +160,65 @@ public sealed class ChargePilotApiClient(HttpClient httpClient)
         }
     }
 
+    public async Task<SensorClaim?> ClaimSensorAsync(
+        AgentOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            new Uri(options.ServerUri, "/api/v1/endpoint-sensors/claim"))
+        {
+            Content = JsonContent.Create(new { }),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Credential);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"Sensor check failed with HTTP {(int)response.StatusCode}.",
+                null,
+                response.StatusCode);
+        }
+
+        var envelope = await response.Content.ReadFromJsonAsync<SensorClaimEnvelope>(
+            cancellationToken: cancellationToken);
+        if (envelope?.Sensor is not { } sensor)
+        {
+            return null;
+        }
+        if (sensor.Id == Guid.Empty ||
+            string.IsNullOrEmpty(sensor.ClaimToken) ||
+            sensor.ClaimToken.Length is < 32 or > 128 ||
+            sensor.SensorId is not ("os_version" or "uptime_seconds" or "system_disk_free_bytes"))
+        {
+            throw new InvalidDataException("The server returned an unsupported sensor request.");
+        }
+        return sensor;
+    }
+
+    public async Task ReportSensorAsync(
+        AgentOptions options,
+        SensorClaim claim,
+        SensorReport report,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            new Uri(options.ServerUri, $"/api/v1/endpoint-sensors/{claim.Id:D}/report"))
+        {
+            Content = JsonContent.Create(report),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Credential);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException(
+                $"Sensor report was rejected with HTTP {(int)response.StatusCode}.",
+                null,
+                response.StatusCode);
+        }
+    }
+
     private static void EnsureSecureOrigin(Uri serverUri)
     {
         var isLocalhost = serverUri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||

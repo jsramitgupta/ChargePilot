@@ -62,9 +62,9 @@ were present in the live namespaces. Follow the private-visibility checklist in
 
 ## Frontend and rendering
 The frontend is a Vite-built React application in `frontend/`. It currently
-provides sign-in/registration, dashboard, switches, mappings, endpoints,
-events, connector administration, profile, user/tenant administration, agent
-setup, and super-admin account pages. Authenticated in-app navigation stays
+provides sign-in/registration, dashboard, switches, mappings, Smart Groups and
+read-only sensors, endpoints, events, connector administration, profile,
+user/tenant administration, agent setup, and super-admin account pages. Authenticated in-app navigation stays
 within React Router, with the dev server serving the SPA for direct page loads.
 FastAPI serves JSON APIs and downloads; installable agent binaries are streamed
 from the latest `agents-v*` GitHub Release through public API endpoints. For a
@@ -114,6 +114,14 @@ installation guidance from a top-right help action; source archives are not
 presented as installers.
 The configured switch inventory loads independently of live connector status
 refreshes, so a failed device read does not block switch management.
+Smart Groups can use tenant-scoped dynamic criteria or explicit endpoint IDs
+for enabled, enrolled Windows/macOS agents. Runs queue only fresh endpoints and
+the agents execute the fixed `os_version`, `uptime_seconds`, and
+`system_disk_free_bytes` read-only catalog; arbitrary script payloads are not
+supported. Windows collection runs as a service before user sign-in. macOS
+collection is limited to the menu-bar app or CLI while running in a signed-in
+user session; no system LaunchDaemon is shipped. Sensor results are typed,
+leased, endpoint-authenticated, and retained for 30 days.
 The Site connectors page guides deployment, summarizes enrollment/online
 status, and allows tenant admins/managers and Super Admins to rename connectors
 without changing credentials or switch assignments. Endpoint detail reports

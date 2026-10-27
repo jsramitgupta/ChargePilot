@@ -297,6 +297,44 @@ When a compatible device reports metering data, its switch page can show power a
 An unavailable or unsupported reading is not zero. The guided **Find readings** action needs a recent site connector version; follow the version requirement displayed in ChargePilot.`,
   },
   {
+    title: "Use Smart Groups and Sensors",
+    slug: "manage-smart-groups-and-sensors",
+    summary:
+      "Collect approved system details from selected Windows and macOS devices.",
+    audience: "tenant_admin",
+    section: "Devices",
+    sortOrder: 85,
+    readingMinutes: 4,
+    body: `## Before you start
+
+Enroll the Windows or macOS devices and confirm they have reported recently. Tenant administrators and managers can create groups and run sensor checks. Other workspace users can review groups and results.
+
+Smart Groups collect only three approved read-only values: operating system version, system uptime, and free space on the system disk. They do not run uploaded PowerShell, zsh, Python, or other scripts.
+
+## Create a Smart Group
+
+1. Open **Smart Groups & Sensors**.
+2. Under **Create a Smart Group**, enter a **Group name**.
+3. Under **Target devices**, choose **Use group rules** to include matching Windows and/or macOS devices, or **Choose specific devices** to select endpoints yourself.
+4. If you use group rules, select one or both platforms. You can also enter part of a device name and set an **Optional battery filter**.
+5. Under **Sensors**, select the values to collect.
+6. Select **Create group**.
+
+Only enabled, enrolled endpoints in the workspace are eligible. A run includes only endpoints with a fresh report. A device that is offline or has not reported recently will not receive new work until it reports again.
+
+## Collect and review results
+
+1. Find the group under **Your Smart Groups** and check its fresh device and sensor counts.
+2. Select **Run now**.
+3. Review the recent sensor results shown with the group. A device may take time to report its results.
+
+Windows collection runs through the ChargePilot service, including when nobody is signed in. On macOS, the menu-bar app or CLI must be running in a signed-in user session; the feature does not run as a system daemon or while the user is logged out.
+
+## Change or remove a group
+
+Select **Edit** to change the name, targets, or sensors. Select **Delete**, then **Delete group**, to remove the group and its stored sensor results. This also removes the group's history.`,
+  },
+  {
     title: "Troubleshoot reporting and control",
     slug: "troubleshoot-reporting-and-control",
     summary:

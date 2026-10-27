@@ -47,7 +47,10 @@ Key rules to preserve:
 - endpoint agents never control Tuya switches. Enrolled Windows/macOS agents
   can receive only the fixed, user-opted-in shutdown request after the mapped
   switch is confirmed off; Windows has a local cancellation countdown and
-  macOS requires local confirmation.
+  macOS requires local confirmation. They can also claim tenant-scoped fixed
+  read-only sensors from Smart Groups. No uploaded script or arbitrary shell
+  payload is executed. Windows sensors run in its service; macOS sensors
+  require the app/CLI process to run in a signed-in user session.
 - tenant boundaries and bearer-token assignment remain enforced by the server
 - New Windows installs use the universal tenant-bound enrollment token and
   per-install credential; existing Windows installs can retain the

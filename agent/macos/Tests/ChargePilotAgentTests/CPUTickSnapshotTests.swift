@@ -35,4 +35,23 @@ final class CPUTickSnapshotTests: XCTestCase {
 
         XCTAssertThrowsError(try command.validate())
     }
+
+    func testApprovedSensorsAreFixedAndTyped() throws {
+        guard case let .string(version) = try ChargePilotAgent.readApprovedSensor("os_version") else {
+            return XCTFail("The OS version sensor must return text.")
+        }
+        XCTAssertFalse(version.isEmpty)
+
+        guard case let .integer(uptime) = try ChargePilotAgent.readApprovedSensor("uptime_seconds") else {
+            return XCTFail("The uptime sensor must return an integer.")
+        }
+        XCTAssertGreaterThanOrEqual(uptime, 0)
+
+        XCTAssertThrowsError(try ChargePilotAgent.readApprovedSensor("zsh"))
+    }
+
+    func testSensorValueEncodesAsScalarJSON() throws {
+        let data = try JSONEncoder().encode(SensorValue.integer(123))
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), "123")
+    }
 }

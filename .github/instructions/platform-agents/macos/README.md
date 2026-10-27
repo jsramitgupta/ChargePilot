@@ -12,6 +12,8 @@ tenant-scoped 24-hour enrollment tokens, and a per-install Keychain credential.
 - upload through the current ChargePilot telemetry contract
 - while reporting is active, poll for only the fixed shutdown request; show a
   local confirmation before calling System Events
+- while the app or CLI agent is running, poll for fixed read-only Smart Group
+  sensors; do not execute downloaded shell commands or scripts
 - report every five minutes while the menu-bar app is running and the Mac is
   awake
 - optionally launch in the user's session at sign-in through macOS
@@ -27,6 +29,7 @@ tenant-scoped 24-hour enrollment tokens, and a per-install Keychain credential.
 
 - no direct switch-control logic inside the app
 - no execution of generic commands from the server
+- no system LaunchDaemon or unattended logged-out sensor execution
 - no bypass of backend rule evaluation
 - no promise of telemetry while the Mac is sleeping, powered off, or the agent is disabled
 

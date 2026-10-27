@@ -145,6 +145,58 @@ struct ShutdownAcknowledgement: Encodable {
     let error: String?
 }
 
+struct SensorClaimEnvelope: Decodable {
+    let sensor: SensorClaim?
+}
+
+struct SensorClaim: Decodable {
+    let id: UUID
+    let sensorID: String
+    let claimToken: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sensorID = "sensor_id"
+        case claimToken = "claim_token"
+    }
+
+    func validate() throws {
+        guard id.uuidString != "00000000-0000-0000-0000-000000000000",
+              (32...128).contains(claimToken.count),
+              ["os_version", "uptime_seconds", "system_disk_free_bytes"].contains(sensorID)
+        else {
+            throw AgentError.invalidServerResponse
+        }
+    }
+}
+
+enum SensorValue: Encodable {
+    case string(String)
+    case integer(Int64)
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case let .string(value):
+            try container.encode(value)
+        case let .integer(value):
+            try container.encode(value)
+        }
+    }
+}
+
+private struct SensorReport: Encodable {
+    let claimToken: String
+    let value: SensorValue?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case claimToken = "claim_token"
+        case value
+        case error
+    }
+}
+
 struct CPUTickSnapshot {
     let user: UInt64
     let system: UInt64
@@ -404,6 +456,73 @@ struct ChargePilotAgent {
         )
     }
 
+    static func claimSensorExecution(
+        configuration: LocalConfiguration
+    ) async throws -> SensorClaim? {
+        let credential = try loadCredential(installationID: configuration.installationID)
+        let serverURL = try validatedServerURL(configuration.serverURL)
+        let data = try await postAccepted(
+            to: serverURL.appendingPathComponent("api/v1/endpoint-sensors/claim"),
+            body: EmptyRequest(),
+            credential: credential
+        )
+        let envelope: SensorClaimEnvelope
+        do {
+            envelope = try JSONDecoder().decode(SensorClaimEnvelope.self, from: data)
+        } catch {
+            throw AgentError.invalidServerResponse
+        }
+        guard let claim = envelope.sensor else { return nil }
+        try claim.validate()
+        return claim
+    }
+
+    static func reportSensorExecution(
+        _ claim: SensorClaim,
+        value: SensorValue?,
+        error: String? = nil,
+        configuration: LocalConfiguration
+    ) async throws {
+        switch (value, error) {
+        case (.some, .none), (.none, .some):
+            break
+        default:
+            throw AgentError.invalidServerResponse
+        }
+        let credential = try loadCredential(installationID: configuration.installationID)
+        let serverURL = try validatedServerURL(configuration.serverURL)
+        _ = try await postAccepted(
+            to: serverURL.appendingPathComponent(
+                "api/v1/endpoint-sensors/\(claim.id.uuidString)/report"
+            ),
+            body: SensorReport(
+                claimToken: claim.claimToken,
+                value: value,
+                error: error.map { String($0.prefix(255)) }
+            ),
+            credential: credential
+        )
+    }
+
+    static func readApprovedSensor(_ sensorID: String) throws -> SensorValue {
+        switch sensorID {
+        case "os_version":
+            return .string(ProcessInfo.processInfo.operatingSystemVersionString)
+        case "uptime_seconds":
+            return .integer(Int64(max(0, ProcessInfo.processInfo.systemUptime)))
+        case "system_disk_free_bytes":
+            guard let attributes = try? FileManager.default.attributesOfFileSystem(forPath: "/"),
+                  let freeBytes = (attributes[.systemFreeSize] as? NSNumber)?.int64Value,
+                  freeBytes >= 0
+            else {
+                throw AgentError.sensorUnavailable
+            }
+            return .integer(freeBytes)
+        default:
+            throw AgentError.invalidServerResponse
+        }
+    }
+
     static func requestSystemShutdown() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
@@ -484,8 +603,30 @@ struct ChargePilotAgent {
             } catch {
                 fputs("Telemetry was not accepted: \(error.localizedDescription)\n", stderr)
             }
+            do {
+                try await collectOneSensor(configuration: configuration)
+            } catch {
+                fputs("Sensor collection was not accepted: \(error.localizedDescription)\n", stderr)
+            }
             try await Task.sleep(for: .seconds(intervalSeconds))
         }
+    }
+
+    private static func collectOneSensor(configuration: LocalConfiguration) async throws {
+        guard let claim = try await claimSensorExecution(configuration: configuration) else { return }
+        let value: SensorValue
+        do {
+            value = try readApprovedSensor(claim.sensorID)
+        } catch {
+            try await reportSensorExecution(
+                claim,
+                value: nil,
+                error: error.localizedDescription,
+                configuration: configuration
+            )
+            return
+        }
+        try await reportSensorExecution(claim, value: value, configuration: configuration)
     }
 
     private static func readBattery() throws -> BatteryReading {
@@ -692,6 +833,7 @@ private enum AgentError: LocalizedError {
     case invalidEnrollmentCode
     case invalidServerResponse
     case batteryUnavailable
+    case sensorUnavailable
     case shutdownRejected
     case httpRejected(Int)
     case notEnrolled
@@ -716,6 +858,8 @@ private enum AgentError: LocalizedError {
             return "The server returned an invalid enrollment response."
         case .batteryUnavailable:
             return "A usable battery reading is unavailable; no sample was sent."
+        case .sensorUnavailable:
+            return "The requested system sensor is unavailable on this Mac."
         case .shutdownRejected:
             return "macOS did not accept the shutdown request. Check Automation permissions for ChargePilot Agent."
         case let .httpRejected(statusCode):

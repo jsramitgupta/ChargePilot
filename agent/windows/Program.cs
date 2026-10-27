@@ -309,6 +309,7 @@ internal static class Program
         builder.Services.AddSingleton<ChargePilotAgent.Core.ShutdownCommandHandler>();
         builder.Services.AddHostedService<TelemetryWorker>();
         builder.Services.AddHostedService<EndpointCommandWorker>();
+        builder.Services.AddHostedService<SensorWorker>();
         await builder.Build().RunAsync();
         return 0;
     }

@@ -79,6 +79,7 @@ private final class AgentStatusModel: ObservableObject {
 
     private var reportingTask: Task<Void, Never>?
     private var commandPollingTask: Task<Void, Never>?
+    private var sensorPollingTask: Task<Void, Never>?
     private let shutdownCommandStateKey = "handledShutdownCommandOutcomes"
     private var handledShutdownCommandOutcomes: [String: String] =
         UserDefaults.standard.dictionary(forKey: "handledShutdownCommandOutcomes") as? [String: String] ?? [:]
@@ -202,6 +203,7 @@ private final class AgentStatusModel: ObservableObject {
         guard !isReporting, let configuration else { return }
         isReporting = true
         startCommandPolling(configuration: configuration)
+        startSensorPolling(configuration: configuration)
         reportingTask = Task {
             while !Task.isCancelled {
                 await sendReport(configuration: configuration)
@@ -219,6 +221,8 @@ private final class AgentStatusModel: ObservableObject {
         reportingTask = nil
         commandPollingTask?.cancel()
         commandPollingTask = nil
+        sensorPollingTask?.cancel()
+        sensorPollingTask = nil
         isReporting = false
         statusMessage = "Reporting is paused."
         statusIsError = false
@@ -236,6 +240,10 @@ private final class AgentStatusModel: ObservableObject {
         let wasReporting = isReporting
         reportingTask?.cancel()
         reportingTask = nil
+        commandPollingTask?.cancel()
+        commandPollingTask = nil
+        sensorPollingTask?.cancel()
+        sensorPollingTask = nil
         isReporting = false
         isWorking = true
         statusMessage = "Deregistering this Mac…"
@@ -312,6 +320,7 @@ private final class AgentStatusModel: ObservableObject {
                         try await Task.sleep(for: .seconds(15))
                         continue
                     }
+
                     if let priorOutcome = handledShutdownCommandOutcomes[command.id.uuidString] {
                         try await ChargePilotAgent.acknowledgeShutdownCommand(
                             command,
@@ -364,6 +373,51 @@ private final class AgentStatusModel: ObservableObject {
                 }
             }
             commandPollingTask = nil
+        }
+    }
+
+    private func startSensorPolling(configuration: LocalConfiguration) {
+        guard sensorPollingTask == nil else { return }
+        sensorPollingTask = Task {
+            while !Task.isCancelled {
+                do {
+                    if let claim = try await ChargePilotAgent.claimSensorExecution(
+                        configuration: configuration
+                    ) {
+                        let value: SensorValue
+                        do {
+                            value = try ChargePilotAgent.readApprovedSensor(claim.sensorID)
+                        } catch is CancellationError {
+                            break
+                        } catch {
+                            try await ChargePilotAgent.reportSensorExecution(
+                                claim,
+                                value: nil,
+                                error: error.localizedDescription,
+                                configuration: configuration
+                            )
+                            continue
+                        }
+                        try await ChargePilotAgent.reportSensorExecution(
+                            claim,
+                            value: value,
+                            configuration: configuration
+                        )
+                    }
+                } catch is CancellationError {
+                    break
+                } catch {
+                    statusMessage = "Could not collect a system sensor: \(error.localizedDescription)"
+                    statusIsError = true
+                }
+
+                do {
+                    try await Task.sleep(for: .seconds(60))
+                } catch {
+                    break
+                }
+            }
+            sensorPollingTask = nil
         }
     }
 

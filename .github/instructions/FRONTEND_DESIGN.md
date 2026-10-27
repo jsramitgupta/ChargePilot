@@ -35,6 +35,7 @@ browser interactions:
 | `/endpoints` | Review enrolled devices, edit display labels, ownership, recent battery/resource readings, and endpoint assignment |
 | `/devices` | Review switches, channels, connector assignment, device state, and optional meter readings |
 | `/mappings` | Create, edit, and remove endpoint-to-switch battery rules |
+| `/smart-groups` | Create tenant-scoped Windows/macOS endpoint groups, select fixed read-only sensors, and review recent results |
 | `/events` | Review automation activity and outcomes |
 | `/connectors` | Follow deployment steps, enroll site connectors, review status, and rename connectors |
 | `/profile` | Manage account details, display time zone, and password |
@@ -231,6 +232,14 @@ operational state colors for explicit status indicators.
   and the new switch is created in that connector's tenant. A connector scan
   preselects that same route. The Smart Life key-retrieval dialog and discovery
   results use the shared theme surfaces and status tokens in both themes.
+  Smart Groups distinguish dynamic rules from explicit one-or-more endpoint
+  selection. Offer only the fixed read-only sensor catalog and make the execution
+  boundary visible; never imply that uploaded scripts are supported. Show fresh
+  matching devices, queue feedback, recent typed results, and clear agent
+  availability. Windows sensors run through the service without a signed-in
+  user; macOS collection requires its menu-bar app or CLI agent running in a
+  signed-in session. Keep the editor and results readable in both themes and
+  stack the targeting/results columns on narrow screens.
   Compatible Tuya meters can be configured per switch through a guided
   "find readings" action. Show power/energy descriptions and live samples
   instead of requiring users to know datapoint IDs or conversion multipliers.

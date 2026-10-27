@@ -49,6 +49,12 @@ allow-list, freshness, tenant ownership, mapping state, hysteresis, and
 cooldown before any command. See
 [platform-agents/README.md](platform-agents/README.md).
 
+The same enrolled agents can claim a bounded, tenant-scoped sensor execution
+from Smart Groups. The server sends only a fixed sensor ID, never script or
+shell text; native Windows and Swift readers return typed read-only values.
+Windows runs the collector in its service session. The macOS collector runs
+only while its menu-bar app or CLI agent is active in a signed-in user session.
+
 A second local onboarding path also exists:
 
 ```text
@@ -84,10 +90,12 @@ The HTTP API modules are in `app/api/`:
 - `events.py` — tenant-scoped event retrieval and pagination
 - `mappings.py` — mapping CRUD
 - `endpoints.py` — endpoint management, agent config, and readings
+- `smart_groups.py` — Smart Group CRUD, fixed sensor catalog, bounded
+  endpoint-sensor claims, and typed result reports
 
 The React frontend is the only browser UI and owns dashboard, switch, mapping,
-endpoint, event, connector, profile, user, tenant, agent setup, and account
-navigation. `app/main.py` bootstraps FastAPI and serves public installable
+Smart Group/sensor, endpoint, event, connector, profile, user, tenant, agent
+setup, and account navigation. `app/main.py` bootstraps FastAPI and serves public installable
 agent binaries through a GitHub Release proxy plus connector enrollment
 instructions. Agent and connector source archives are not served. Legacy page
 paths redirect to React, and form-based mutations use JSON APIs.
@@ -127,6 +135,8 @@ The model set in `app/models/` includes:
   desired-state delivery
 - `TelemetryOutbox` and `TelemetryAutomationCursor` — transactional event
   delivery and per-endpoint consumer ordering/idempotency
+- `SmartGroup`, `SensorAssignment`, and `SensorExecution` — tenant-scoped
+  endpoint targeting and leased fixed-sensor results with bounded retention
 
 Endpoint rows store platform, optional device class and installation ID,
 nullable AC state, and explicit automation eligibility. All four platforms

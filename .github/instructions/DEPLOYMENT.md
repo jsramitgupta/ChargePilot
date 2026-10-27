@@ -879,6 +879,23 @@ The matching rollback script removes queued command/audit state and converts
 back up first. Do not rely on startup `create_all()` to expand the existing
 PostgreSQL mapping constraint.
 
+Smart Groups and fixed read-only sensors add the
+`smart_groups`, `sensor_assignments`, and `sensor_executions` tables. For an
+existing PostgreSQL deployment:
+
+1. Back up PostgreSQL and test both scripts against a restored copy.
+2. Apply `deploy/migrations/20261028_smart_groups_sensors.sql` through the
+   private database service before deploying the updated API.
+3. Deploy the API, frontend, and Windows/macOS agents together; verify an
+   endpoint can claim and report a fixed sensor result.
+
+The matching rollback script is
+`deploy/migrations/20261028_smart_groups_sensors_rollback.sql` and drops all
+groups, assignments, and results.
+Stop using the feature and preserve the database backup before rollback.
+Startup `create_all()` creates these tables only on a fresh database and does
+not replace the migration for an existing schema.
+
 Legacy Windows endpoints are identified by the
 `Win32_ComputerSystemProduct.UUID`; hostname remains mutable display and
 diagnostic data. The endpoint `hardware_uuid` column is nullable for existing

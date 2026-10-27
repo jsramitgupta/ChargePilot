@@ -29,6 +29,7 @@ from app.models.account_invitation import AccountInvitation  # noqa: F401,E402
 from app.models.email_verification import EmailVerification  # noqa: F401,E402
 from app.models.endpoint_enrollment import EndpointEnrollment  # noqa: F401,E402
 from app.models.endpoint_shutdown_command import EndpointShutdownCommand  # noqa: F401,E402
+from app.models.smart_group import SensorAssignment, SensorExecution, SmartGroup  # noqa: F401,E402
 from app.services.local_key_service import decrypt_local_key, encrypt_local_key  # noqa: E402
 
 
