@@ -228,7 +228,7 @@ If a connector is offline, switches routed through it cannot receive new command
     title: "Create a battery mapping",
     slug: "create-a-battery-mapping",
     summary:
-      "Link an endpoint to a switch and set the battery thresholds that govern automation.",
+      "Link an endpoint to a switch, choose its battery use case, and set the relevant thresholds.",
     audience: "tenant_admin",
     section: "Automation",
     sortOrder: 70,
@@ -242,10 +242,18 @@ The endpoint and switch must belong to the same tenant. Make sure the endpoint i
 1. Open **Mappings** and choose **Create mapping**.
 2. Select the endpoint.
 3. Select the switch and, when needed, a channel.
-4. Review the battery thresholds and minimum time between state changes.
-5. Save the mapping explicitly.
+4. Choose what should happen: **Cycle switch power with battery levels**, **Only turn off the smart switch**, or, for an enrolled Windows or macOS endpoint, **Turn off the switch and the Windows or macOS device**.
+5. Set the thresholds shown for that use case. Battery cycling uses turn-on and turn-off thresholds; switch-off use cases use the turn-off threshold.
+6. If needed, open **More options** for automatic turn-on, a separate charging cutoff, the minimum time between changes, or to pause the mapping.
+7. Save the mapping explicitly.
 
 Moving through the setup steps does not save a mapping. Use the final save action to create it.
+
+## Request endpoint shutdown
+
+The shutdown use case is available only for an enrolled, tenant-assigned Windows or macOS endpoint. ChargePilot requests endpoint shutdown only after the mapped switch has successfully turned off. The server sends a fixed shutdown request, not an arbitrary command.
+
+Windows shows a 60-second countdown that a local user can cancel with \`shutdown /a\`. On macOS, the running menu-bar agent asks for confirmation and macOS may request permission to use System Events. The Mac must be awake and the agent running to receive the request. An agent acknowledgement means the request was handled; it does not prove that the operating system completed shutdown.
 
 ## Understand hysteresis
 
@@ -257,6 +265,7 @@ The default turn-on threshold is 79%, the default turn-off threshold is 99%, and
 - Turn-on can be disabled independently when you only want an automatic turn-off.
 
 The server also requires a fresh report, an enabled endpoint, an allowed platform, and an enabled mapping in the same tenant. These checks cannot be overridden from the UI.
+The switch-off-only and shutdown use cases always keep automatic switch turn-on disabled.
 
 ## Charging-completion cutoff
 
