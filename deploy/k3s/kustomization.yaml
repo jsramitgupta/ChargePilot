@@ -8,9 +8,9 @@ resources:
   - docs.yaml
 images:
   - name: endusercompute/chargepilot-api
-    newTag: sha-c14870e01d2c796fe0b8f39930b0e51cb51d5595
+    newTag: sha-ccb833e24971a59ac2b59749a90ea4614f609d1b
   - name: endusercompute/chargepilot-frontend
-    newTag: sha-c14870e01d2c796fe0b8f39930b0e51cb51d5595
+    newTag: sha-ccb833e24971a59ac2b59749a90ea4614f609d1b
   - name: endusercompute/chargepilot-docs-web
     newTag: sha-d589ed504a39b18c59e534e7efba631bcd61acbe
   - name: endusercompute/chargepilot-docs-cms
