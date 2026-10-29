@@ -53,7 +53,6 @@ jobs:
           images: ${{ env.DOCKERHUB_IMAGE }}
           tags: |
             type=sha,format=long
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push AMD64 + ARM64 connector image
         id: build

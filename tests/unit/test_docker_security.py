@@ -100,6 +100,12 @@ def test_image_workflows_pin_actions_and_publish_digest_references():
     assert expected_actions <= found_actions
 
 
+def test_windows_connector_workflow_smoke_test_uses_explicit_relative_path():
+    workflow = (ROOT / ".github" / "workflows" / "connector-windows.yml").read_text()
+
+    assert r".\connector\dist\ChargePilotConnector.exe --help" in workflow
+
+
 def test_container_workflows_scan_built_images_and_scope_publishing():
     ci_workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
     publish_workflow = (ROOT / ".github" / "workflows" / "publish-deploy.yml").read_text()

@@ -456,7 +456,7 @@ def test_connector_page_explains_supported_deployments_and_local_network_needs()
     assert "Go to connector setup" in connectors_page
     assert "offlineCount" in connectors_page
     assert "PATCH" in connectors_page
-    assert "endusercompute/chargepilot-connector:latest" in connectors_page
+    assert "endusercompute/chargepilot-connector:sha-" in connectors_page
     assert "Windows executable" in connectors_page
     assert "/connectors/ChargePilotConnector.exe" in connectors_page
     assert "install --server-url" in connectors_page
@@ -476,5 +476,5 @@ def test_connector_page_explains_supported_deployments_and_local_network_needs()
     assert "body.theme-dark .connector-deploy-guide" in dark
     assert "body.theme-dark .connector-readiness" in dark
     assert "body.theme-dark .endpoint-reading-chart" in dark
-    assert "endusercompute/chargepilot-connector:latest" in connector_readme
+    assert "endusercompute/chargepilot-connector:sha-" in connector_readme
     assert "Windows executable" in connector_readme

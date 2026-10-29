@@ -46,7 +46,7 @@ jobs:
           connector/chargepilot_connector.py
 
       - name: Smoke-test packaged executable
-        run: connector/dist/ChargePilotConnector.exe --help
+        run: .\connector\dist\ChargePilotConnector.exe --help
 
       - name: Publish commit-addressed Windows package
         env:

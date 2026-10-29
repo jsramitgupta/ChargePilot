@@ -951,7 +951,7 @@ for the connector credential.
 ```yaml
 services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:latest
+    image: endusercompute/chargepilot-connector:sha-f9c01a016d3a2e706c8a50a12c3aa5ae73da38b2
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped

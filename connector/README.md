@@ -20,7 +20,7 @@ connector credential on the local Docker host:
 ```yaml
 services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:latest
+    image: endusercompute/chargepilot-connector:sha-f9c01a016d3a2e706c8a50a12c3aa5ae73da38b2
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped
@@ -70,9 +70,8 @@ and TCP 6668).
 
 The published Docker image and Windows executable are the supported connector
 distributions. Source archives and the source-based Python installer are not
-served by ChargePilot.
-The mutable `latest` tag tracks the most recent default-branch image build;
-use an immutable `sha-<commit>` tag when you need a pinned deployment.
+served by ChargePilot. Use the immutable `sha-<commit>` tag for a pinned
+deployment.
 
 ## Windows executable
 
