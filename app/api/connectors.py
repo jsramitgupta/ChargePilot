@@ -4,12 +4,21 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.authorization import get_authenticated_user, is_super_admin_user, tenant_scoped_query
-from app.core.database import get_db
+from app.core.database import SessionLocal, get_db
 from app.core.security import get_bearer_token, generate_token
 from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device
@@ -23,6 +32,7 @@ from app.services.connector_service import (
     finalize_command,
     hash_connector_token,
 )
+from app.services.connector_notifications import connector_websockets
 from app.services.broadcaster import publish_event
 from app.services.automation_processor import reconcile_connector_status
 from app.services.endpoint_shutdown_service import queue_shutdown_command
@@ -224,6 +234,69 @@ async def connector_heartbeat(
     connector.version = payload.version
     db.commit()
     return {"status": "ok", "server_time": datetime.now(UTC).isoformat()}
+
+
+@router.websocket("/ws")
+async def connector_command_websocket(websocket: WebSocket):
+    authorization = websocket.headers.get("authorization")
+    try:
+        with SessionLocal() as db:
+            connector = _connector_from_auth(authorization, db)
+            connector_id = connector.id
+            connector_token_hash = connector.token_hash
+            connector.last_seen_at = datetime.now(UTC)
+            db.commit()
+    except HTTPException:
+        await websocket.close(code=1008, reason="Invalid connector credential.")
+        return
+
+    try:
+        await websocket.accept()
+        await websocket.send_json({"type": "connected"})
+        await connector_websockets.connect(connector_id, websocket)
+        hello_received = False
+        while True:
+            message = await websocket.receive_json()
+            if not isinstance(message, dict) or message.get("type") not in {
+                "hello",
+                "heartbeat",
+            }:
+                await websocket.close(code=1003, reason="Unsupported connector message.")
+                return
+            if not hello_received and message["type"] != "hello":
+                await websocket.close(code=1008, reason="Connector hello is required.")
+                return
+            hello_received = True
+
+            version = message.get("version", "unknown")
+            if not isinstance(version, str) or len(version) > 40:
+                await websocket.close(code=1008, reason="Invalid connector version.")
+                return
+            with SessionLocal() as db:
+                connector = (
+                    db.query(SiteConnector)
+                    .filter(
+                        SiteConnector.id == connector_id,
+                        SiteConnector.is_active.is_(True),
+                        SiteConnector.token_hash == connector_token_hash,
+                    )
+                    .first()
+                )
+                if connector is None:
+                    await websocket.close(code=1008, reason="Connector has been revoked.")
+                    return
+                connector.last_seen_at = datetime.now(UTC)
+                connector.version = version
+                db.commit()
+            if message["type"] == "heartbeat":
+                await connector_websockets.send(
+                    websocket,
+                    {"type": "heartbeat_ack"},
+                )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await connector_websockets.disconnect(connector_id, websocket)
 
 
 @router.post("/commands/claim")

@@ -1,7 +1,15 @@
 # ChargePilot site connector
 
 Run one connector on an always-on computer on the same LAN as the Tuya
-switches. It uses outbound HTTPS; no inbound firewall rule is needed.
+switches. It uses an outbound WebSocket for command notifications and
+authenticated HTTPS for durable command claim/results; no inbound firewall
+rule is needed.
+
+Version 0.1.5 and newer reconnects with backoff after network failures,
+checks for queued work immediately after connecting, and periodically performs
+a safety claim in case a notification was missed. Commands remain durable on
+the server, so a WebSocket disconnect does not lose queued work. Older
+connector versions continue to use HTTPS polling.
 
 ## Docker Compose (Linux)
 
@@ -12,7 +20,7 @@ connector credential on the local Docker host:
 ```yaml
 services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:sha-6056b0205cd2e3927b279d68a95f56fbe008bef3
+    image: endusercompute/chargepilot-connector:latest
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped
@@ -60,7 +68,35 @@ setting the environment variable); the saved connector credential remains in
 the volume. Permit outbound HTTPS and local Tuya traffic (UDP 6666, 6667, 7000
 and TCP 6668).
 
-The published Docker image is the supported connector distribution. Source
-archives and the source-based Python installer are not served by ChargePilot.
-To build or modify the connector, use an authorized checkout of the private
-repository.
+The published Docker image and Windows executable are the supported connector
+distributions. Source archives and the source-based Python installer are not
+served by ChargePilot.
+The mutable `latest` tag tracks the most recent default-branch image build;
+use an immutable `sha-<commit>` tag when you need a pinned deployment.
+
+## Windows executable
+
+The Windows build is a self-contained executable that installs and manages
+the connector as an automatically starting Windows service. Download
+`ChargePilotConnector.exe` from the authenticated **Site Connectors** page,
+then open PowerShell as Administrator in the download folder:
+
+```powershell
+.\ChargePilotConnector.exe install --server-url "https://api.example.com"
+```
+
+The installer securely prompts for the one-time enrollment code and does not
+accept it as a command-line argument. It stores the connector credential at
+`%ProgramData%\ChargePilot\connector-config.json` with access for SYSTEM,
+Administrators, and the service identity. The service runs as LocalService
+and writes rotating logs under `%ProgramData%\ChargePilot\logs`. It requires
+outbound HTTPS/WSS and local Tuya traffic (UDP 6666, 6667, 7000 and TCP 6668).
+
+Use the executable with `status`, `start`, `stop`, or `uninstall` to manage the
+service. For updates, stop the service, replace
+`%ProgramFiles%\ChargePilot\Connector\ChargePilotConnector.exe` with a newly
+downloaded build, and start the service. Uninstall removes local credentials
+but does not revoke the server-side connector; revoke it in ChargePilot first
+when retiring the host. Builds are unsigned, so Windows SmartScreen may show
+an unknown-publisher warning. Source archives and a Python installer are not
+served by ChargePilot; use an authorized checkout for source builds.

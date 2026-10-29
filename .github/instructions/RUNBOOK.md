@@ -98,15 +98,18 @@ curl -X POST http://localhost:8000/api/v1/telemetry \
 When a switch command fails or remains pending, check the following in order:
 
 1. Check `docker compose ps` and recent logs for `app`, `outbox-relay`, and
-   `automation-worker`.
+   `automation-worker`. On a Windows connector host, check
+   `ChargePilotConnector.exe status` and review
+   `%ProgramData%\ChargePilot\logs\connector.log`.
 2. Check pending rows and age in `telemetry_outbox`; old rows indicate relay
    backlog or Kafka connectivity issues.
 3. Inspect Kafka consumer lag and the `chargepilot.telemetry.dlq.v1` topic for
    exhausted/invalid events; do not copy telemetry or tokens into shared logs.
 4. Confirm the switch is assigned to the connector physically on its LAN.
 5. Check **Connectors** for an online heartbeat and expected connector version.
-6. Confirm outbound HTTPS from the connector to ChargePilot and local LAN
-   access from the connector to the Tuya switch.
+6. Confirm outbound HTTPS and WSS from connector to ChargePilot and local LAN
+   access from the connector to the Tuya switch. Connector 0.1.5+ receives
+   WebSocket wake-ups; older versions use HTTP polling.
 7. Confirm device IP, protocol version, and channel index.
 8. Inspect `device_commands` for status, attempts, expiry, and sanitized result.
 9. Inspect `automation_events` for the final control outcome.
@@ -141,9 +144,12 @@ connector to a build that reads DPS values using TinyTuya's parameterless
 `status()` method, then retry the switch command. TinyTuya returns channel
 states in the DPS payload; the requested channel is selected from that result.
 
-The connector polls every few seconds. Commands expire after five minutes and
-are leased with bounded retries. A queued or leased command is not a successful
-device action. Connector enrollment codes are single-use and expire after 15
+Connector 0.1.5+ stays connected over WebSocket for command wake-ups, then
+claims and acknowledges commands over HTTPS. It performs a safety claim about
+once per minute and reconnects with jittered backoff; older connectors poll
+every few seconds. Commands expire after five minutes and are leased with
+bounded retries. A queued or leased command is not a successful device action.
+Connector enrollment codes are single-use and expire after 15
 minutes. Endpoint enrollment tokens are different: they are tenant-scoped,
 platform-independent, reusable for 24 hours, and can be revoked to prevent
 future endpoint exchanges. Revoke individual endpoint credentials to stop

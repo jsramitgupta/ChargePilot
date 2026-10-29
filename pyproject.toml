@@ -26,6 +26,7 @@ dependencies = [
   "aiokafka==0.14.0",
   "msgpack==1.2.3",
   "urllib3==2.8.0",
+  "websockets==15.0.1",
 ]
 
 [project.optional-dependencies]

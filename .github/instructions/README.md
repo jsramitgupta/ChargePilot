@@ -50,6 +50,8 @@ includes:
   server-enforced all-platform automation defaults with freshness gates
 - endpoint-to-device mappings and automation rules
 - connector-based Tuya discovery and state control over the LAN
+- opt-in Tuya meter telemetry; other IoT telemetry sources and control
+  platforms are not yet implemented
 - PostgreSQL transactional outbox and command delivery, Kafka telemetry events,
   and tenant-scoped connector enrollment
 - a SmartLife/Tuya QR login flow for linked-device recovery and local key matching
@@ -58,15 +60,19 @@ includes:
 
 Installable agent binaries are streamed through the ChargePilot API when
 requested. A private repository requires a server-side, contents-read GitHub
-token. Source archives are excluded from releases; connector installations
-use the published Docker image.
+token. Site connectors are available as a multi-architecture Linux Docker
+image and a self-contained Windows executable installed as a Windows service.
+Windows builds are published to commit-addressed GitHub Releases and streamed
+through the ChargePilot API. Connector and agent source archives are not
+distributed.
 
 ## Reading guidance
 
 Start with [CURRENT_STATE.md](CURRENT_STATE.md), then read only the relevant
 reference for the files being changed. Use [API_SPEC.md](API_SPEC.md) for the
 live HTTP contract and [CLOUD_CONNECTOR_ARCHITECTURE.md](CLOUD_CONNECTOR_ARCHITECTURE.md)
-for the authoritative cloud-to-LAN control boundary. Platform-agent documents
+for the authoritative cloud-to-LAN control boundary and the clearly labeled
+proposal for future multi-provider telemetry/control. Platform-agent documents
 are proposals and must not be treated as permission to change the current
 contract without a separately reviewed backend change.
 
@@ -91,7 +97,9 @@ events use a PostgreSQL outbox and Kafka before asynchronous rule processing.
 - SmartLife flow: `app/services/smartlife_service.py` generates QR images, polls login results, saves session state, and refreshes QR on immediate expiry.
 - Rule defaults: `on_threshold=79`, `off_threshold=99`, `minimum_state_change_interval=300`.
 - Device discovery: the wizard can scan on the ChargePilot server network or delegate discovery to an online site connector; both paths omit local keys.
-- Connector deployment: the downloadable package includes Python and Docker Compose instructions, and the standalone Docker image targets Linux amd64 and arm64.
+- Connector deployment: the authenticated Site Connectors page offers Docker
+  Compose (Linux amd64/arm64) and a self-contained Windows executable/service;
+  source archives and the Python installer are not distributed.
 - UI pattern: React, TypeScript, and Tailwind provide the full browser UI; FastAPI exposes JSON APIs and file downloads. Frontend design and theme decisions are documented in [FRONTEND_DESIGN.md](FRONTEND_DESIGN.md).
 - The separate public help site is built with Next.js and Strapi in
   `docs-site/`; it is not the ChargePilot management console. Its initial

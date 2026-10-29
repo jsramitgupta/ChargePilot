@@ -39,6 +39,7 @@ from app.models.system_setting import SystemSetting
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.connector_service import expire_overdue_commands
+from app.services.connector_notifications import listen_for_connector_notifications
 from app.services.event_retention import purge_expired_events, purge_expired_telemetry
 from app.services.endpoint_shutdown_service import maintain_shutdown_commands
 from app.services.sensor_service import purge_expired_sensor_executions
@@ -46,6 +47,9 @@ from app.services.sensor_service import purge_expired_sensor_executions
 BASE_DIR = Path(__file__).resolve().parent
 AGENT_RELEASE_API_URL = (
     "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/latest"
+)
+CONNECTOR_RELEASES_API_URL = (
+    "https://api.github.com/repos/jsramitgupta/ChargePilot/releases?per_page=100"
 )
 logger = logging.getLogger("chargepilot.main")
 
@@ -56,6 +60,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     tasks = (
         asyncio.create_task(event_retention_loop()),
         asyncio.create_task(connector_maintenance_loop()),
+        asyncio.create_task(listen_for_connector_notifications()),
     )
     try:
         yield
@@ -377,6 +382,66 @@ async def _get_latest_agent_release() -> dict:
     return release
 
 
+async def _get_latest_connector_release() -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(
+                CONNECTOR_RELEASES_API_URL,
+                headers=_github_release_headers("application/vnd.github+json"),
+            )
+    except httpx.RequestError as error:
+        logger.warning("Could not reach GitHub while loading connector release assets: %s", error)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach the connector package service. Try again later.",
+        ) from error
+
+    if response.status_code != 200:
+        logger.warning(
+            "GitHub returned HTTP %s while loading connector release assets",
+            response.status_code,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="The connector package service could not provide the latest package. Try again later.",
+        )
+
+    try:
+        releases = response.json()
+    except ValueError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="GitHub returned an unreadable connector release response.",
+        ) from error
+
+    if not isinstance(releases, list):
+        raise HTTPException(
+            status_code=502,
+            detail="GitHub returned an incomplete connector release response.",
+        )
+
+    for release in releases:
+        if (
+            not isinstance(release, dict)
+            or not isinstance(release.get("tag_name"), str)
+            or re.fullmatch(r"connector-sha-[0-9a-f]{40}", release["tag_name"]) is None
+            or not isinstance(release.get("assets"), list)
+        ):
+            continue
+        assets = [
+            asset
+            for asset in release["assets"]
+            if isinstance(asset, dict)
+            and asset.get("name") == "ChargePilotConnector.exe"
+            and _is_github_release_asset_url(asset.get("url"))
+        ]
+        if assets:
+            release["assets"] = assets
+            return release
+
+    raise HTTPException(status_code=404, detail="No Windows connector package has been published yet.")
+
+
 @app.get("/agent/download")
 async def download_agent_scripts():
     raise HTTPException(
@@ -398,21 +463,24 @@ async def download_macos_agent():
     )
 
 
-async def _download_latest_agent_asset(asset_name: str) -> StreamingResponse:
-    release = await _get_latest_agent_release()
-    version = release["tag_name"].removeprefix("agents-v")
-    if not _is_supported_agent_asset(asset_name, version):
-        raise HTTPException(status_code=404, detail="Agent package not found.")
+async def _stream_github_release_asset(
+    asset_name: str,
+    release: dict,
+    package_type: str,
+) -> StreamingResponse:
     asset = next(
         (item for item in release["assets"] if item.get("name") == asset_name),
         None,
     )
     if asset is None:
-        raise HTTPException(status_code=404, detail="Agent package not found.")
+        raise HTTPException(status_code=404, detail=f"{package_type.title()} package not found.")
 
     asset_url = asset.get("url")
     if not _is_github_release_asset_url(asset_url):
-        raise HTTPException(status_code=502, detail="GitHub returned an invalid agent package URL.")
+        raise HTTPException(
+            status_code=502,
+            detail=f"GitHub returned an invalid {package_type} package URL.",
+        )
 
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(10.0, read=60.0),
@@ -429,10 +497,10 @@ async def _download_latest_agent_asset(asset_name: str) -> StreamingResponse:
         )
     except httpx.RequestError as error:
         await client.aclose()
-        logger.warning("Could not download agent package %s from GitHub: %s", asset_name, error)
+        logger.warning("Could not download %s package %s from GitHub: %s", package_type, asset_name, error)
         raise HTTPException(
             status_code=502,
-            detail="Could not download the agent package from GitHub.",
+            detail=f"Could not download the {package_type} package from GitHub.",
         ) from error
 
     if github_response.status_code != 200:
@@ -440,13 +508,14 @@ async def _download_latest_agent_asset(asset_name: str) -> StreamingResponse:
         await github_response.aclose()
         await client.aclose()
         logger.warning(
-            "GitHub returned HTTP %s while downloading agent package %s",
+            "GitHub returned HTTP %s while downloading %s package %s",
             status_code,
+            package_type,
             asset_name,
         )
         raise HTTPException(
             status_code=502,
-            detail="GitHub could not provide the requested agent package.",
+            detail=f"GitHub could not provide the requested {package_type} package.",
         )
 
     async def close_github_stream() -> None:
@@ -464,9 +533,27 @@ async def _download_latest_agent_asset(asset_name: str) -> StreamingResponse:
     )
 
 
+async def _download_latest_agent_asset(asset_name: str) -> StreamingResponse:
+    release = await _get_latest_agent_release()
+    version = release["tag_name"].removeprefix("agents-v")
+    if not _is_supported_agent_asset(asset_name, version):
+        raise HTTPException(status_code=404, detail="Agent package not found.")
+    return await _stream_github_release_asset(asset_name, release, "agent")
+
+
 @app.get("/agent/releases/latest/download/{asset_name}", include_in_schema=False)
 async def download_latest_agent_release_asset(asset_name: str):
     return await _download_latest_agent_asset(asset_name)
+
+
+@app.get("/connectors/ChargePilotConnector.exe", include_in_schema=False)
+async def download_latest_windows_connector():
+    release = await _get_latest_connector_release()
+    return await _stream_github_release_asset(
+        "ChargePilotConnector.exe",
+        release,
+        "connector",
+    )
 
 
 @app.get("/agent/android/download")
@@ -517,7 +604,7 @@ async def download_site_connector():
 async def download_site_connector_installer():
     raise HTTPException(
         status_code=410,
-        detail="The source-based Python connector installer is no longer available. Use the published Docker image.",
+        detail="The source-based Python connector installer is no longer available. Use the published Docker image or Windows executable.",
     )
 
 

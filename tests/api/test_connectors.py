@@ -1,12 +1,16 @@
+import asyncio
 import hashlib
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from fastapi import Response
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from app.core.config import settings
 from app.core.database import SessionLocal
+from app import main as main_module
 from app.main import app
 from app.models.connector import DeviceCommand, SiteConnector
 from app.models.device import Device
@@ -424,6 +428,92 @@ def test_python_connector_installer_is_disabled():
     assert "Use the published Docker image" in response.json()["detail"]
 
 
+def test_latest_connector_release_is_filtered_to_commit_executable(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return [
+                {
+                    "tag_name": "agents-v0.1.6",
+                    "assets": [{
+                        "name": "ChargePilotAgent.exe",
+                        "url": "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/assets/5",
+                    }],
+                },
+                {
+                    "tag_name": "connector-sha-" + "a" * 40,
+                    "assets": [
+                        {
+                            "name": "ChargePilotConnector.exe",
+                            "url": "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/assets/7",
+                        },
+                        {
+                            "name": "ChargePilotConnector.exe",
+                            "url": "https://downloads.example.test/ChargePilotConnector.exe",
+                        },
+                        {
+                            "name": "source.zip",
+                            "url": "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/assets/8",
+                        },
+                    ],
+                },
+            ]
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, headers):
+            assert url == main_module.CONNECTOR_RELEASES_API_URL
+            assert headers["Accept"] == "application/vnd.github+json"
+            return FakeResponse()
+
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", FakeClient)
+
+    release = asyncio.run(main_module._get_latest_connector_release())
+
+    assert release["tag_name"] == "connector-sha-" + "a" * 40
+    assert [asset["name"] for asset in release["assets"]] == ["ChargePilotConnector.exe"]
+
+
+def test_windows_connector_download_uses_the_allowlisted_release_asset(monkeypatch):
+    expected_release = {
+        "tag_name": "connector-sha-" + "b" * 40,
+        "assets": [{
+            "name": "ChargePilotConnector.exe",
+            "url": "https://api.github.com/repos/jsramitgupta/ChargePilot/releases/assets/17",
+        }],
+    }
+    captured = {}
+
+    async def fake_release():
+        return expected_release
+
+    async def fake_stream(asset_name, release, package_type):
+        captured.update(asset_name=asset_name, release=release, package_type=package_type)
+        return Response(content=b"connector executable")
+
+    monkeypatch.setattr(main_module, "_get_latest_connector_release", fake_release)
+    monkeypatch.setattr(main_module, "_stream_github_release_asset", fake_stream)
+
+    response = TestClient(app).get("/connectors/ChargePilotConnector.exe")
+
+    assert response.status_code == 200
+    assert response.content == b"connector executable"
+    assert captured == {
+        "asset_name": "ChargePilotConnector.exe",
+        "release": expected_release,
+        "package_type": "connector",
+    }
+
+
 def test_enrollment_code_is_single_use_and_commands_wait_for_connector_ack():
     client = _tenant_admin_client("connector_owner")
     connector_id, token = _enroll_connector(client)
@@ -659,6 +749,35 @@ def test_meter_discovery_uses_assigned_connector_and_is_tenant_scoped():
     other_tenant = _tenant_admin_client("connector_meter_discovery_guest")
     assert other_tenant.get(f"/api/v1/connectors/commands/{command_id}").status_code == 404
     assert other_tenant.post(f"/api/v1/devices/{device_id}/meter-discovery").status_code == 404
+
+
+def test_connector_websocket_authenticates_and_refreshes_heartbeat():
+    owner = _tenant_admin_client("connector_websocket_heartbeat")
+    _, token = _enroll_connector(owner, "WebSocket LAN")
+
+    with owner.websocket_connect(
+        "/api/v1/connectors/ws",
+        headers={"Authorization": "".join(("Be", "arer ", token))},
+    ) as websocket:
+        assert websocket.receive_json() == {"type": "connected"}
+        websocket.send_json({"type": "hello", "version": "0.1.5"})
+        websocket.send_json({"type": "heartbeat", "version": "0.1.5"})
+        assert websocket.receive_json() == {"type": "heartbeat_ack"}
+
+    with SessionLocal() as db:
+        connector = db.query(SiteConnector).filter(SiteConnector.token_hash.is_not(None)).one()
+        assert connector.version == "0.1.5"
+        assert connector.last_seen_at is not None
+
+
+def test_connector_websocket_rejects_invalid_credentials():
+    client = TestClient(app)
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(
+            "/api/v1/connectors/ws",
+            headers={"Authorization": "Bearer invalid-connector-token"},
+        ):
+            pass
 
 
 def test_meter_discovery_reads_directly_when_no_connector_is_assigned(monkeypatch):

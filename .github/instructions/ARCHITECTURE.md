@@ -25,7 +25,7 @@ Windows service executable (.NET Worker Service)
   -> outbox-relay publishes keyed event to Kafka
   -> automation-consumer evaluates mapping/rules
   -> PostgreSQL persists a desired-state device command
-  -> Site connector claims command over outbound HTTPS
+  -> Site connector receives WebSocket wake-up, claims over HTTPS
   -> TinyTuya controls the assigned device on its LAN
   -> Connector acknowledges result; cloud updates state/event/SSE
 ```
@@ -96,9 +96,11 @@ The HTTP API modules are in `app/api/`:
 The React frontend is the only browser UI and owns dashboard, switch, mapping,
 Smart Group/sensor, endpoint, event, connector, profile, user, tenant, agent
 setup, and account navigation. `app/main.py` bootstraps FastAPI and serves public installable
-agent binaries through a GitHub Release proxy plus connector enrollment
-instructions. Agent and connector source archives are not served. Legacy page
-paths redirect to React, and form-based mutations use JSON APIs.
+agent binaries through a GitHub Release proxy plus connector enrollment and
+deployment instructions. The connector Windows executable is streamed through
+an allow-listed GitHub Release proxy; agent and connector source archives are
+not served. Legacy page paths redirect to React, and form-based mutations use
+JSON APIs.
 
 ### 3.2 Core layer
 

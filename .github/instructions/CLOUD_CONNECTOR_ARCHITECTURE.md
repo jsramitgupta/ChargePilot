@@ -11,10 +11,12 @@ ChargePilot control plane, receives only persisted and authorized work, and
 performs TinyTuya operations on its local network.
 
 Telemetry uses a PostgreSQL transactional outbox and Kafka; automation
-consumers create desired-state commands in PostgreSQL. Connectors continue to
-claim those commands over outbound HTTPS polling. Kafka is not exposed to site
-connectors and does not replace durable command records, tenant checks, leases,
-or result acknowledgement.
+consumers create desired-state commands in PostgreSQL. Site connectors keep an
+outbound WebSocket open for command-available notifications, then claim the
+durable command and submit results over authenticated HTTPS. PostgreSQL
+`LISTEN`/`NOTIFY` fans committed-command wake-ups to each API process; Kafka is
+not exposed to site connectors and does not replace durable command records,
+tenant checks, leases, or result acknowledgement.
 
 ## Runtime topology
 
@@ -25,7 +27,8 @@ Endpoint telemetry agent --> API --> PostgreSQL outbox --> Kafka
                                                     |
                                          PostgreSQL command records
                                                     |
-                                       outbound HTTPS polling
+                                 outbound WebSocket notification
+                                   + HTTPS claim/result requests
                                                     |
                                          Site connector host
                                                     |
@@ -41,6 +44,11 @@ It needs outbound HTTPS access to ChargePilot and local network access to its
 assigned switches. The site does not expose an inbound Internet listener.
 TinyTuya documents UDP discovery traffic on ports 6666, 6667, 7000 and TCP
 6668; validate firewall behavior with the actual device family and installation.
+Supported packages are a Linux amd64/arm64 Docker image and a self-contained
+Windows executable installed as an automatically starting service. The Windows
+service runs as LocalService; its credential file is ACL-protected for SYSTEM,
+Administrators, and the service identity. Its executable is currently
+unsigned, and updates are manual.
 
 ## Boundaries and identity
 
@@ -82,10 +90,24 @@ report a successful UI action or update confirmed device state until a
 successful connector result is recorded. Record terminal results and errors in
 the automation event history.
 
-The initial poll interval should balance interactive latency with traffic (a
-few seconds); use bounded exponential backoff while disconnected. Heartbeats
-make online state explicit and use a server-side freshness window. Keep the
-HTTP contract versioned for later connector upgrades.
+The connector WebSocket is only a wake-up channel. It carries no command
+payload, device key, or provider credential. After connecting or receiving a
+`commands_available` notification, the connector drains work through the
+existing authenticated HTTPS claim/result routes. The server sends a
+notification only after the transaction inserting a command commits. On
+disconnect, the connector reconnects with exponential backoff and jitter,
+immediately checks for queued work, and retains a periodic safety claim in case
+a notification is missed. WebSocket pings and connector application
+heartbeats detect stale connections; the existing heartbeat HTTP endpoint
+remains available for older connector versions.
+
+Each API process maintains one PostgreSQL notification listener and fans
+connector-scoped notifications to only its own connected sockets. This allows
+multiple API replicas to receive the same committed notification without
+putting socket state in the command database. The notification is not durable;
+the PostgreSQL command row, lease, retry bounds, and periodic safety claim
+provide recovery. Keep the WebSocket protocol versioned and validate upgrades,
+timeouts, and graceful reconnects through the production ingress.
 
 ## Automation path
 
@@ -164,6 +186,74 @@ requires the
 installations. Back up the database before applying it. The rollback script
 removes both configuration and collected meter history; use it only when
 intentionally removing the feature and after preserving any required data.
+
+## Proposal: multi-provider telemetry and control
+
+This section is a target architecture, not a shipped API or supported
+integration. No additional IoT vendor, protocol, or telemetry source is
+currently implemented. Select and validate concrete providers before
+implementing this proposal.
+
+Telemetry-source integration and switch-control integration are separate
+capabilities. A provider may supply measurements, control devices, do both, or
+do neither. Do not model a new IoT source as an OS `Endpoint`: the existing
+`/api/v1/telemetry` contract requires battery and charging fields and its
+identity/enrollment rules are specific to installed endpoint agents.
+
+The proposed telemetry path introduces a tenant-owned source identity and
+provider enrollment, then accepts versioned observations with:
+
+- a stable provider-scoped source ID, not an IP address or mutable display name
+- a bounded set of typed measurements with canonical metric IDs, numeric
+  values, explicit units, observed timestamps, and quality/availability
+  state
+- provider and schema versions for adapter evolution and replay
+- per-source credentials that are revocable and stored as hashes where
+  verification permits; provider secrets needed for polling are encrypted at
+  rest and never exposed to browsers or logs
+
+Normalize measurements at the provider boundary (for example power in watts
+and energy in kWh), but preserve the distinction between unsupported, stale,
+invalid, and valid zero values. Do not feed arbitrary provider JSON, raw
+credentials, or unvalidated measurements into automation. Store observations
+with tenant/source identity and enqueue them transactionally before
+asynchronous rule evaluation. Battery rules remain endpoint-specific; rules
+for power, temperature, or other measurements need explicit units, freshness,
+quality, hysteresis, and safe action policies.
+
+The proposed control path adds a provider adapter behind the existing durable
+desired-state command contract. Its bounded interface should cover declared
+capabilities, provider-side discovery, status reads, and idempotent
+`set_state` operations. Persist provider identity and opaque device identity
+separately from provider-specific configuration. Keep provider credentials in
+encrypted storage, and send a connector only the minimum credential and
+device configuration required for an authorized command. A provider driver
+must never accept arbitrary hosts, URLs, scripts, or device IDs from a
+telemetry payload.
+
+Where a provider is reachable only from a site LAN, implement its driver in
+the site connector and keep cloud-to-site traffic outbound HTTPS with tenant-
+scoped enrollment, leases, expiry, retry bounds, and command-result
+acknowledgement. Reuse the current `set_state` desired-state lifecycle, but
+version and capability-check the connector command contract before dispatch.
+Cloud APIs should not call vendor cloud APIs directly as an implicit fallback.
+
+The implementation sequence is:
+
+1. Select the first telemetry source and first control provider, including
+   network location, authentication, rate limits, units, supported operations,
+   and failure behavior.
+2. Define separate source/device ownership, provider capability, and
+   normalized observation/command contracts; keep existing endpoint and Tuya
+   semantics intact.
+3. Design a versioned PostgreSQL migration with reviewed backup and rollback
+   steps. Do not use startup `create_all()` to upgrade production data.
+4. Implement one provider adapter at a time behind the contracts, then add
+   tenant isolation, credential lifecycle, freshness, idempotency, and
+   provider-contract tests.
+5. Add onboarding and UI only for operations supported end-to-end by that
+   provider, and verify offline, partial-failure, and recovery behavior on
+   non-critical devices.
 
 ## Deployment requirements
 

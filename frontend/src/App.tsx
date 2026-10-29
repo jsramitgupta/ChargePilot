@@ -3792,6 +3792,7 @@ function ConnectorsPage() {
   const [tenantId, setTenantId] = useState('')
   const [enrollmentCode, setEnrollmentCode] = useState('')
   const [copyStatus, setCopyStatus] = useState('')
+  const [deploymentMode, setDeploymentMode] = useState<'docker' | 'windows'>('docker')
 
   const connectorsQuery = useQuery({
     queryKey: ['connectors'],
@@ -3843,12 +3844,13 @@ function ConnectorsPage() {
   const actionError = createMutation.error ?? renameMutation.error ?? revokeMutation.error ?? deleteMutation.error
   const canManageConnectors = user?.role === 'super_admin' || user?.role === 'tenant_admin' || user?.role === 'manager'
   const connectorServerUrl = (API_BASE_URL || window.location.origin).replace(/\/+$/, '')
+  const windowsInstallCommand = `.\\ChargePilotConnector.exe install --server-url "${connectorServerUrl}"`
   const onlineCount = connectors.filter((connector) => connector.is_active && connector.is_enrolled && connector.is_online).length
   const waitingCount = connectors.filter((connector) => connector.is_active && !connector.is_enrolled).length
   const offlineCount = connectors.filter((connector) => connector.is_active && connector.is_enrolled && !connector.is_online).length
   const composeYaml = `services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:sha-922f4aac9cef35276eef7814620f38d674720f73
+    image: endusercompute/chargepilot-connector:latest
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped
@@ -3871,7 +3873,7 @@ volumes:
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Remote device networks" title="Site connectors" description="Run one connector on each switch network. It keeps Tuya discovery and control on site while polling ChargePilot over outbound HTTPS." />
+      <PageHeader eyebrow="Remote device networks" title="Site connectors" description="Run one connector on each switch network. It keeps Tuya discovery and control on site, using outbound WebSocket notifications and HTTPS for durable commands." />
       <section className="connector-readiness" aria-label="Connector setup overview">
         <p><strong>Before you start</strong> Choose an always-on computer on the switch LAN. It needs outbound HTTPS and local Tuya access; no inbound Internet port is required.</p>
         <ul>
@@ -3885,14 +3887,18 @@ volumes:
         <div className="connector-deploy-heading">
           <div>
             <h2 id="connector-deploy-title">Run a site connector</h2>
-            <p>Use the published Docker image to keep discovery and switch control on the switch LAN.</p>
+            <p>Choose Docker Compose for Linux hosts or a Windows executable installed as a service.</p>
           </div>
           <div className="connector-network-path" aria-label="Connector network path">
             <span>Tuya LAN</span><ChevronRight size={15} aria-hidden="true" /><span>Connector</span><ChevronRight size={15} aria-hidden="true" /><span>HTTPS</span>
           </div>
         </div>
         <p className="connector-prerequisite"><ShieldCheck size={16} aria-hidden="true" /><span>The host must stay powered on, reach ChargePilot over HTTPS, and reach switches on the local network using Tuya traffic (UDP 6666, 6667, 7000; TCP 6668).</span></p>
-        <div className="connector-deploy-steps" aria-live="polite">
+        <div className="mb-4 flex flex-wrap gap-2">
+          <button type="button" aria-pressed={deploymentMode === 'docker'} className={deploymentMode === 'docker' ? 'btn-primary' : 'btn-secondary'} onClick={() => setDeploymentMode('docker')}>Docker Compose</button>
+          <button type="button" aria-pressed={deploymentMode === 'windows'} className={deploymentMode === 'windows' ? 'btn-primary' : 'btn-secondary'} onClick={() => setDeploymentMode('windows')}>Windows executable</button>
+        </div>
+        {deploymentMode === 'docker' ? <div className="connector-deploy-steps" aria-live="polite">
           <article className="connector-deploy-step">
             <span className="connector-step-number">1</span>
             <div><h3>Prepare the connector host</h3><p>Use an always-on Linux computer, NAS, or Raspberry Pi on the switch LAN with Docker Compose installed.</p></div>
@@ -3921,7 +3927,43 @@ volumes:
               <p className="connector-step-note">Run this in Bash beside the Compose file: <code>read -rsp 'One-time ChargePilot code: ' CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE &amp;&amp; echo &amp;&amp; export CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE &amp;&amp; docker compose up -d &amp;&amp; unset CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE</code>. The code is not added to shell history, but remains visible in Docker metadata until enrollment completes and the container is recreated without it. The saved credential remains in the Docker-managed volume. Allow local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668).</p>
             </div>
           </article>
-        </div>
+        </div> : <div className="connector-deploy-steps" aria-live="polite">
+          <article className="connector-deploy-step">
+            <span className="connector-step-number">1</span>
+            <div>
+              <h3>Download the Windows executable</h3>
+              <p>Use an always-on Windows computer connected to the switch LAN. Download the self-contained connector; no separate Python installation is required.</p>
+              <a className="connector-step-link" href={`${connectorServerUrl}/connectors/ChargePilotConnector.exe`}>Download ChargePilotConnector.exe</a>
+              <p className="connector-step-note">The current build is not code-signed. Windows SmartScreen may show an unknown-publisher warning; only continue if you trust this ChargePilot deployment.</p>
+            </div>
+          </article>
+          <article className="connector-deploy-step">
+            <span className="connector-step-number">2</span>
+            <div>
+              <h3>Install and enroll the Windows service</h3>
+              <p>Open PowerShell as Administrator in the download folder and run the command below. The installer prompts for the one-time code without placing it in shell history or process arguments.</p>
+              <pre className="connector-command"><code>{windowsInstallCommand}</code></pre>
+              <button type="button" className="btn-secondary mt-2" onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(windowsInstallCommand)
+                  setCopyStatus('Windows install command copied.')
+                } catch {
+                  setCopyStatus('Copy was blocked. Select the command and copy it manually.')
+                }
+              }}>Copy install command</button>
+              <p className="mt-1 text-xs text-slate-500" role="status">{copyStatus}</p>
+              <p className="connector-step-note">The service starts automatically at boot as the restricted LocalService account. Its connector credential is stored under <code>%ProgramData%\ChargePilot</code>, accessible to SYSTEM, Administrators, and the service identity. Rotating logs are stored under <code>%ProgramData%\ChargePilot\logs</code>. Windows must allow outbound HTTPS/WSS plus local Tuya traffic (UDP 6666, 6667, 7000; TCP 6668).</p>
+            </div>
+          </article>
+          <article className="connector-deploy-step">
+            <span className="connector-step-number">3</span>
+            <div>
+              <h3>Check, update, or remove the service</h3>
+              <p>Use an elevated PowerShell window to check the service with <code>.\ChargePilotConnector.exe status</code>; the executable also supports <code>start</code>, <code>stop</code>, and <code>uninstall</code>.</p>
+              <p>To update, stop the service, replace <code>%ProgramFiles%\ChargePilot\Connector\ChargePilotConnector.exe</code> with a newly downloaded build, then start it again. Before removing a connector permanently, revoke it on this page; uninstall removes the local credential but does not revoke the server-side connector.</p>
+            </div>
+          </article>
+        </div>}
         <p className="connector-finish-note">Setup is complete when this page shows the connector online. Then open <strong>Switches</strong> to scan this LAN and assign the discovered switches to it.</p>
       </section>
       {enrollmentCode && (

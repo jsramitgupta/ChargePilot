@@ -3,7 +3,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -25,6 +25,14 @@ MAX_COMMAND_ATTEMPTS = 5
 CONNECTOR_ONLINE_WINDOW = timedelta(seconds=90)
 METER_POLL_INTERVAL = timedelta(seconds=60)
 MAPPING_STATUS_POLL_INTERVAL = timedelta(seconds=60)
+
+
+def _notify_connector_command_available(db: Session, connector_id: str) -> None:
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_notify('chargepilot_connector_commands', :connector_id)"),
+            {"connector_id": connector_id},
+        )
 
 
 def hash_connector_token(token: str) -> str:
@@ -100,6 +108,7 @@ def queue_device_command(
     )
     db.add(command)
     db.flush()
+    _notify_connector_command_available(db, connector.id)
     return command
 
 
@@ -120,6 +129,7 @@ def queue_discovery_command(db: Session, connector: SiteConnector) -> DeviceComm
     )
     db.add(command)
     db.flush()
+    _notify_connector_command_available(db, connector.id)
     return command
 
 

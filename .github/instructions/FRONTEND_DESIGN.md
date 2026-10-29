@@ -103,19 +103,25 @@ reporting remains best-effort, so explain these platform limits instead of
 promising an exact schedule.
 Endpoint automation is enabled by default for all four platforms, subject to
 server-side platform and freshness checks. The Overview shows last-seen age as
-a live relative time. The Connectors page supports a published Docker Compose image with
-environment-based one-time enrollment and Docker-managed persistent storage.
-When the connector image is private, explain that users need Docker Hub
-read access and must authenticate with `docker login` before pulling it; never
-put registry credentials in Compose or confuse them with the one-time
-enrollment code. Link to the published private connector image access guide.
-It shows setup readiness and current connector status, lets authorized
+a live relative time. The Connectors page offers Docker Compose and Windows executable deployment.
+Docker uses environment-based one-time enrollment and Docker-managed
+persistent storage. When the connector image is private, explain that users
+need Docker Hub read access and must authenticate with `docker login` before
+pulling it; never put registry credentials in Compose or confuse them with the
+one-time enrollment code. Link to the published private connector image access
+guide. Windows uses a self-contained executable installed as an automatically
+starting Windows service; the enrollment code is entered at a secure prompt,
+and the connector credential is stored under ProgramData with access for
+SYSTEM, Administrators, and the LocalService service identity. State that the
+executable is unsigned and Windows SmartScreen may show a warning. Explain
+service controls, manual updates, and that uninstalling does not revoke the
+server-side connector.
+Both methods show setup readiness and connector status, let authorized
 administrators rename a connector without changing its credential or device
-assignments, and requires revoked connectors to be deleted explicitly.
-Only installable agent binaries are available through the public API proxy;
-agent and connector source archives are not distributed. The Site Connectors
-page documents the published Docker Compose image only. Code creation and
-credential management remain authenticated.
+assignments, and require revoked connectors to be deleted explicitly. Only
+installable binaries are available through the public API proxy; agent and
+connector source archives are not distributed. Code creation and credential
+management remain authenticated.
 Mapping setup has four explicit steps: choose an endpoint, choose a switch,
 choose a supported use case, and set battery rules. The use-case choice offers
 battery-managed switch cycling, switch-off-only, and switch-and-shutdown for

@@ -10,7 +10,8 @@ cloud.
 
 The cloud control plane has independently deployable API, outbox-relay, and
 automation-consumer processes. It uses a PostgreSQL transactional outbox and
-Kafka for telemetry events; site connectors continue polling durable commands
+Kafka for telemetry events; site connectors receive WebSocket command
+notifications and claim durable commands over HTTPS
 from the API. The API and workers currently share the existing PostgreSQL
 schema, so this is not yet a horizontally sharded 10-million-endpoint system.
 The product contains:
@@ -253,7 +254,7 @@ volume for the connector credential; no host data directory is needed.
 ```yaml
 services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:sha-6056b0205cd2e3927b279d68a95f56fbe008bef3
+    image: endusercompute/chargepilot-connector:latest
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped
@@ -282,17 +283,23 @@ enrollment code for first enrollment:
 read -rsp 'One-time ChargePilot code: ' CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE && echo && export CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE && docker compose up -d && unset CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE
 ```
 
-The site connector is installed from the published Docker Hub image using the
-Docker Compose instructions in the authenticated **Site Connectors** page.
-Source archives and the source-based Python installer are not served by the
-ChargePilot API.
+The authenticated **Site Connectors** page offers Docker Compose for Linux
+and a self-contained Windows executable installed as an automatically
+starting Windows service. Both use the same one-time enrollment code. The
+Windows installer securely prompts for the code and stores its connector
+credential under ProgramData with access for SYSTEM, Administrators, and the
+LocalService service identity. The executable is currently unsigned, so
+Windows SmartScreen may show a warning. Source archives and the source-based
+Python installer are not served by the ChargePilot API.
 
 Assign switches to that connector on the **Switches** page. Confirm that the
 connector reports online, then use LAN scan or switch controls. The connector
 requires outbound HTTPS to ChargePilot and TinyTuya local LAN access. No inbound
-site firewall rule is needed. The connector image is rebuilt and pushed to
-Docker Hub when files under `connector/` change on `main`; the build publishes
-both supported CPU architectures.
+site firewall rule is needed. The connector image is rebuilt and pushed to Docker Hub when files under
+`connector/` change on `main`; the build publishes both supported CPU
+architectures and updates the `latest` tag. The Windows executable is
+packaged and published to a commit-addressed GitHub Release by its Windows
+build workflow.
 
 The existing Windows agent, its config JSON, telemetry contract,
 `CHARGEPILOT_` settings, and Compose variables are unchanged. The connector is

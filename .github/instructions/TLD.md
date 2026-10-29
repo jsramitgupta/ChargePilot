@@ -15,7 +15,7 @@ The project currently uses:
 - Kafka via `aiokafka` for asynchronous telemetry delivery
 - Pydantic + pydantic-settings
 - TinyTuya for local control and discovery
-- httpx-based outbound HTTPS connector runtime
+- outbound WebSocket notification and HTTPS command-claim connector runtime
 - Fernet encryption for stored local keys, derived from the existing encryption setting
 - Tuya sharing SDK for SmartLife linked-device flow
 - React, TypeScript, Tailwind CSS, and Vite for the interactive frontend
@@ -313,7 +313,8 @@ These tests are the baseline regression suite for the core automation path and s
 - Treat local key recovery and device discovery as first-class onboarding steps, not afterthoughts.
 - Keep event logging and device state updates durable and visible.
 - Kafka carries telemetry events only; PostgreSQL remains the command-of-record
-  store and connectors still use outbound HTTPS polling.
+  store; connectors receive WebSocket wake-ups and claim durable commands over
+  outbound HTTPS, with periodic claims as a recovery fallback.
 - Redis is not a required runtime dependency; add it only for a measured,
   well-scoped cache/rate-limit need, not as a second source of truth.
 

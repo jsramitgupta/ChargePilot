@@ -249,9 +249,17 @@ or unsigned. The iOS signed option is ad-hoc provisioned for included devices,
 not an App Store release. Partially configured signing-secret groups or
 signature verification failures stop the release workflow.
 
-`GET /connectors/download` and `GET /connectors/install.sh` return `410 Gone`.
-Connector installation is supported through the published Docker Hub image;
-the API no longer serves connector source code or a Python bootstrap installer.
+`GET /connectors/ChargePilotConnector.exe` streams the allow-listed
+self-contained Windows connector executable from the newest
+`connector-sha-<commit>` GitHub Release. It is public and makes the binary
+public; for a private repository the API reads release metadata and the asset
+using `CHARGEPILOT_AGENT_RELEASE_GITHUB_TOKEN`, which remains server-side.
+`GET /connectors/download` and `GET /connectors/install.sh` continue to return
+`410 Gone`; connector source archives and the source-based Python installer
+are not distributed. Linux deployments use the published Docker Hub image.
+The Windows executable installs the connector as a Windows service and
+prompts for the one-time enrollment code instead of accepting it in command
+arguments.
 
 ## 3. Endpoint reference
 
@@ -281,6 +289,15 @@ Receives battery telemetry from Windows and enrolled platform agents. The API
 commits the latest endpoint snapshot and a durable outbox event in one
 PostgreSQL transaction; rule evaluation and switch commands happen
 asynchronously in Kafka consumers.
+
+This is not a generic IoT measurement-ingestion endpoint. The payload below
+requires endpoint battery/charging fields, and the platform value identifies
+an installed endpoint agent (`windows`, `macos`, `android`, or `ios`). IoT
+meter readings currently use the separate Tuya meter flow documented in
+`CLOUD_CONNECTOR_ARCHITECTURE.md`; other IoT telemetry providers are not
+implemented. The proposed provider-neutral source and observation contract is
+documented in that architecture reference and must not be treated as a live
+API.
 
 Request schema (`app/schemas/telemetry.py`):
 
@@ -791,7 +808,7 @@ Exchange a one-time enrollment code in the `Authorization: Bearer` header for a
 connector ID and permanent credential. Codes expire after 15 minutes, are
 single-use, and are returned only once.
 
-Request: `{"version":"0.1.4"}`
+Request: `{"version":"0.1.5"}`
 
 Response:
 
@@ -825,7 +842,23 @@ rename connectors in their authorized tenant scope.
 ### POST /api/v1/connectors/heartbeat
 
 Refreshes last-seen time and connector version. The connector sends its
-credential and `{"version":"0.1.4"}`.
+credential and `{"version":"0.1.5"}`.
+
+### WebSocket /api/v1/connectors/ws
+
+Connector version 0.1.5 and newer may connect using `wss://` and the
+connector-specific `Authorization: Bearer` credential. The server sends
+`{"type":"connected"}` after authentication and
+`{"type":"commands_available"}` after a command transaction commits. These
+frames are wake-up hints only; they do not contain command or device data.
+
+The connector sends `{"type":"hello","version":"0.1.5"}` on connection and
+`{"type":"heartbeat","version":"0.1.5"}` periodically. Heartbeats refresh
+connector last-seen/version and receive `{"type":"heartbeat_ack"}`. On
+connection and notification, the connector drains work through the existing
+HTTPS claim endpoint; it also makes a periodic safety claim and reconnects
+with backoff after network/server failures. Existing connectors may continue
+using HTTP heartbeat and claim polling.
 
 ### POST /api/v1/connectors/commands/claim
 
@@ -833,6 +866,10 @@ Claims up to one command for that connector. Returns `{"command":null}` when no
 work is waiting. Device commands include metadata for a registered device
 assigned to that connector; local keys are not returned from user-facing
 device APIs.
+
+WebSocket notifications are not a durable queue and do not replace this
+endpoint. Command rows remain the source of truth and retain their existing
+lease, expiry, retry, and acknowledgement behavior.
 
 Commands are persisted, leased, expire, and are eligible for bounded reclaim
 after connection loss. Operations are allowlisted (`set_state`, `get_status`,

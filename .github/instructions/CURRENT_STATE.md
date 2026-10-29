@@ -33,7 +33,13 @@ API origin from the setup command, supporting self-hosted deployments; Android,
 iOS, and macOS use the fixed default origin. Only the enrollment token is
 entered as a credential.
 The backend monitors endpoint battery state and controls local Tuya switches
-through an outbound-HTTPS site connector on each device LAN.
+through an outbound site connector on each device LAN. Connector version
+0.1.5+ uses a WebSocket for command-available notifications and HTTPS for
+durable command claim/result operations; earlier connectors retain polling.
+Other IoT telemetry sources and switch-control platforms are not currently
+supported. The provider-neutral extension architecture is a proposal in
+`.github/instructions/CLOUD_CONNECTOR_ARCHITECTURE.md`; it is not a shipped
+contract.
 
 ## Deployment validation host
 For user-authorized Linux, Docker, or k3s validation, the deployed server is
@@ -55,7 +61,7 @@ were present in the live namespaces. Follow the private-visibility checklist in
 - React, TypeScript, Tailwind CSS, and Vite for the interactive frontend
 - Node.js 24.22.1 (current LTS patch) for frontend development, CI, and the Docker build stage
 - TinyTuya
-- HTTPS-polling site connector with PostgreSQL-backed durable commands
+- WebSocket-notified site connector with PostgreSQL-backed durable commands
 - tuya-device-sharing-sdk
 - qrcode
 - pytest
@@ -70,9 +76,12 @@ FastAPI serves JSON APIs and downloads; installable agent binaries are streamed
 from the latest `agents-v*` GitHub Release through public API endpoints. For a
 private repository the API needs a repository-scoped, contents-read GitHub token
 in its runtime Secret. Source archives and the connector Python installer are
-not served; site connectors use the published Docker image. Setup APIs and
-credential management remain authenticated. The built React app remains the
-only browser UI for the ChargePilot management console.
+not served. Site connectors are available as a published Linux Docker image
+and a self-contained Windows executable installed as a Windows service; the
+latest executable is streamed from a commit-addressed GitHub Release through
+the public API download route. Setup APIs and credential management remain
+authenticated. The built React app remains the only browser UI for the
+ChargePilot management console.
 Legacy page GETs redirect to the matching React route.
 React admin pages use authenticated, tenant-scoped API data and preserve
 server-side authorization and business rules. The UI has responsive
@@ -122,9 +131,13 @@ supported. Windows collection runs as a service before user sign-in. macOS
 collection is limited to the menu-bar app or CLI while running in a signed-in
 user session; no system LaunchDaemon is shipped. Sensor results are typed,
 leased, endpoint-authenticated, and retained for 30 days.
-The Site connectors page guides deployment, summarizes enrollment/online
-status, and allows tenant admins/managers and Super Admins to rename connectors
-without changing credentials or switch assignments. Endpoint detail reports
+The Site connectors page offers Docker Compose and Windows executable/service
+deployment, summarizes enrollment/online status, and allows tenant
+admins/managers and Super Admins to rename connectors without changing
+credentials or switch assignments. Windows connector releases are unsigned;
+the service runs as LocalService and stores its credential under ProgramData
+with access limited to SYSTEM, Administrators, and its service identity.
+Endpoint detail reports
 can be viewed as a chart of battery, CPU, memory, and GPU percentages or as the
 existing exact-value table; unavailable metrics are not plotted as zero.
 Switch onboarding separates device identity, local access, and command routing.
@@ -144,6 +157,8 @@ values.
 The guided discovery action requires connector version 0.1.4+; regular meter
 polling requires connector version 0.1.3+ and the explicit
 `20261022_tuya_energy_monitoring.sql` migration for existing PostgreSQL schemas.
+Connector version 0.1.5+ uses WebSocket command notifications with HTTPS
+claim/result requests; older connector versions continue polling.
 The Switches page shows per-device readings and guided meter setup; endpoint
 details show each mapped switch's power and energy readings. The Overview has
 no aggregate switch-energy section. Power readings older than five minutes are
@@ -171,11 +186,12 @@ edited or deleted; clearing a channel during an edit restores whole-switch
 control. The selected use case is returned by mapping and endpoint-detail APIs.
 Table text, emphasized cells, and status badges retain readable contrast in
 dark mode.
-The Site Connectors page presents the prebuilt Docker Compose deployment for
-Linux hosts. It accepts the one-time enrollment code through
-`CHARGEPILOT_CONNECTOR_ENROLLMENT_CODE` and persists the connector credential
-in a Docker-managed volume without host-directory setup. The API no longer
-serves connector source archives or the Python installer.
+The Site Connectors page offers Docker Compose for Linux and a self-contained
+Windows executable installed as a Windows service. Both use the same
+one-time enrollment flow. Docker persists its credential in a managed volume;
+Windows stores it under ProgramData with access limited to SYSTEM and
+Administrators. The Windows build is unsigned. The API no longer serves
+connector source archives or the Python installer.
 The iOS source project exposes a Shortcuts action for fresh battery reports.
 Users can attach it to battery-level and charger-connected personal
 automations; iOS may defer or skip those actions, so this does not guarantee
@@ -313,17 +329,20 @@ container build/scan jobs), `.github/workflows/publish-deploy.yml` (latest-main
 API/frontend change detection, multi-platform Docker Hub publication, image
 security scans, and selective ArgoCD tag updates), and
 `.github/workflows/connector-multiarch.yml` (connector image build, scan, and
-multi-platform publication). Trivy checks created images for OS/library
-vulnerabilities and secrets; published AMD64 and ARM64 images are scanned by
-digest before deployment tags advance. API and frontend images use separate repositories and immutable
+multi-platform publication) plus
+`.github/workflows/connector-windows.yml` (Windows executable packaging and
+commit-addressed GitHub Release publication). Trivy checks created images for
+OS/library vulnerabilities and secrets; published AMD64 and ARM64 images are
+scanned by digest before deployment tags advance. API and frontend images use
+separate repositories and immutable
 `endusercompute/chargepilot-api:sha-<full-commit-sha>` and
 `endusercompute/chargepilot-frontend:sha-<full-commit-sha>` tags. The k3s
 manifests under `deploy/k3s/` configure Istio routes for
 `console-chargepilot.endusercompute.in` and `api-chargepilot.endusercompute.in`;
 runtime frontend and API origins use HTTPS on those hosts. ArgoCD bootstrapping
 is under `deploy/argocd/`.
-The Connectors page uses the immutable published Docker image. The API does
-not distribute connector source archives or a Python installer.
+The Connectors page offers the published Docker image and Windows executable.
+The API does not distribute connector source archives or a Python installer.
 The checked-in k3s PostgreSQL and Kafka services are single-replica,
 single-node starting components and are not highly available.
 

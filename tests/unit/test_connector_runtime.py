@@ -56,6 +56,15 @@ def test_first_enrollment_without_environment_or_tty_fails_clearly(monkeypatch, 
         )
 
 
+def test_service_reconnect_wait_stops_promptly():
+    async def verify():
+        stop_event = asyncio.Event()
+        asyncio.get_running_loop().call_later(0.01, stop_event.set)
+        await chargepilot_connector._wait_for_stop(stop_event, 30)
+
+    asyncio.run(verify())
+
+
 class _FakeDevice:
     def __init__(self, state):
         self.state = state

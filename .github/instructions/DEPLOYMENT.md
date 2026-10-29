@@ -135,9 +135,10 @@ when the frontend and API are on different registrable domains.
 When this repository is private, configure
 `CHARGEPILOT_AGENT_RELEASE_GITHUB_TOKEN` as a fine-grained token with only
 Contents: read access to `jsramitgupta/ChargePilot`. The API uses it to read
-private release metadata and stream installable binaries through public
-ChargePilot URLs. The token stays server-side and the binaries are intentionally
-public; source archives are not served. Do not use a token with write access.
+private release metadata and stream installable agent and Windows connector
+binaries through public ChargePilot URLs. The token stays server-side and the
+binaries are intentionally public; source archives are not served. Do not use
+a token with write access.
 
 Public tenant and standard-user signup require Cloudflare Turnstile. Create a
 Turnstile widget for the frontend hostname, configure its site key and secret
@@ -815,7 +816,9 @@ meter samples. For an existing PostgreSQL deployment:
    arguments.
 3. Deploy the API/frontend and upgrade each site connector that should collect
    meter data to connector version 0.1.3 or later. Guided meter discovery
-   requires connector version 0.1.4 or later.
+   requires connector version 0.1.4 or later. WebSocket command notifications
+   require connector version 0.1.5 or later; older connector versions continue
+   using HTTPS polling.
 4. Use the Switches page to find readings and select the matching power and
    energy values and units, then verify sample times and values before relying
    on Overview aggregates.
@@ -935,9 +938,9 @@ production rollout.
 ## 7. Site connector deployment
 
 Create a one-time enrollment code in **Connectors** for the correct tenant.
-Use the published multi-platform Docker image on Linux, or the one-line Python
-installer on Linux/macOS. Both use the k3s API URL by default:
-`https://api-chargepilot.endusercompute.in`.
+Choose Docker Compose on Linux or the self-contained Windows executable; both
+use the same connector enrollment API. The deployment page supplies the
+configured public API origin.
 
 ### Docker Compose on Linux
 
@@ -948,7 +951,7 @@ for the connector credential.
 ```yaml
 services:
   chargepilot-connector:
-    image: endusercompute/chargepilot-connector:sha-6056b0205cd2e3927b279d68a95f56fbe008bef3
+    image: endusercompute/chargepilot-connector:latest
     container_name: chargepilot-connector
     network_mode: host
     restart: unless-stopped
@@ -984,12 +987,31 @@ remove the code from the container; the permanent credential remains in the
 Docker-managed volume. No `connector-data` directory, enrollment-code file, or
 ownership commands are needed.
 
-### Site connector
+### Windows executable
 
-Install a site connector using the published Docker Compose image and the
-instructions on the authenticated **Site Connectors** page. The API no longer
-serves the connector source archive or the Python installation script. Use an
-authorized repository checkout for source builds.
+The Site Connectors page also provides `ChargePilotConnector.exe`. Open an
+elevated PowerShell window in the download folder and run:
+
+```powershell
+.\ChargePilotConnector.exe install --server-url "https://api.example.com"
+```
+
+The executable requests administrator permission, securely prompts for the
+one-time code, and installs an automatically starting Windows service under
+the restricted LocalService account. It stores its connector credential in
+`%ProgramData%\ChargePilot\connector-config.json`, with the directory ACL
+limited to SYSTEM, Administrators, and the service identity. Rotating logs are
+stored under `%ProgramData%\ChargePilot\logs`. The binary is unsigned;
+Windows SmartScreen may display an unknown-publisher warning. Service controls
+are available through `ChargePilotConnector.exe status`, `start`, `stop`, and
+`uninstall`.
+Updates are manual: stop the service, replace
+`%ProgramFiles%\ChargePilot\Connector\ChargePilotConnector.exe`, then start
+the service again. Uninstall deletes the local credential but does not revoke
+the server-side connector; revoke it in ChargePilot before removing a host.
+
+The API does not serve the connector source archive or source-based Python
+installer. Use an authorized repository checkout for source builds.
 
 ### Windows agent
 
