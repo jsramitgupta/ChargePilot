@@ -103,7 +103,8 @@ def test_image_workflows_pin_actions_and_publish_digest_references():
 def test_windows_connector_workflow_smoke_test_uses_explicit_relative_path():
     workflow = (ROOT / ".github" / "workflows" / "connector-windows.yml").read_text()
 
-    assert r".\connector\dist\ChargePilotConnector.exe --help" in workflow
+    assert r".\dist\ChargePilotConnector.exe --help" in workflow
+    assert '"dist/ChargePilotConnector.exe"' in workflow
 
 
 def test_container_workflows_scan_built_images_and_scope_publishing():

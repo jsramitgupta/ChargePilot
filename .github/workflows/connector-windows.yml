@@ -46,7 +46,7 @@ jobs:
           connector/chargepilot_connector.py
 
       - name: Smoke-test packaged executable
-        run: .\connector\dist\ChargePilotConnector.exe --help
+        run: .\dist\ChargePilotConnector.exe --help
 
       - name: Publish commit-addressed Windows package
         env:
@@ -55,7 +55,7 @@ jobs:
         shell: pwsh
         run: |
           $tag = "connector-sha-$env:GITHUB_SHA"
-          $asset = "connector/dist/ChargePilotConnector.exe"
+          $asset = "dist/ChargePilotConnector.exe"
           gh release view $tag --json tagName 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $asset --clobber
