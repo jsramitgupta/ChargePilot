@@ -297,3 +297,12 @@ When adding or updating a page, component, status, or typography:
    responsibilities or behavior change.
 5. Update `tests/unit/test_ui_theme.py`; run the targeted pytest test and the
    frontend lint/build commands (`npm run lint` and `npm run build`).
+6. Check content at narrow widths (320px, 768px, and desktop), including long
+    URLs, paths, identifiers, and commands. Grid/flex children that contain
+    user- or server-provided text must be allowed to shrink (`min-width: 0`),
+    flexible grid tracks should use `minmax(0, 1fr)`, and long tokens must wrap
+    or use an intentionally bounded, accessible scroll area. Verify the page
+    itself has no horizontal overflow and that code remains selectable.
+7. Keep action labels consistent with their result, require confirmation for
+    destructive actions, and make the effect explicit when related data (such
+    as an accepted account) is not affected.

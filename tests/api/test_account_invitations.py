@@ -170,6 +170,69 @@ def test_invitation_replacement_cannot_revoke_another_tenants_invitation():
     ).status_code == 200
 
 
+def test_admin_can_delete_pending_invitation_and_invalidate_its_code():
+    client, _ = _tenant_admin_client()
+    username = f"deleted-invite-{uuid4().hex[:8]}"
+    email = f"{username}@example.test"
+    created = _send_invitation(client, username=username, email=email)
+    assert created.status_code == 201, created.text
+    invitation_id = created.json()["id"]
+    code = TEST_ACCOUNT_INVITATION_TOKENS[email]
+    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+    deleted = client.delete(f"/api/v1/admin/account-invitations/{invitation_id}")
+
+    assert deleted.status_code == 204, deleted.text
+    with SessionLocal() as db:
+        assert db.query(AccountInvitation).filter_by(id=invitation_id).first() is None
+        assert db.query(AccountInvitation).filter_by(token_hash=code_hash).first() is None
+
+
+def test_deleting_accepted_invitation_does_not_delete_account():
+    admin, _ = _tenant_admin_client()
+    username = f"accepted-invite-delete-{uuid4().hex[:8]}"
+    email = f"{username}@example.test"
+    created = _send_invitation(admin, username=username, email=email, role="standard_user")
+    assert created.status_code == 201, created.text
+    code = TEST_ACCOUNT_INVITATION_TOKENS[email]
+    invitation_id = created.json()["id"]
+    recipient = TestClient(app)
+    accepted = recipient.post(
+        "/api/v1/auth/accept-invitation",
+        json={"code": code, "password": "accepted-invitation-password"},
+    )
+    assert accepted.status_code == 200, accepted.text
+
+    deleted = admin.delete(f"/api/v1/admin/account-invitations/{invitation_id}")
+
+    assert deleted.status_code == 204, deleted.text
+    with SessionLocal() as db:
+        assert db.query(AccountInvitation).filter_by(id=invitation_id).first() is None
+        account = db.query(User).filter_by(username=username).one()
+        assert account.email == email
+    login = TestClient(app).post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": "accepted-invitation-password"},
+    )
+    assert login.status_code == 200, login.text
+
+
+def test_tenant_admin_cannot_delete_another_tenants_invitation():
+    invitation_owner, _ = _tenant_admin_client()
+    other_admin, _ = _tenant_admin_client()
+    username = f"scoped-delete-{uuid4().hex[:8]}"
+    email = f"{username}@example.test"
+    created = _send_invitation(invitation_owner, username=username, email=email)
+    assert created.status_code == 201, created.text
+    invitation_id = created.json()["id"]
+
+    deleted = other_admin.delete(f"/api/v1/admin/account-invitations/{invitation_id}")
+
+    assert deleted.status_code == 404
+    with SessionLocal() as db:
+        assert db.query(AccountInvitation).filter_by(id=invitation_id).first() is not None
+
+
 def test_email_delivery_failure_revokes_invitation(monkeypatch):
     client, _ = _tenant_admin_client()
     username = f"mail-failure-{uuid4().hex[:8]}"

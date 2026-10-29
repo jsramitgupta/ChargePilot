@@ -404,6 +404,30 @@ def test_people_invitations_and_account_settings_follow_the_shared_theme():
     assert contrast_ratio("#efc98f", "#382d1f") >= 4.5
 
 
+def test_invitations_can_be_deleted_and_connector_setup_text_stays_contained():
+    app = APP_COMPONENT.read_text(encoding="utf-8")
+    light = LIGHT_THEME.read_text(encoding="utf-8")
+    design_reference = (PROJECT_ROOT / ".github" / "instructions" / "FRONTEND_DESIGN.md").read_text(
+        encoding="utf-8"
+    )
+    users_page = app.split("function UsersPage()", 1)[1].split("\nfunction ", 1)[0]
+    connector_guide = css_rule(light, ".connector-deploy-step")
+    connector_text = css_rule(light, ".connector-deploy-step p")
+    connector_command = css_rule(light, ".connector-command")
+    connector_inline_code = css_rule(light, ".connector-deploy-step code")
+
+    assert "deleteInvitationMutation" in users_page
+    assert "Delete invitation for ${invitation.username}" in users_page
+    assert "Pending setup links will stop working. Accepted accounts are not affected." in users_page
+    assert "people-delete-invitation-button" in users_page
+    assert "min-width: 0;" in connector_guide
+    assert "overflow-wrap: anywhere;" in connector_text
+    assert "max-width: 100%;" in connector_command
+    assert "overflow-wrap: anywhere;" in connector_inline_code
+    assert "320px, 768px, and desktop" in design_reference
+    assert "no horizontal overflow" in design_reference
+
+
 def test_mapping_rule_inputs_do_not_submit_until_explicit_save():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     mappings_page = app.split("function MappingsPage()", 1)[1].split("\nfunction ", 1)[0]

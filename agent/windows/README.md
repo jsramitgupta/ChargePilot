@@ -92,6 +92,9 @@ It supports only the fixed read-only `os_version`, `uptime_seconds`, and
 `system_disk_free_bytes` sensors. Collection uses native .NET APIs in the
 service and works without a signed-in user. The server returns a sensor ID,
 not PowerShell or another script, and validates each typed result.
+Sensor collection requires agent release `agents-v0.1.9` or later. If a
+Windows endpoint keeps reporting fresh telemetry while its sensor checks
+remain queued, update the installed agent from its setup UI.
 
 ## Configure and manage from the CLI
 

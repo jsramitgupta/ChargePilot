@@ -177,9 +177,10 @@ response is marked `private, no-store`.
   origin must be configured; raw codes are never returned by the API.
 - `GET /api/v1/admin/account-invitations` lists invitation identity, status,
   and expiry within the caller's tenant scope.
-- `DELETE /api/v1/admin/account-invitations/{invitation_id}` revokes an
-  unused invitation. Sending a replacement for the same username or email
-  invalidates its earlier active invitation.
+- `DELETE /api/v1/admin/account-invitations/{invitation_id}` removes the
+  invitation record, whether pending, expired, revoked, or accepted. Deleting
+  an accepted invitation does not delete the account. Sending a replacement
+  for the same username or email invalidates its earlier active invitation.
 - `POST /api/v1/admin/invites` creates a seven-day, single-use tenant invite.
   Tenant admins/managers can issue codes for their tenant; Super Admins must
   select the tenant. The raw code is returned once for legacy self-registration
@@ -642,7 +643,9 @@ The initial catalog contains `os_version` (string),
 are limited to 255. Results are retained for 30 days. Windows collects through
 its Windows service, including when no user is signed in. macOS collects only
 while its menu-bar app or CLI agent is running in a signed-in user session;
-system-daemon collection is not implemented.
+system-daemon collection is not implemented. Sensor claims require endpoint
+agent release `agents-v0.1.9` or later; earlier agents can continue reporting
+telemetry but do not claim Smart Group sensor work.
 
 ## 5. Device API
 

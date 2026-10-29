@@ -396,7 +396,7 @@ async def list_account_invitations(
 
 
 @router.delete("/account-invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_account_invitation(
+async def delete_account_invitation(
     invitation_id: UUID,
     user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db),
@@ -407,9 +407,7 @@ async def revoke_account_invitation(
         not is_super_admin_user(user) and invitation.tenant_id != user.tenant_id
     ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found.")
-    if invitation.used_at is not None or invitation.revoked_at is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This invitation is no longer active.")
-    invitation.revoked_at = datetime.now(UTC)
+    db.delete(invitation)
     db.commit()
 
 

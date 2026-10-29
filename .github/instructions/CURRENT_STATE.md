@@ -295,7 +295,9 @@ deployment and rebuild prerequisites.
    People & Invites sends role- and tenant-scoped invitations by email with a
    single-use, seven-day setup code. The recipient sets a password before the
    account is created and is signed in after redemption. Invitation codes are
-   stored hashed, expire, can be revoked, and are never returned by the admin API.
+   stored hashed, expire, can be revoked, and are never returned by the admin
+   API. Admins can delete invitation records in any state; deleting an accepted
+   invitation does not remove its account.
    Signed-in users change their own password alongside profile preferences; the
    legacy `/account` route redirects to `/profile`.
 

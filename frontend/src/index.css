@@ -813,6 +813,7 @@ button, a {
 }
 
 .connector-deploy-guide {
+  min-width: 0;
   padding: clamp(18px, 2.6vw, 27px);
   border: 1px solid var(--line);
   border-radius: 17px;
@@ -894,6 +895,15 @@ button, a {
   grid-template-columns: 26px minmax(0, 1fr);
   align-content: start;
   gap: 9px;
+  min-width: 0;
+}
+
+.connector-deploy-step > div {
+  min-width: 0;
+}
+
+.connector-deploy-step p {
+  overflow-wrap: anywhere;
 }
 
 .connector-step-number {
@@ -928,6 +938,9 @@ button, a {
 }
 
 .connector-command {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
   margin: 9px 0 0;
   padding: 10px 11px;
@@ -945,6 +958,7 @@ button, a {
   color: var(--forest);
   font-size: .95em;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .connector-step-note {
@@ -3967,7 +3981,7 @@ button, a {
   box-shadow: inset 0 0 0 1px var(--success-line);
 }
 
-.people-revoke-button {
+.people-delete-invitation-button {
   min-height: 34px;
   padding: 6px 10px;
   border: 1px solid var(--danger-line);
@@ -3979,11 +3993,11 @@ button, a {
   cursor: pointer;
 }
 
-.people-revoke-button:hover {
+.people-delete-invitation-button:hover {
   background: var(--danger-hover);
 }
 
-.people-revoke-button:disabled {
+.people-delete-invitation-button:disabled {
   cursor: not-allowed;
   opacity: .65;
 }
@@ -4180,7 +4194,7 @@ button, a {
     padding-left: 44px;
   }
 
-  .people-invitation-row .people-revoke-button {
+  .people-invitation-row .people-delete-invitation-button {
     grid-column: 2;
     grid-row: 1;
   }

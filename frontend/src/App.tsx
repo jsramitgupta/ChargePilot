@@ -4122,10 +4122,10 @@ function UsersPage() {
       queryClient.invalidateQueries({ queryKey: ['account-invitations'] })
     },
   })
-  const revokeInviteMutation = useMutation({
+  const deleteInvitationMutation = useMutation({
     mutationFn: (invitationId: string) => apiFetch<void>(`/api/v1/admin/account-invitations/${invitationId}`, { method: 'DELETE' }),
     onSuccess: () => {
-      setStatusMessage('Invitation revoked.')
+      setStatusMessage('Invitation deleted.')
       queryClient.invalidateQueries({ queryKey: ['account-invitations'] })
     },
   })
@@ -4163,8 +4163,8 @@ function UsersPage() {
     <div className="people-page">
       <PageHeader eyebrow="Administration" title="People & invites" description="Invite teammates, manage access, and keep track of who belongs to this workspace." />
       {statusMessage && <p className="alert success" role="status">{statusMessage}</p>}
-      {(actionMutation.error || inviteMutation.error || revokeInviteMutation.error) && (
-        <ErrorCard message={actionMutation.error?.message ?? inviteMutation.error?.message ?? revokeInviteMutation.error?.message ?? 'The request failed.'} />
+      {(actionMutation.error || inviteMutation.error || deleteInvitationMutation.error) && (
+        <ErrorCard message={actionMutation.error?.message ?? inviteMutation.error?.message ?? deleteInvitationMutation.error?.message ?? 'The request failed.'} />
       )}
 
       <section className="panel people-invite-section" aria-labelledby="invite-heading">
@@ -4230,7 +4230,7 @@ function UsersPage() {
         <div className="people-section-heading">
           <div>
             <h2 id="invitations-heading">Invitations</h2>
-            <p>Track who has been invited and revoke links that are no longer needed.</p>
+            <p>Review invitation history and remove records that are no longer needed.</p>
           </div>
           <span className="people-count">{invitations.length}</span>
         </div>
@@ -4253,16 +4253,19 @@ function UsersPage() {
                   <span>{invitation.tenant_name ?? currentUser?.tenant_name ?? 'Workspace'}</span>
                   <span>{invitation.is_active ? `Expires ${formatTimestamp(invitation.expires_at)}` : `Sent ${formatTimestamp(invitation.created_at)}`}</span>
                 </div>
-                {invitation.is_active && (
-                  <button
-                    type="button"
-                    className="people-revoke-button"
-                    disabled={revokeInviteMutation.isPending}
-                    onClick={() => revokeInviteMutation.mutate(invitation.id)}
-                  >
-                    Revoke
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="people-delete-invitation-button"
+                  aria-label={`Delete invitation for ${invitation.username}`}
+                  disabled={deleteInvitationMutation.isPending}
+                  onClick={() => {
+                    if (window.confirm('Delete this invitation record? Pending setup links will stop working. Accepted accounts are not affected.')) {
+                      deleteInvitationMutation.mutate(invitation.id)
+                    }
+                  }}
+                >
+                  Delete
+                </button>
               </article>
             ))}
           </div>
