@@ -10,8 +10,8 @@ images:
   - name: endusercompute/chargepilot-api
     newTag: sha-db8373d4b65e1c7bf4162280c842719d30d0c034
   - name: endusercompute/chargepilot-frontend
-    newTag: sha-db8373d4b65e1c7bf4162280c842719d30d0c034
+    newTag: sha-b66181822d51cd7564900790838aaea987d1bb3a
   - name: endusercompute/chargepilot-docs-web
     newTag: sha-d589ed504a39b18c59e534e7efba631bcd61acbe
   - name: endusercompute/chargepilot-docs-cms
-    newTag: sha-c14870e01d2c796fe0b8f39930b0e51cb51d5595
+    newTag: sha-b66181822d51cd7564900790838aaea987d1bb3a
