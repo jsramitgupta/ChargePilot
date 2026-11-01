@@ -112,7 +112,7 @@ def test_mapping_wizard_and_switch_inventory_have_tenant_safe_theme_support():
     assert "switch-filter-group" in app
     assert "switch-view-toggle" in app
     assert "connector.tenant_id === device.tenant_id" in app
-    assert "channel_id: channelId || null" in app
+    assert "channel_id: channelId," in app
     assert ".mapping-stepper" in light
     assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in css_rule(light, ".mapping-stepper")
     assert "flex-direction: column;" in css_rule(light, ".mapping-stepper button")
