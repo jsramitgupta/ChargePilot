@@ -437,7 +437,6 @@ def test_people_invitations_and_account_settings_follow_the_shared_theme():
 
 
 def test_invitations_can_be_deleted_and_connector_setup_text_stays_contained():
-    app = APP_COMPONENT.read_text(encoding="utf-8")
     light = LIGHT_THEME.read_text(encoding="utf-8")
     design_reference = (PROJECT_ROOT / ".github" / "instructions" / "FRONTEND_DESIGN.md").read_text(
         encoding="utf-8"
@@ -461,7 +460,6 @@ def test_invitations_can_be_deleted_and_connector_setup_text_stays_contained():
 
 
 def test_mapping_rule_inputs_do_not_submit_until_explicit_save():
-    app = APP_COMPONENT.read_text(encoding="utf-8")
     mappings_page = component_source("MappingsPage")
 
     assert "<form" not in mappings_page

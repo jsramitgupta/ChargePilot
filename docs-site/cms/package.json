@@ -33,6 +33,7 @@
     "typescript": "^5"
   },
   "overrides": {
+    "@hono/node-server": "1.19.17",
     "dompurify": "3.4.17",
     "esbuild": "0.28.2",
     "markdown-it": "14.3.3",
