@@ -4,10 +4,42 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = PROJECT_ROOT / "frontend" / "src"
-APP_COMPONENT = FRONTEND / "App.tsx"
 LIGHT_THEME = FRONTEND / "index.css"
 DARK_THEME = FRONTEND / "theme.css"
 HTML_ENTRY = PROJECT_ROOT / "frontend" / "index.html"
+
+
+def production_sources() -> list[Path]:
+    return sorted(
+        path
+        for path in (*FRONTEND.rglob("*.ts"), *FRONTEND.rglob("*.tsx"))
+        if not path.name.endswith((".test.ts", ".test.tsx"))
+        and "test" not in path.relative_to(FRONTEND).parts
+    )
+
+
+def frontend_source() -> str:
+    sources = production_sources()
+    return "\n".join(path.read_text(encoding="utf-8") for path in sources)
+
+
+def component_source(name: str) -> str:
+    declaration = re.compile(rf"export function {re.escape(name)}\s*\(")
+    for path in production_sources():
+        if path.suffix != ".tsx":
+            continue
+        source = path.read_text(encoding="utf-8")
+        if declaration.search(source):
+            return source
+    raise AssertionError(f"Missing component source: {name}")
+
+
+class FrontendSource:
+    def read_text(self, encoding: str) -> str:
+        return frontend_source()
+
+
+APP_COMPONENT = FrontendSource()
 
 
 def css_rule(stylesheet: str, selector: str) -> str:
@@ -165,8 +197,8 @@ def test_switch_energy_readings_and_datapoint_settings_use_theme_aware_ui():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     light = LIGHT_THEME.read_text(encoding="utf-8")
     dark = DARK_THEME.read_text(encoding="utf-8")
-    overview = app.split("function DashboardPage()", 1)[1].split("\nfunction ", 1)[0]
-    endpoint_details = app.split("function EndpointDetailsPanel(", 1)[1].split("\nfunction ", 1)[0]
+    overview = component_source("DashboardPage")
+    endpoint_details = component_source("EndpointDetailsPanel")
 
     assert "Switch energy" not in overview
     assert "energy-summary" not in light
@@ -238,7 +270,7 @@ def test_overview_and_switch_pages_have_responsive_operational_layouts():
     dark = DARK_THEME.read_text(encoding="utf-8")
 
     assert 'className="dashboard-page"' in app
-    dashboard = app.split("function DashboardPage()", 1)[1].split("\nfunction ", 1)[0]
+    dashboard = component_source("DashboardPage")
     assert "<th>Device</th>" in dashboard
     assert "<EndpointIdentity endpoint={endpoint} />" in dashboard
     assert "endpoint.device_class" not in dashboard
@@ -262,8 +294,8 @@ def test_overview_and_switch_pages_have_responsive_operational_layouts():
 
 def test_endpoints_page_has_recent_first_pagination_search_and_refresh():
     app = APP_COMPONENT.read_text(encoding="utf-8")
-    endpoints = app.split("function EndpointsPage()", 1)[1].split("\nfunction ", 1)[0]
-    dashboard = app.split("function DashboardPage()", 1)[1].split("\nfunction ", 1)[0]
+    endpoints = component_source("EndpointsPage")
+    dashboard = component_source("DashboardPage")
 
     assert "<h1>Endpoints</h1>" in endpoints
     assert "sortEndpointsByLastSeen(data)" in endpoints
@@ -375,7 +407,7 @@ def test_people_invitations_and_account_settings_follow_the_shared_theme():
     app = APP_COMPONENT.read_text(encoding="utf-8")
     light = LIGHT_THEME.read_text(encoding="utf-8")
     dark = DARK_THEME.read_text(encoding="utf-8")
-    users_page = app.split("function UsersPage()", 1)[1].split("\nfunction ", 1)[0]
+    users_page = component_source("UsersPage")
 
     assert 'path="/accept-invitation"' in app
     assert "function AcceptInvitationPage()" in app
@@ -410,7 +442,7 @@ def test_invitations_can_be_deleted_and_connector_setup_text_stays_contained():
     design_reference = (PROJECT_ROOT / ".github" / "instructions" / "FRONTEND_DESIGN.md").read_text(
         encoding="utf-8"
     )
-    users_page = app.split("function UsersPage()", 1)[1].split("\nfunction ", 1)[0]
+    users_page = component_source("UsersPage")
     connector_guide = css_rule(light, ".connector-deploy-step")
     connector_text = css_rule(light, ".connector-deploy-step p")
     connector_command = css_rule(light, ".connector-command")
@@ -430,7 +462,7 @@ def test_invitations_can_be_deleted_and_connector_setup_text_stays_contained():
 
 def test_mapping_rule_inputs_do_not_submit_until_explicit_save():
     app = APP_COMPONENT.read_text(encoding="utf-8")
-    mappings_page = app.split("function MappingsPage()", 1)[1].split("\nfunction ", 1)[0]
+    mappings_page = component_source("MappingsPage")
 
     assert "<form" not in mappings_page
     assert "onSubmit=" not in mappings_page
@@ -465,8 +497,8 @@ def test_dark_tables_and_mapping_number_inputs_have_readable_theme_colors():
 
 def test_connector_page_explains_supported_deployments_and_local_network_needs():
     app = APP_COMPONENT.read_text(encoding="utf-8")
-    connectors_page = app.split("function ConnectorsPage()", 1)[1].split("\nfunction ", 1)[0]
-    endpoint_details = app.split("function EndpointDetailsPanel(", 1)[1].split("\nfunction ", 1)[0]
+    connectors_page = component_source("ConnectorsPage")
+    endpoint_details = component_source("EndpointDetailsPanel")
     light = LIGHT_THEME.read_text(encoding="utf-8")
     dark = DARK_THEME.read_text(encoding="utf-8")
     connector_readme = (PROJECT_ROOT / "connector" / "README.md").read_text(encoding="utf-8")

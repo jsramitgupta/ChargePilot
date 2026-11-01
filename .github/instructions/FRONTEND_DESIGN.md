@@ -1,8 +1,9 @@
 # Frontend Design Reference
 
 This is the canonical reference for the ChargePilot browser UI. Keep it aligned
-with `frontend/src/App.tsx`, `frontend/src/index.css`,
-`frontend/src/theme.css`, and `tests/unit/test_ui_theme.py`.
+with `frontend/src/app/App.tsx`, the feature modules under
+`frontend/src/features/`, `frontend/src/index.css`, `frontend/src/theme.css`,
+`frontend/src/app/App.test.tsx`, and `tests/unit/test_ui_theme.py`.
 
 ## Product and interface goals
 
@@ -22,8 +23,13 @@ Authenticated navigation remains left-aligned in a responsive rail.
 
 ## Routes and page responsibilities
 
-`App.tsx` owns the route map, session-aware layout, page composition, and
-browser interactions:
+`frontend/src/app/App.tsx` owns the route map and authenticated shell.
+Feature-owned pages live under `frontend/src/features/<feature>/`; shared API
+access, types, hooks, and reusable UI live under `frontend/src/shared/`.
+`frontend/src/App.tsx` remains a compatibility entry point. Keep route-level
+composition in the app module and page-specific behavior in its feature.
+
+The route map and session-aware layout are:
 
 | Route | Responsibility |
 | --- | --- |
@@ -295,8 +301,10 @@ When adding or updating a page, component, status, or typography:
    contrast. Do not rely on color alone to express state.
 4. Keep this route/design reference and `CURRENT_STATE.md` accurate when
    responsibilities or behavior change.
-5. Update `tests/unit/test_ui_theme.py`; run the targeted pytest test and the
-   frontend lint/build commands (`npm run lint` and `npm run build`).
+5. Update the route/component tests in `frontend/src/app/App.test.tsx` and
+   design regression checks in `tests/unit/test_ui_theme.py`; run both test
+   suites and the frontend lint/build commands (`npm run lint` and
+   `npm run build`).
 6. Check content at narrow widths (320px, 768px, and desktop), including long
     URLs, paths, identifiers, and commands. Grid/flex children that contain
     user- or server-provided text must be allowed to shrink (`min-width: 0`),

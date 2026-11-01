@@ -117,7 +117,10 @@ app/services/                # automation, connector, Tuya, SmartLife, and suppo
 app/workers.py               # telemetry outbox relay and Kafka automation consumer
 connector/                   # site-LAN connector runtime and packaging
 agent/                       # Windows, macOS, Android, and iOS telemetry agents
-frontend/src/App.tsx         # React routes and page composition
+frontend/src/app/            # React routes, authenticated shell, and theme
+frontend/src/features/       # feature-owned pages and components
+frontend/src/shared/         # shared API, types, hooks, and UI
+frontend/src/App.tsx         # compatibility application entry point
 frontend/src/main.tsx        # frontend bootstrap
 frontend/src/index.css       # shared/light theme and layout styles
 frontend/src/theme.css       # dark theme overrides

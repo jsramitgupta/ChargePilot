@@ -102,6 +102,14 @@ an allow-listed GitHub Release proxy; agent and connector source archives are
 not served. Legacy page paths redirect to React, and form-based mutations use
 JSON APIs.
 
+The frontend keeps route composition and the authenticated shell in
+`frontend/src/app/`, feature-owned pages in `frontend/src/features/`, and
+reusable API access, types, hooks, and UI components in
+`frontend/src/shared/`. `frontend/src/App.tsx` is a compatibility entry point;
+it does not own page implementations. Route and shell behavior is covered by
+Vitest tests, with theme and responsive design regression checks in
+`tests/unit/test_ui_theme.py`.
+
 ### 3.2 Core layer
 
 Key runtime modules:

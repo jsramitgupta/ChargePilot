@@ -90,6 +90,11 @@ The canonical route inventory, typography scale, color tokens, theme behavior,
 responsive decisions, and UI change checklist are in
 `.github/instructions/FRONTEND_DESIGN.md`; update that reference with UI
 behavior changes so future agents can follow the established design.
+The frontend is organized with routing and the authenticated shell in
+`frontend/src/app/`, page ownership in `frontend/src/features/`, and reusable
+API, type, hook, and component modules in `frontend/src/shared/`. Keep
+`frontend/src/App.tsx` as the application entry point and run Vitest route
+coverage plus the Python theme regression checks when changing UI behavior.
 The Overview refreshes fleet data every 30 seconds while the page is visible,
 shows endpoint and switch counts in a responsive summary grid, and lists the
 ten most recently seen endpoints first. The Endpoints page refreshes on the

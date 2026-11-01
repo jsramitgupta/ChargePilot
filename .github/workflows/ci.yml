@@ -288,6 +288,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
 
+      - name: Test frontend
+        run: npm --prefix frontend run test
+
       - name: Lint frontend
         run: npm --prefix frontend run lint
 
