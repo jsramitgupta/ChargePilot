@@ -56,6 +56,22 @@ export async function waitForConnectorCommands(
   }
 }
 
+export async function setDeviceState(
+  deviceId: string,
+  channelId: string | null,
+  desiredState: boolean,
+): Promise<string> {
+  const result = await apiFetch<{ status: string; command_id?: string; message?: string }>(
+    `/api/v1/devices/${deviceId}/state`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ channel_id: channelId, desired_state: desiredState }),
+    },
+  )
+  if (result.command_id) await waitForConnectorCommands([{ id: result.command_id }])
+  return result.message ?? `Switch turned ${desiredState ? 'on' : 'off'}.`
+}
+
 export async function discoverMeterReadings(deviceId: string): Promise<MeterCandidate[]> {
   const response = await apiFetch<{ command_id?: string; candidates?: MeterCandidate[] }>(
     `/api/v1/devices/${deviceId}/meter-discovery`,

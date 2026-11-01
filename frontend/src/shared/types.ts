@@ -54,6 +54,7 @@ export type EndpointReading = {
 
 export type EndpointDetails = {
   id: string
+  tenant_id: string | null
   display_name: string
   hostname: string
   platform: Endpoint['platform']
@@ -74,6 +75,10 @@ export type EndpointDetails = {
   mappings: Array<{
     id: string
     name: string
+    device_id: string
+    channel_id: string | null
+    channel_name: string | null
+    switch_enabled: boolean
     enabled: boolean
     use_case: 'battery_cycle' | 'switch_off_only' | 'switch_and_shutdown'
     on_threshold: number

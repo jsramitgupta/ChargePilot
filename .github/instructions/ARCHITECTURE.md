@@ -54,6 +54,10 @@ from Smart Groups. The server sends only a fixed sensor ID, never script or
 shell text; native Windows and Swift readers return typed read-only values.
 Windows runs the collector in its service session. The macOS collector runs
 only while its menu-bar app or CLI agent is active in a signed-in user session.
+From endpoint details, managers can open a preselected one-device Smart Group
+to choose and queue these checks. Mapped switch controls use the existing
+authenticated device-state API and durable connector queue; neither path
+accepts user-provided PowerShell or Python code.
 
 A second local onboarding path also exists:
 

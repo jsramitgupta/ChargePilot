@@ -1,6 +1,10 @@
-import { BatteryCharging, Activity, Cpu, HardDrive, MemoryStick, X } from 'lucide-react'
+import { BatteryCharging, Activity, Cpu, HardDrive, MemoryStick, Power, X } from 'lucide-react'
 
 import { useEffect, useState } from 'react'
+
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+
+import { NavLink } from 'react-router-dom'
 
 import type { EndpointDetails, EndpointReading } from '../../shared/types'
 
@@ -8,18 +12,44 @@ import { ENDPOINTS_REFRESH_INTERVAL, PLATFORM_NAMES, formatTimestamp, formatTime
 
 import { LoadingCard, ErrorCard } from '../../shared/components'
 
+import { setDeviceState } from '../../shared/api'
+
 export function EndpointDetailsPanel({
   details,
   isLoading,
   error,
+  canRunChecks,
   onClose,
 }: {
   details: EndpointDetails | undefined
   isLoading: boolean
   error: Error | null
+  canRunChecks: boolean
   onClose: () => void
 }) {
+  const queryClient = useQueryClient()
   const [now, setNow] = useState(() => Date.now())
+  const [switchMessage, setSwitchMessage] = useState('')
+  const switchMutation = useMutation({
+    mutationFn: ({
+      deviceId,
+      channelId,
+      desiredState,
+    }: {
+      deviceId: string
+      channelId: string | null
+      desiredState: boolean
+    }) => setDeviceState(deviceId, channelId, desiredState),
+    onSuccess: async (message) => {
+      setSwitchMessage(message)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['endpoint-details', details?.id] }),
+        queryClient.invalidateQueries({ queryKey: ['devices'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+        queryClient.invalidateQueries({ queryKey: ['mappings'] }),
+      ])
+    },
+  })
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -64,6 +94,24 @@ export function EndpointDetailsPanel({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <p className="text-sm text-[var(--muted)]">Latest device state and reporting history</p>
       </div>
+
+      {canRunChecks && details.tenant_id && details.enabled && details.installation_id
+        && (details.platform === 'windows' || details.platform === 'macos') && (
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-4" aria-labelledby="endpoint-actions-title">
+          <div className="min-w-0">
+            <h3 id="endpoint-actions-title" className="font-semibold text-[var(--ink)]">Run checks on this device</h3>
+            <p className="mt-1 max-w-2xl text-sm leading-5 text-[var(--muted)]">
+              Choose approved, read-only system checks for this Windows or macOS device. The agent runs fixed checks; pasted PowerShell or Python code is not sent or executed.
+            </p>
+          </div>
+          <NavLink
+            className="btn-secondary shrink-0"
+            to={`/smart-groups?endpoint_id=${encodeURIComponent(details.id)}&tenant_id=${encodeURIComponent(details.tenant_id)}`}
+          >
+            Choose checks
+          </NavLink>
+        </section>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DeviceMetricCard icon={BatteryCharging} label="Battery" value={`${details.battery}%`} hint={details.charging ? 'Charging' : details.ac_connected ? 'Connected to power' : 'On battery'} />
@@ -117,6 +165,8 @@ export function EndpointDetailsPanel({
 
       <section aria-labelledby="mapped-switches-title">
         <h3 id="mapped-switches-title" className="mb-3 font-semibold text-[var(--ink)]">Mapped switches</h3>
+        {switchMutation.error && <ErrorCard message={`Could not change switch state: ${switchMutation.error.message}`} />}
+        {switchMessage && <p className="mb-3 rounded-lg border border-[var(--line)] bg-[var(--surface-muted)] px-3 py-2 text-sm text-[var(--ink)]" role="status">{switchMessage}</p>}
         {details.mappings.length ? <ul className="grid gap-2 sm:grid-cols-2">
           {details.mappings.map((mapping) => {
             const powerAge = mapping.meter_power_sample_at
@@ -134,10 +184,41 @@ export function EndpointDetailsPanel({
             const energyReading = hasCurrentMonthEnergy && mapping.meter_energy_month_kwh != null
               ? `${mapping.meter_energy_month_kwh.toFixed(2)} kWh`
               : mapping.energy_dp_id ? 'No current-month reading' : 'Not configured'
-            return <li key={mapping.id} className="rounded-lg border border-[var(--line)] px-3 py-3">
+            return <li key={mapping.id} className="min-w-0 rounded-lg border border-[var(--line)] px-3 py-3">
               <div className="flex items-start justify-between gap-3">
-                <div><p className="font-medium text-[var(--ink)]">{mapping.name}</p><p className="mt-1 text-xs text-[var(--muted)]">{mapping.enabled ? 'Mapping active' : 'Mapping paused'} · {mapping.use_case === 'switch_off_only' ? 'switch off only' : mapping.use_case === 'switch_and_shutdown' ? 'switch off + shutdown request' : 'battery-managed switch cycle'} · Switch {mapping.switch_state ? 'on' : 'off'}</p></div>
+                <div className="min-w-0"><p className="break-words font-medium text-[var(--ink)]">{mapping.name}{mapping.channel_name ? ` · ${mapping.channel_name}` : ''}</p><p className="mt-1 text-xs text-[var(--muted)]">{mapping.enabled ? 'Mapping active' : 'Mapping paused'} · {mapping.use_case === 'switch_off_only' ? 'switch off only' : mapping.use_case === 'switch_and_shutdown' ? 'switch off + shutdown request' : 'battery-managed switch cycle'} · Switch {mapping.switch_state ? 'on' : 'off'}</p></div>
                 <span className="shrink-0 text-right text-xs text-[var(--muted)]">On ≤ {mapping.on_threshold}%<br />Off ≥ {mapping.off_threshold}%</span>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--line)] pt-3">
+                <span className="text-xs text-[var(--muted)]">
+                  {mapping.switch_enabled ? `Switch is ${mapping.switch_state ? 'on' : 'off'}` : 'Switch or channel is disabled'}
+                </span>
+                <div className="flex flex-wrap gap-2" role="group" aria-label={`${mapping.name} power controls`}>
+                  <button
+                    type="button"
+                    className="btn-secondary px-3 py-2"
+                    disabled={!mapping.switch_enabled || mapping.switch_state || switchMutation.isPending}
+                    onClick={() => {
+                      switchMutation.reset()
+                      setSwitchMessage('')
+                      switchMutation.mutate({ deviceId: mapping.device_id, channelId: mapping.channel_id, desiredState: true })
+                    }}
+                  >
+                    <Power size={15} aria-hidden="true" />Turn on
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary px-3 py-2"
+                    disabled={!mapping.switch_enabled || !mapping.switch_state || switchMutation.isPending}
+                    onClick={() => {
+                      switchMutation.reset()
+                      setSwitchMessage('')
+                      switchMutation.mutate({ deviceId: mapping.device_id, channelId: mapping.channel_id, desiredState: false })
+                    }}
+                  >
+                    <Power size={15} aria-hidden="true" />Turn off
+                  </button>
+                </div>
               </div>
               <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-[var(--line)] pt-3">
                 <div>

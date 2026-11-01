@@ -38,10 +38,10 @@ The route map and session-aware layout are:
 | `/verify-email` | Explain and complete email verification |
 | `/accept-invitation` | Review an emailed invitation and set the account password |
 | `/` | Endpoint and switch fleet overview with live telemetry summary |
-| `/endpoints` | Review enrolled devices, edit display labels, ownership, recent battery/resource readings, and endpoint assignment |
+| `/endpoints` | Review enrolled devices, edit display labels, ownership, recent battery/resource readings, mapped switch controls, and endpoint assignment |
 | `/devices` | Review switches, channels, connector assignment, device state, and optional meter readings |
 | `/mappings` | Create, edit, and remove endpoint-to-switch battery rules |
-| `/smart-groups` | Create tenant-scoped Windows/macOS endpoint groups, select fixed read-only sensors, and review recent results |
+| `/smart-groups` | Create tenant-scoped Windows/macOS endpoint groups, select fixed read-only sensors, and review recent results; endpoint links preselect a single device |
 | `/events` | Review automation activity and outcomes |
 | `/connectors` | Follow deployment steps, enroll site connectors, review status, and rename connectors |
 | `/profile` | Manage account details, display time zone, and password |
@@ -99,6 +99,14 @@ separate endpoint automation column. Selecting a device label opens a
 tenant-scoped right-side detail drawer with identity, current online/report
 state, configured cadence, automation eligibility, device mappings, and up to
 100 historical battery and system-resource samples.
+Each mapped switch in the drawer exposes explicit on/off controls for its
+configured channel, using the existing authenticated API and connector
+completion wait. Show current state, pending state, and request errors; disabled
+switches/channels cannot be controlled. Enrolled Windows/macOS endpoints also
+link to a prefilled Smart Group flow that lets managers choose approved
+read-only checks and create/run the one-device group together. Keep the fixed
+sensor boundary visible: do not add a free-form PowerShell/Python editor or
+imply that uploaded code is executed.
 Show CPU, memory, disk, and GPU values only when supplied; unsupported or
 unavailable values remain explicitly unavailable rather than appearing as
 zero. The Agent setup page lets tenant admins and managers choose a tenant-wide

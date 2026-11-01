@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.core.database import SessionLocal, _backfill_tenant_ownership
 from app.core.security import hash_password
 from app.main import app, generate_unique_agent_token
-from app.models.device import Device
+from app.models.device import Device, DeviceChannel
 from app.models.endpoint import Endpoint
 from app.models.event import AutomationEvent
 from app.models.mapping import Mapping
@@ -354,10 +354,20 @@ def test_reporting_schedule_and_endpoint_details_are_tenant_scoped():
         )
         db.add(device)
         db.flush()
+        channel = DeviceChannel(
+            device_id=device.id,
+            channel_index=2,
+            name="Desk outlet",
+            enabled=True,
+            current_state=True,
+        )
+        db.add(channel)
+        db.flush()
         db.add(Mapping(
             tenant_id=tenant_a.id,
             endpoint_id=endpoint.id,
             device_id=device.id,
+            channel_id=channel.id,
         ))
         db.commit()
         endpoint_id = endpoint.id
@@ -384,6 +394,11 @@ def test_reporting_schedule_and_endpoint_details_are_tenant_scoped():
     assert response.json()["display_name"] == "schedule-device"
     mapped_switch = response.json()["mappings"][0]
     assert mapped_switch["name"] == "schedule-switch"
+    assert mapped_switch["device_id"]
+    assert mapped_switch["channel_id"]
+    assert mapped_switch["channel_name"] == "Desk outlet"
+    assert mapped_switch["switch_enabled"] is True
+    assert mapped_switch["switch_state"] is True
     assert mapped_switch["use_case"] == "battery_cycle"
     assert mapped_switch["meter_power_watts"] == 84.5
     assert mapped_switch["meter_energy_month_kwh"] == 2.75

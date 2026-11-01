@@ -10,7 +10,7 @@ from fastapi import Header
 from app.core.database import get_db
 from app.core.authorization import get_authenticated_user, is_super_admin_user, tenant_scoped_query
 from app.core.config import settings
-from app.models.device import Device
+from app.models.device import Device, DeviceChannel
 from app.models.endpoint import Endpoint
 from app.models.mapping import Mapping
 from app.models.tenant import Tenant
@@ -173,8 +173,9 @@ async def get_endpoint_details(
         .all()
     )
     mappings = (
-        db.query(Mapping, Device)
+        db.query(Mapping, Device, DeviceChannel)
         .join(Device, Device.id == Mapping.device_id)
+        .outerjoin(DeviceChannel, DeviceChannel.id == Mapping.channel_id)
         .filter(
             Mapping.endpoint_id == endpoint.id,
             Mapping.tenant_id == endpoint.tenant_id,
@@ -221,12 +222,16 @@ async def get_endpoint_details(
             {
                 "id": mapping.id,
                 "name": device.name,
+                "device_id": device.id,
+                "channel_id": mapping.channel_id,
+                "channel_name": channel.name if channel else None,
+                "switch_enabled": device.enabled and (channel is None or channel.enabled),
                 "enabled": mapping.enabled,
                 "use_case": mapping.use_case,
                 "on_threshold": mapping.on_threshold,
                 "off_threshold": mapping.off_threshold,
                 "minimum_state_change_interval": mapping.minimum_state_change_interval,
-                "switch_state": device.current_state,
+                "switch_state": channel.current_state if channel else device.current_state,
                 "power_dp_id": device.power_dp_id,
                 "energy_dp_id": device.energy_dp_id,
                 "meter_power_watts": device.meter_power_watts,
@@ -247,7 +252,7 @@ async def get_endpoint_details(
                 ),
                 "meter_month_key": device.meter_month_key,
             }
-            for mapping, device in mappings
+            for mapping, device, channel in mappings
         ],
         "readings": [_serialize_reading(reading) for reading in reversed(readings)],
     }

@@ -574,10 +574,13 @@ optional `limit` query parameter defaults to 100 and is limited to 1–100.
 Each history entry includes battery/charging state and `system_metrics` when
 the agent supplied it. Results are ordered oldest-to-newest for charting;
 the API returns the newest samples within the requested limit. Each mapped
-switch includes configured meter datapoints, its latest power value and sample
-time, and current UTC-month energy and sample time. These readings remain
-tenant-scoped through the endpoint's mappings. A missing or out-of-tenant
-endpoint returns 404.
+switch includes its tenant-scoped device ID, optional mapped channel ID/name,
+enabled state, and current state, as well as configured meter datapoints, its
+latest power value and sample time, and current UTC-month energy and sample
+time. The detail UI uses those IDs with the existing
+`POST /api/v1/devices/{device_id}/state` operation for explicit manual on/off
+actions; the device API retains authorization, event auditing, and connector
+routing. A missing or out-of-tenant endpoint returns 404.
 
 ### 3.9 Tenant reporting schedule
 
@@ -604,6 +607,11 @@ Windows and macOS endpoints. Group membership can be dynamic (platform, device
 name, and optional battery range) or an explicit selection of up to 500
 endpoint IDs. Both modes are limited to enabled, enrolled endpoints in the
 group's tenant; only fresh reports are included when a run is queued.
+
+Managers can start the workflow from endpoint details. The selected endpoint
+and tenant are passed to `/smart-groups` as query parameters and prefilled as a
+one-device target. Submitting creates the group and queues its checks together;
+the group remains available for review and later runs.
 
 The sensor catalog is fixed and read-only. The agents do not accept uploaded
 PowerShell, zsh, Python, shell, or other command payloads.

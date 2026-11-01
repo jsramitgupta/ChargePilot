@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useState } from 'react'
 
+import { useSearchParams } from 'react-router-dom'
+
 import { useSession } from '../../shared/hooks'
 
 import { apiFetch } from '../../shared/api'
@@ -15,19 +17,23 @@ import { LoadingCard, ErrorCard, PageHeader } from '../../shared/components'
 export function SmartGroupsPage() {
   const { data: user } = useSession()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const presetEndpointId = searchParams.get('endpoint_id') ?? ''
+  const presetTenantId = searchParams.get('tenant_id') ?? ''
   const isSuperAdmin = user?.role === 'super_admin'
   const canManage = isSuperAdmin || user?.role === 'tenant_admin' || user?.role === 'manager'
-  const [name, setName] = useState('')
-  const [targetMode, setTargetMode] = useState<'rules' | 'devices'>('rules')
+  const [name, setName] = useState(() => presetEndpointId ? 'Device checks' : '')
+  const [targetMode, setTargetMode] = useState<'rules' | 'devices'>(() => presetEndpointId ? 'devices' : 'rules')
   const [platforms, setPlatforms] = useState<Array<'windows' | 'macos'>>(['windows', 'macos'])
-  const [selectedEndpointIds, setSelectedEndpointIds] = useState<string[]>([])
+  const [selectedEndpointIds, setSelectedEndpointIds] = useState<string[]>(() => presetEndpointId ? [presetEndpointId] : [])
   const [nameContains, setNameContains] = useState('')
   const [batteryMin, setBatteryMin] = useState('')
   const [batteryMax, setBatteryMax] = useState('')
   const [sensorIds, setSensorIds] = useState<string[]>(['os_version'])
-  const [tenantId, setTenantId] = useState(user?.tenant_id ?? '')
+  const [tenantId, setTenantId] = useState(presetTenantId || user?.tenant_id || '')
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null)
+  const [statusMessage, setStatusMessage] = useState('')
 
   const groupsQuery = useQuery({
     queryKey: ['smart-groups'],
@@ -49,9 +55,20 @@ export function SmartGroupsPage() {
     enabled: Boolean(isSuperAdmin),
   })
   const selectedTenantId = tenantId || user?.tenant_id || tenantsQuery.data?.[0]?.id || ''
+  const eligibleEndpoints = (endpointsQuery.data ?? []).filter((endpoint) => (
+    (endpoint.platform === 'windows' || endpoint.platform === 'macos')
+      && endpoint.credential_enrolled
+      && endpoint.enabled
+      && (!isSuperAdmin || !selectedTenantId || endpoint.tenant_id === selectedTenantId)
+  ))
+  const presetEndpointAvailable = eligibleEndpoints.some((endpoint) => endpoint.id === presetEndpointId)
+  const presetEndpoint = eligibleEndpoints.find((endpoint) => endpoint.id === presetEndpointId)
+  const effectiveName = presetEndpointId && name === 'Device checks' && presetEndpoint
+    ? `Checks for ${presetEndpoint.display_name || presetEndpoint.hostname}`
+    : name
 
   const saveMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const selectedEndpoints = (endpointsQuery.data ?? []).filter((endpoint) => selectedEndpointIds.includes(endpoint.id))
       const selectedPlatforms = targetMode === 'devices'
         ? [...new Set(selectedEndpoints.map((endpoint) => endpoint.platform))] as Array<'windows' | 'macos'>
@@ -65,22 +82,44 @@ export function SmartGroupsPage() {
         battery_min: batteryMin === '' ? null : Number(batteryMin),
         battery_max: batteryMax === '' ? null : Number(batteryMax),
       }
-      const payload = { name: name.trim(), criteria, sensor_ids: sensorIds }
+      const payload = { name: effectiveName.trim(), criteria, sensor_ids: sensorIds }
       const basePath = '/api/v1/smart-groups'
+      let group: SmartGroup
       if (editingGroupId) {
-        return apiFetch<SmartGroup>(`${basePath}/${editingGroupId}`, {
+        group = await apiFetch<SmartGroup>(`${basePath}/${editingGroupId}`, {
           method: 'PUT',
           body: JSON.stringify(payload),
         })
+      } else {
+        const tenantQuery = isSuperAdmin ? `?tenant_id=${encodeURIComponent(selectedTenantId)}` : ''
+        group = await apiFetch<SmartGroup>(`${basePath}${tenantQuery}`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
       }
-      const tenantQuery = isSuperAdmin ? `?tenant_id=${encodeURIComponent(selectedTenantId)}` : ''
-      return apiFetch<SmartGroup>(`${basePath}${tenantQuery}`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
+      let queued: { queued_endpoints: number; queued_sensors: number } | null = null
+      if (presetEndpointId && !editingGroupId) {
+        try {
+          queued = await apiFetch<{ queued_endpoints: number; queued_sensors: number }>(
+            `${basePath}/${group.id}/run`,
+            { method: 'POST' },
+          )
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Unknown request error.'
+          throw new Error(`Created "${group.name}", but could not queue its checks: ${reason}`)
+        }
+      }
+      return { queued, group }
     },
-    onSuccess: async () => {
+    onMutate: () => setStatusMessage(''),
+    onSuccess: async ({ queued }) => {
       await queryClient.invalidateQueries({ queryKey: ['smart-groups'] })
+      if (queued) {
+        setStatusMessage(queued.queued_endpoints
+          ? `Queued ${queued.queued_sensors} check${queued.queued_sensors === 1 ? '' : 's'} for ${queued.queued_endpoints} fresh device${queued.queued_endpoints === 1 ? '' : 's'}. Results will appear below.`
+          : 'No new checks were queued. The device may need a fresh report or may already have active checks; review this group before trying again.')
+        setSearchParams({}, { replace: true })
+      }
       setEditingGroupId(null)
       setName('')
       setTargetMode('rules')
@@ -107,13 +146,6 @@ export function SmartGroupsPage() {
       if (editingGroupId === deletingGroupId) resetEditor()
     },
   })
-
-  const eligibleEndpoints = (endpointsQuery.data ?? []).filter((endpoint) => (
-    (endpoint.platform === 'windows' || endpoint.platform === 'macos')
-      && endpoint.credential_enrolled
-    && endpoint.enabled
-      && (!isSuperAdmin || !selectedTenantId || endpoint.tenant_id === selectedTenantId)
-  ))
 
   function resetEditor() {
     setEditingGroupId(null)
@@ -171,12 +203,15 @@ export function SmartGroupsPage() {
       <PageHeader
         eyebrow="Endpoint inventory"
         title="Smart Groups & Sensors"
-        description="Target enrolled Windows and macOS devices, then collect a small set of approved system facts."
+        description={presetEndpointId
+          ? `Choose approved system checks for ${presetEndpoint?.display_name || presetEndpoint?.hostname || 'the selected device'}.`
+          : 'Target enrolled Windows and macOS devices, then collect a small set of approved system facts.'}
       />
       <p className="panel-muted p-4 text-sm leading-6">
         Sensors are fixed, read-only checks. ChargePilot does not send shell commands or uploaded scripts.
         Windows collection runs as a service; macOS collection runs while the menu-bar agent is open in a signed-in session.
       </p>
+      {statusMessage && <p className="panel-muted p-4 text-sm" role="status">{statusMessage}</p>}
       {(groupsQuery.error || catalogQuery.error || endpointsQuery.error || tenantsQuery.error) && (
         <ErrorCard message={
           groupsQuery.error?.message
@@ -188,6 +223,9 @@ export function SmartGroupsPage() {
       )}
       {!canManage && (
         <p className="panel-muted p-4 text-sm">You can review Smart Groups and recent sensor results. Ask a workspace manager to create or run a group.</p>
+      )}
+      {presetEndpointId && endpointsQuery.data && !presetEndpointAvailable && (
+        <ErrorCard message="The selected device is unavailable for checks. Choose an enabled, enrolled Windows or macOS device in this workspace." />
       )}
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(19rem,0.82fr)_minmax(0,1.18fr)]">
         {canManage && (
@@ -210,7 +248,7 @@ export function SmartGroupsPage() {
               )}
               <label className="label" htmlFor="sensor-group-name">
                 Group name
-                <input id="sensor-group-name" className="field" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required placeholder="Field laptops" />
+                <input id="sensor-group-name" className="field" value={effectiveName} onChange={(event) => setName(event.target.value)} maxLength={120} required placeholder="Field laptops" />
               </label>
               <fieldset className="space-y-2">
                 <legend className="label">Target devices</legend>
@@ -282,8 +320,8 @@ export function SmartGroupsPage() {
               </fieldset>
               {saveMutation.error && <ErrorCard message={saveMutation.error.message} />}
               <div className="flex flex-wrap gap-2">
-                <button type="submit" className="btn-primary" disabled={saveMutation.isPending || !name.trim() || sensorIds.length === 0 || (isSuperAdmin && !selectedTenantId)}>
-                  {saveMutation.isPending ? 'Saving…' : editingGroupId ? 'Save changes' : 'Create group'}
+                <button type="submit" className="btn-primary" disabled={saveMutation.isPending || !effectiveName.trim() || sensorIds.length === 0 || (isSuperAdmin && !selectedTenantId) || (Boolean(presetEndpointId) && !presetEndpointAvailable)}>
+                  {saveMutation.isPending ? presetEndpointId ? 'Creating and queueing…' : 'Saving…' : editingGroupId ? 'Save changes' : presetEndpointId ? 'Create group and run checks' : 'Create group'}
                 </button>
                 {editingGroupId && <button type="button" className="btn-secondary" onClick={resetEditor}>Cancel</button>}
               </div>

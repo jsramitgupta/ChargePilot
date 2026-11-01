@@ -279,6 +279,7 @@ export function EndpointsPage() {
         details={endpointDetailsQuery.data}
         isLoading={endpointDetailsQuery.isLoading}
         error={endpointDetailsQuery.error}
+        canRunChecks={canManageEndpoints}
         onClose={() => {
           setSelectedEndpointId(null)
           window.requestAnimationFrame(() => endpointDetailTriggerRef.current?.focus())

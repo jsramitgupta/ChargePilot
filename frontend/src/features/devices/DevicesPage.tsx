@@ -16,7 +16,7 @@ import type { Device, DeviceMeterSettings, LanDevice, SmartLifeDevice, DevicesPa
 
 import { formatTimestamp } from '../../shared/lib'
 
-import { apiFetch, waitForConnectorCommands } from '../../shared/api'
+import { apiFetch, setDeviceState, waitForConnectorCommands } from '../../shared/api'
 
 import { useSession } from '../../shared/hooks'
 
@@ -189,14 +189,8 @@ export function DevicesPage() {
     onSuccess: (result) => setDiscovered(result.devices),
   })
   const switchMutation = useMutation({
-    mutationFn: async ({ deviceId, channelId, desiredState }: { deviceId: string; channelId: string | null; desiredState: boolean }) => {
-      const result = await apiFetch<{ status: string; command_id?: string; message?: string }>(`/api/v1/devices/${deviceId}/state`, {
-        method: 'POST',
-        body: JSON.stringify({ channel_id: channelId || null, desired_state: desiredState }),
-      })
-      if (result.command_id) await waitForConnectorCommands([{ id: result.command_id }])
-      return result.message ?? `Switch turned ${desiredState ? 'on' : 'off'}.`
-    },
+    mutationFn: ({ deviceId, channelId, desiredState }: { deviceId: string; channelId: string | null; desiredState: boolean }) =>
+      setDeviceState(deviceId, channelId || null, desiredState),
     onSuccess: (message) => {
       setStatusMessage(message)
       queryClient.invalidateQueries({ queryKey: ['devices'] })

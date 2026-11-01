@@ -136,6 +136,12 @@ supported. Windows collection runs as a service before user sign-in. macOS
 collection is limited to the menu-bar app or CLI while running in a signed-in
 user session; no system LaunchDaemon is shipped. Sensor results are typed,
 leased, endpoint-authenticated, and retained for 30 days.
+The Endpoints detail drawer can open a preselected one-device Smart Group for
+choosing and queuing those approved checks. The same drawer can turn a mapped
+switch or channel on/off through the existing authenticated device-state API;
+connector-assigned switches remain durably queued and manual actions are
+audited. User-provided PowerShell or Python is not executed by the API or
+endpoint agents.
 The Site connectors page offers Docker Compose and Windows executable/service
 deployment, summarizes enrollment/online status, and allows tenant
 admins/managers and Super Admins to rename connectors without changing
@@ -144,7 +150,9 @@ the service runs as LocalService and stores its credential under ProgramData
 with access limited to SYSTEM, Administrators, and its service identity.
 Endpoint detail reports
 can be viewed as a chart of battery, CPU, memory, and GPU percentages or as the
-existing exact-value table; unavailable metrics are not plotted as zero.
+existing exact-value table; unavailable metrics are not plotted as zero. Each
+mapped switch exposes explicit on/off controls for its configured channel, with
+the current state and disabled state shown alongside the automation rule.
 Switch onboarding separates device identity, local access, and command routing.
 The route picker limits tenant users to enrolled connectors for their tenant;
 Super Admins can choose an enrolled connector across tenants and the new device
