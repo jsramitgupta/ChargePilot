@@ -1,4 +1,4 @@
-FROM python:3.15-slim@sha256:2da676046630d7bf14c6764ae1143dc7fa0377a53f94bf5a642f0b214aca5bce AS build
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS build
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ COPY agent/windows/install.ps1 ./agent/windows/install.ps1
 RUN /opt/venv/bin/pip install --no-cache-dir --no-deps --no-build-isolation . \
     && /opt/venv/bin/pip uninstall --yes setuptools wheel
 
-FROM python:3.15-slim@sha256:2da676046630d7bf14c6764ae1143dc7fa0377a53f94bf5a642f0b214aca5bce AS runtime
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS runtime
 
 WORKDIR /app
 
